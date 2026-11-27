@@ -112,19 +112,21 @@ function unreleasedRegion(lines) {
 }
 
 // A fenced code block ("```" or "~~~") anywhere under [Unreleased] is an error: a fence shows an example, and every
-// rule that keeps this section honest reads structure line by line -- an example quoting a "#### Fixed" twice, a
-// "### 0.4.0" heading or a "## [Unreleased]" line would be read as real structure, and the fence skip this replaces
-// kept needing fixes that each left a new way for one to hide a real duplicate or end the region early. So the section carries
+// rule that keeps this section honest reads structure line by line -- a fenced example quoting a "#### Fixed" twice,
+// a "### 0.4.0" heading or a "## [Unreleased]" line would read as real structure to those rules. So the section carries
 // no fences at all: describe the shape in prose, or link to the docs that show it. Every line that opens or closes
 // a fence is reported by its line number, so a fence of two lines names both. The rule reads a fence line however
 // CommonMark would (the up-to-three spaces of indent, the closing "\r" of a Windows-saved file), so a fence that
 // renders as a fence is a fence that is reported. Released sections are not touched: whatever they hold is compared
 // with their tag byte for byte, which no fence can hide.
 //
-// The one shape the flat rule trades away (deliberately, for simplicity): an example ABOVE the real heading that
-// quotes a "## [Unreleased]" line steals the region's start, and the real section below it is not scanned -- the
-// old fence parser caught that, and no fence-free rule can. It needs an example quoting this file's own layout
-// above the section that copies it; the release-heading comparison still holds every released section to its tag.
+// An example ABOVE the section that quotes a "## [Unreleased]" line starts the region at the quoted line, so the
+// region begins earlier, and the scans then read from there to the real release heading: a duplicate in the real
+// section is still caught, and a fence line inside the region is still reported (measured: a fence closing above
+// the real heading is a reported fence line, and the duplicate below it is named). The one narrower shape that does
+// go unread: an example quoting BOTH a "## [Unreleased]" line and a release heading above the real section, because
+// the quoted release heading then ends the region inside the example. It needs an example quoting this file's own
+// layout above the section; every released section is still held to its tag.
 // -> [{ line: 7, text: '```md' }, ...], one entry per fence line.
 const FENCE_LINE = /^ {0,3}(?:`{3,}|~{3,})/;
 function unreleasedFences(text) {

@@ -132,10 +132,10 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n#### Fixed \n\n### 0.4.0\n').length === 1);
   }
 
-  // A fenced code block ("```" or "~~~") under [Unreleased] is an error, not an example to skip: every rule that
-  // keeps this section honest reads structure line by line, and the fence skip this replaces kept needing fixes that
-  // each left a way for a quoted heading to hide a real duplicate or end the region early. So the guard
-  // reads no fences at all -- the section may not carry one, and the docs or prose describe the shape instead.
+  // A fenced code block ("```" or "~~~") under [Unreleased] is an error, not an example to skip: a fenced example
+  // quoting a "#### Fixed" twice or a release heading would read as real structure to every rule that keeps the
+  // section honest. So the guard reads no fences at all -- the section may not carry one, and the docs or prose
+  // describe the shape instead.
   {
     const un = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
     check('CHANGELOG.md: [Unreleased] carries no fenced code block (```) or tilde fence (~~~)',
@@ -154,9 +154,9 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     const releasedFence = '## [Unreleased]\n\n#### Changed\n\n- a\n\n### 0.4.0\n\n```\n#### Fixed twice\n```\n';
     check('...and a fence inside a RELEASED section is not this rule\'s (the tag comparison holds it)',
       unreleasedFences(releasedFence).length === 0, JSON.stringify(unreleasedFences(releasedFence)));
-    // with no fence skip, the shape the old rule failed open on is now caught twice over: the fence is an error,
-    // AND what it quotes is read as the structure it was going to be mistaken for -- so neither can hide it
-    check('...and a duplicate "#### Fixed" around a fence is still caught (the skip that hid it is gone)',
+    // a fence is an error on its own line, and what it quotes is read as the structure a reader would mistake it
+    // for: a duplicate around a fence is caught, and the fence is reported too -- neither can hide the other
+    check('...and a duplicate "#### Fixed" around a fence is still caught',
       duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```'])).join() === 'Fixed: line 5 and line 11',
       JSON.stringify(duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```']))));
     // a fence under the real [Unreleased] that quotes a release heading is itself reported (the section may not
