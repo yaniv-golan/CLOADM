@@ -241,6 +241,16 @@ These are hard rules for everyone who works on this ROM.
     `SKIPF`'s end, from the motor stopping to the screen settling on `OK` (in bb8 `cas-cloadm2` ours takes about 25
     fields more there than the original, most of loop B's 23, so that span sits at its 1% bound: estimated from the
     top-row flags, not measured).
+    Open, for bb12: bb8 `rnd-seq` recorded again (its case changed after the record); `cas-ascii-save`'s echo (the
+    original shows `A$="Z":GOTO 10` twice before a clear, ours once: when does it echo a line?); where `PLAY` stops
+    (the original leaves the DAC at the level of the write it stopped after, any of the four of a period, and the next
+    sound starts from it: bb10 `snd-play-dac` shows 46, 62, 31 and 0 after four notes; ours writes the volume's high
+    level at the end [OWN, from bb2], so a note's length to the cycle and the level left after it are wanted:
+    `T255L255A` to `L1A` and `PRINT PEEK(65312)` straight after, with the sound off); and the smallest numbers
+    printed: the original prints the bytes 1,89,199,220,238 as `5.00000001E-39` where our steps give `5E-39`, and
+    no scaling of steps of 10^s from below 10^-t then by 10 gives that with `.333333333` and `rnd-seq`'s
+    `.903043481` too, so a product at the smallest exponent may round as ours does not: `R=X*1E9` and `X*10`
+    stored and their five bytes read, for X of exponent byte 1, 2 and 3.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
