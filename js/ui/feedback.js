@@ -78,23 +78,14 @@ export function decide(I) {
   const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
     top: Math.max(text.bottom, c.bottom) + 2, bottom: Math.min(t.bottom, area.bottom) - 4 } : null;
   const offText = controls.concat(text ? [text] : []);
-  // a toast never takes a key's tap, upright as well as sideways: the pad's keys join `controls` (the list the
-  // candidate places avoid -- NOT `offText`, which is those places plus the screen's text, a different rule), and the
-  // band, whose own list is `offText`, gets them too. Held upright the band stops at the canvas, so without this a
-  // toast on a phone short enough for the pad (Minesweeper, 375x548) sat on the pad's own row and took the → key's tap
-  // (measured: #touchPad [data-key="→"] at y 461-509 under a toast at 478-540, and page.tap on it timed out).
-  const keys = I.keyRects || [];
-  const off = controls.concat(keys);
-  const keysHit = (a) => keys.some((k) => hits(a, k));
   tries.push([r.left, area.top + (phone ? 8 : 16), true]);
-  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? off.concat(screen) : off.concat(pic)));
+  const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? controls.concat(screen) : controls.concat(pic)));
   if (at) {
-    if (at[0] === r.left && at[1] === r.top && !keysHit(rect(at[0], at[1]))) return { kind: 'natural' };
-    // (the stylesheet's own spot and the top edge are tried with the keys avoided; a toast that would still land on one
-    // is not `natural` -- it takes the first free place below, or the fallback slot)
+    if (at[0] === r.left && at[1] === r.top) return { kind: 'natural' };
+    // (the width the writer must set is the toast's own on a phone -- recorded here so it can be re-applied)
     return { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: phone ? `${Math.round(w)}px` : null };
   }
-  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText: offText.concat(keys), fullWidth: w };
+  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText, fullWidth: w };
   return { kind: 'top' };
 }
 
@@ -597,6 +588,12 @@ export function createFeedback() {
     // laid out a frame later, are under it (measured: page.tap on #touchPad [data-key="→"] timed out, the toast at
     // y 478-540 over the key at 461-509). Left unsettled, the next frame re-decides with the keys in hand and the
     // toast moves clear (measured after: 521-540, the key's centre back on the key).
+    // THIS is the fix; decide() needed no change of its own. `controls` (CONTROLS, above) already holds every shown
+    // #touchKeys button, so the places decide() tries already avoid the keys once they are laid out, and keyRects is a
+    // subset of them: adding it there changed nothing (measured: with those additions removed the mobile check is
+    // still green 3/3, and mutants of them survive). What was missing was only this: not trusting a decision taken
+    // before the keys existed. The cost is transient: while no key-free place can be found the toast re-runs
+    // readInputs() and decide() each frame, and it stops as soon as a clear place exists (or the toast goes).
     const overKey = () => (I.keyRects || []).some((k) => hitsRect(box.getBoundingClientRect(), k));
     if (d.kind === 'natural') { decided = d; if (cur) cur.pinned = false; dropClass(box, 'compact'); if (!overKey()) settle(); seen(); return; }
     if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; if (cur) cur.pinned = false; if (!overKey()) settle(); seen(); return; }
