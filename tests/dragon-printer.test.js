@@ -6,7 +6,8 @@
 //   Information for Machine Code Users" (March 1983), p. 4, PIO 1 B side (FF22) bit 0, "Printer busy input"). On the
 //   Dragon 64 it is the printer's alone: the schematic (Dragon Data CD 41505 "CPU 64K (PAL)", issue 3, 3-8-83) wires
 //   PIA1 PB0 only to the printer connector's BUSY (sheet 1, PL2 pin 20) and the RS-232 receivers only to the 6551
-//   (sheet 3, IC11 RXD and CTS). CLOADM's printer is always attached and ready: PB0 reads 0, and the 6551's port
+//   (sheet 3, IC11 RXD and CTS). With nothing plugged in, resistor R15 holds BUSY high; CLOADM's printer being always
+//   attached and ready, so that PB0 reads 0, is CLOADM's choice. The 6551's port
 //   receives as it did.
 // * A character goes out by pulsing PA1 high and low (the strobe line, inverted, taken HI-LO-HI: "Inside the Dragon",
 //   p. 207; the schematic, sheet 1: PA1 through IC3's 74LS02 inverter to PL2 pin 1, STROBE). The printer takes PIA0

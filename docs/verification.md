@@ -1634,8 +1634,9 @@ names it.
     issue 3, 3-8-83) shows the wiring: sheet 1, PIA1 (IC8) PB0, pin 10, to the printer connector PL2 pin 20 (BUSY),
     pulled up by resistor R15 (10k), and PA1, pin 3, through a 74LS02 gate wired as an inverter (IC3) to PL2 pin 1 (STROBE);
     sheet 3, the RS-232 receivers (IC3 348, IC7 4049) to the 6551's RXD and CTS (IC11 pins 12 and 9) only. So PB0 is
-    the printer's BUSY on the Dragon 64 too, not shared with RS-232 RXD as MAME reads it. CLOADM's printer is always
-    attached and ready: PB0 reads 0. The firmware waits for BUSY low, sends one byte with one strobe pulse while a DAC
+    the printer's BUSY on the Dragon 64 too, not shared with RS-232 RXD as MAME reads it. With nothing plugged in,
+    resistor R15 holds BUSY high; CLOADM's printer being always attached and ready, so that PB0 reads 0, is CLOADM's
+    choice: the emulated machine always has a printer to print to. The firmware waits for BUSY low, sends one byte with one strobe pulse while a DAC
     tone plays inside the pulse (PA1 held high) and after it (PA1 held low), and changes the data lines inside the
     pulse: exactly one byte, the one on the lines at the pulse's leading edge (the documents give the pulse, not the
     edge; the leading edge is CLOADM's choice, XRoar's too: `printer.c` printer_strobe). PA1 let go to its pull-up (a
@@ -1819,7 +1820,8 @@ MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn i
   strobe pulse and has PB0 as the printer's BUSY, wired to nothing else on the Dragon 64 ("Inside the Dragon" section
   8.4.2; Dragon Data's "Information for Machine Code Users", p. 4; the Dragon 64 schematic CD 41505, sheets 1 and 3:
   the printer port bullet under the printer comparison above). Without `mameCompat` CLOADM does what the hardware
-  does, its printer always ready (PB0 = 0).
+  does, its printer always attached and ready (PB0 = 0, CLOADM's choice; with nothing plugged in, resistor R15 holds
+  BUSY high).
 
 * SP0256 sample rate (`js/chips/sp0256.js`, `SAMPLE_CLOCKS`; `js/machines/ssc.js`, `spGrid`): the hardware makes one
   sample every 312 clocks of its 3.12 MHz crystal, 10 kHz (GI's "SP0250 Applications Manual", June 1982, pin 20

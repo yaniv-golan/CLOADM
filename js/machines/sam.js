@@ -196,7 +196,8 @@ class SamMachine extends Machine {
   //   issue 3, 3-8-83) wires PIA1 PB0 (IC8 pin 10) only to the printer connector's BUSY (PL2 pin 20), pulled up
   //   by resistor R15 (10k), on sheet 1, and the RS-232 receivers only to the 6551's RXD and CTS (IC11 pins 12 and 9),
   //   on sheet 3.
-  //   CLOADM's parallel printer is always attached and always ready, so the bit reads 0.
+  //   With nothing plugged in, R15 holds BUSY high. That CLOADM's parallel printer is always attached and always
+  //   ready, so the bit reads 0, is CLOADM's choice: the emulated machine always has a printer to print to.
   //   With config.mameCompat, MAME's value instead: it reads its RS-232 port's RXD there on the Dragon 64, 200, 200-E,
   //   Tano and 64 Plus (profile rs232; idle high with nothing connected), which the generic pia1_pb_r inherits from the
   //   CoCo, and 0 on the Dragon 32 and the Alpha, which have no such port in MAME (docs/verification.md, "Deviations
