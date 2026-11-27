@@ -125,7 +125,7 @@ function unreleasedLevel3(text) {
 // by a merge) reads as two releases' worth of one kind in a section that has not been released at all. The check is
 // kept to [Unreleased], up to the first release heading: a released section is frozen against its tag, so a duplicate
 // there is already a difference the tag comparison reports, and its history is not rewritten by this rule.
-// -> ['Fixed: lines 9 and 14', ...], one entry per kind written more than once.
+// -> ['Fixed: line 9 and line 14', ...], one entry per kind written more than once.
 function duplicateUnreleasedKinds(text) {
   const lines = text.split('\n');
   const at = new Map();                          // kind -> every line number it is a heading on
