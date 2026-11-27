@@ -10,7 +10,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
-- **The changelog guard refuses a subsection heading written twice under [Unreleased].** Two `#### Fixed` blocks
+- **For contributors: the changelog guard refuses a subsection heading written twice under [Unreleased].** Two `#### Fixed` blocks
   there split one kind's entries in two and read as two releases' worth of fixes in a section not released at all;
   `tests/changelog.test.js` now fails naming the kind and both line numbers. A repeated heading inside a released
   section is left to the tag comparison, which already reports it.
@@ -25,7 +25,9 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   and Power, with their state under them, only where the chips are not shown). Held sideways, Library, Debugger, Help,
   the snapshots and GitHub are in Menu now, and the sheet is 260 px wide above Menu at the right. Claude features Off
   hides Ask Claude… there (Commands… stays: the box works without its Claude rows). On a tablet with the touch keys the
-  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. (`js/ui/menu.js`)
+  app bar's links follow the same order, the snapshots after Settings…, and GitHub carries ↗. Held sideways with the keys
+  hidden, Menu is the same list too: the ports and Power with their state, and Share… once, as a row; Restore snapshot…
+  gives the focus back to the Menu it came from. (`js/ui/menu.js`)
 
 - **Every program in Programs has the same two lines:** its name, and one short line saying what it is ("An ELIZA-style
   chat program", "Find the ten mines", …), on every model and on the desktop's Media tab too. WYRMFIRE's licence and
@@ -34,7 +36,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
 - **The machine picker opens with the machine in use in the middle of the list,** its row filled, and the list never
   starts on a row cut in half.
 
-- **`pokeBytes` and `injectAssembled` take the machine to write as a required argument.** Both are the
+- **Breaking for Node API callers: `pokeBytes` and `injectAssembled` take the machine to write as a required
+  argument.** To update a call, pass the machine last: `session.pokeBytes(addr, bytes, session.shownMachine)`. Both are the
   Node API (`docs/automation.md`), and both used to default to the machine on screen: with the chat full screen that
   is the chat's machine, and a tool's bytes landing there would overwrite the chat firmware. Omitting the machine
   now throws a `SessionError` and writes nothing.
@@ -46,14 +49,6 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 - **Menu held sideways no longer cuts a row through its text** (653x280: the fifth row was sliced, with no fade): its
   bottom edge falls between two rows, and it fades while it can scroll further.
-
-- **Menu held sideways stays where it is scrolled:** scrolled to its end, it was pulled back by a row (Hide keys out of
-  reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
-  comes or goes, and a refit keeps the scroll.
-
-- **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
-  chips), and Share… once, as a row (the bar's own Share showed beside it). Restore snapshot… from the panel's Menu gives
-  the focus back to it when its list closes.
 
 - **A toast interrupting WYRMFIRE's start no longer silences what it had left to say.** WYRMFIRE's start says what
   happened in turn (that it switched machines, the keys to play, on a phone the turn-sideways hint); a toast raised by
