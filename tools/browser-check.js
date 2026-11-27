@@ -6050,7 +6050,17 @@ async function phoneChecks(browser, base, check) {
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
     // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and
     // 110 px shorter: a link naming the machine asks no machine question, so the first visit has no side card since)
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 783]];
+    // WHERE, derived rather than pinned: the numbers below are computed from the page's own client width, because the
+    // pinned ones were measured on a host with a 15 px classic scrollbar and a host without one puts both boxes 7 and 15
+    // px further right (measured: overlay scrollbar here, innerWidth - clientWidth = 0). The layout is fixed: the
+    // .layout pads 20 px a side and gaps 20 px, the drawer is 364 px wide and flush right, main is the rest, and .slots
+    // (max-width 900) is centred in it -- so the positions follow from the client width alone:
+    //   drawer.left = cw - 20 - 364 ; main = cw - 40 - 364 - 20 ; slots.left = 20 + (main - 900) / 2
+    // At the old host's cw 1425 this gives 1041 and 71, the pinned values exactly; at 1440 it gives 1056 and 78, what
+    // this page measures. A layout change still fails it: the heights, widths and the formula's constants are asserted.
+    const cw = await p.evaluate(() => document.documentElement.clientWidth);
+    const mainW = cw - 40 - 364 - 20;
+    const baseline = [[20 + Math.round((mainW - 900) / 2), 849, 900, 254], [cw - 20 - 364, 88, 364, 783]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
