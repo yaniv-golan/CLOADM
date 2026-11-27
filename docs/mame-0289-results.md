@@ -42,15 +42,15 @@ The 0.264 names are written too, so one work folder serves either MAME.
 
 | profile | 0.289 result | instructions | 0.264 (not run here) |
 |---|---|---|---|
-| dragon32 | identical, HALT | 1,028,156 | |
-| dragon64 | identical, HALT | 1,028,156 | |
-| dragon200 | identical, HALT | 1,028,156 | |
-| tanodr64 | identical, HALT | 1,043,415 | |
+| dragon32 | identical, HALT | 1,028,112 | |
+| dragon64 | identical, HALT | 1,028,112 | |
+| dragon200 | identical, HALT | 1,028,112 | |
+| tanodr64 | identical, HALT | 1,043,371 | |
 | coco | identical, HALT | 1,043,371 | |
-| coco2b | identical, HALT | 1,043,415 | |
-| mx1600 | identical, HALT | 1,043,415 | |
-| lzcolor64 | identical, HALT | 1,043,415 | |
-| cd6809 | identical, HALT | 1,043,415 | |
+| coco2b | identical, HALT | 1,043,371 | |
+| mx1600 | identical, HALT | 1,043,371 | |
+| lzcolor64 | identical, HALT | 1,043,371 | |
+| cd6809 | identical, HALT | 1,043,371 | |
 | coco3 (512K) | identical, HALT | 88,797 | |
 | coco3p (512K) | **diverges at 54,860**: A `$08` (MAME) vs `$00` (ours) after `LDA $FF92`; cycles identical; no HALT | 54,860 | |
 | mc10 | identical, HALT | 908,205 | |
