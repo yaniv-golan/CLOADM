@@ -8,164 +8,6 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
-### 0.4.0
-
-#### Added
-
-- **Share a program with its source.** The Assembler's **Share…** (after a successful assemble) opens the Share screen on
-  "Share your program and its source": the link holds the source (64 KB at most), its name, the machine and the CRC-32
-  of what it built to, never the built bytes. Whoever opens it gets a fresh machine, the source in the Assembler and a
-  card with **Run** and **Show source**; nothing runs until Run, which builds it and starts it only if it builds to the
-  same CRC ("This source builds differently in this CLOADM, so it won't run here. The code is in the Assembler to
-  read." otherwise). A build holding bytes of your ROMs is not shared. A new link kind: a long link's byte 0 = 4 and a
-  short link's sealed kind 4, with golden fixtures; the short-link Worker names it ("A program and its source for the
-  Dragon 64").
-- **The BASIC program in memory as a tape.** Share's program mode, under "More ways to share", has **Download .CAS**
-  and **Download .WAV** beside Download .bas (and the command box "Save program as .CAS/.WAV"): the program as CSAVE
-  writes it (one tokenised BASIC file), as `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 family, and that tape
-  as a WAV for a real machine's cassette port. "Name on tape" (8 at most, upper case letters and digits) starts as the
-  loaded file's name, cleaned, else PROGRAM; the note says which BASIC it is for. A program holding bytes of your ROMs
-  is not saved ("Not saved: the program contains bytes of your ROMs."). `Session.programTape(name, { wav })`.
-- **Send a chat with LIZA as a postcard.** While LIZA runs (and just after its goodbye), the Share screen offers "Your
-  chat with LIZA · N lines · Send it as a postcard instead": the link holds only the lines typed (the last 20), and
-  whoever opens it gets LIZA started afresh with a card, "A postcard from LIZA · N lines", **Replay** (about 25
-  characters a second; a key skips) and **Skip to the end**, then "Your turn: type to LIZA." LIZA is deterministic, so
-  the replay gives the same answers; the Share screen's picture (and **Save picture**, `liza-postcard.png`) is the
-  postcard replayed off-screen from its own link. After BYE or BREAK, one note offers it ("Send this chat as a
-  postcard…"; a toast on a phone). A new link kind: a long link's byte 0 = 3 and a short link's sealed kind 3 (both
-  reserved by the 0.3 freeze), with golden fixtures; the short-link Worker names it on its arrival page ("A postcard
-  from LIZA on a Dragon 64") and refuses a postcard with a picture. Never for the Claude chat; no ROMs on either side.
-- **The agent skill comes with CLOADM's MCP servers.** `node cli/cloadm.js --mcp` and the connector at
-  `https://mcp.cloadm.dev/mcp` serve `skills/cloadm/` over the MCP extension Skills over MCP
-  (`io.modelcontextprotocol/skills`): declared in `server/discover` (protocol `2026-07-28`), with `skills/list` (the
-  frontmatter and a manifest of every file's size and sha-256), `skills/get` and `resources/read` giving the files byte
-  for byte, from one transport-neutral module (`js/mcp/skills.js`) fed from the skill folder itself
-  (`cli/skill-files.js`; `connector/build.js` copies the files into the Worker's views). A client that adds the server
-  or the connector, such as Claude Code 2.1.331 or later, gets the skill without the plugin, and it changes with the
-  server. On the handshake revisions (`initialize`) the extension is declared only to a client that declares it, so
-  clients that don't ask see the same handshake, tools and resources (the stateless connector still answers
-  `skills/list` and `skills/get` to any client that calls them). The connector now also speaks `2026-07-28` (stateless, its HTTP headers
-  checked against the body). `--no-skills` serves no skill; the plugin's own local server uses it, since the plugin
-  ships the skill. `tests/mcp-skills.test.js`; docs/mcp.md, "The agent skill over MCP".
-- **Old TV warm-up,** a Display checkbox, off by default and kept with the exported settings (no link sets it): "A
-  one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs
-  slow." At the page's start, Switch off and on, and a machine switch, in the CRT view only, the page draws over the
-  screen for 1.0 s: a dot that becomes a horizontal line (0-150 ms), the line opening to full height over-bright
-  (150-450 ms), then the real picture fading from 40% to 100% (450-1000 ms); no noise, no roll, no hum. Never on a visit
-  from a share link (`#z=`, `#l=`) or a program page's start link (`start=liza`, `2048`, `minesweeper`, `wyrmfire`),
-  while the arrival card is up, with `?demo=1` or `?embed=1`, with Reduce motion or Save data, or when the picture ran
-  below 45 fps over the last 2 s. The machine is untouched: keys go to it through the overlay, its frames (and so share
-  cards, GIFs and screenshots) never hold it, and the regression hashes are unchanged (`js/video/warmup.js`,
-  `js/ui/warmup.js`; `tests/warmup.test.js` and the browser check's `warmup` group).
-
-- **Suggest questions with Claude,** an opt-in setting directly under Claude features (Settings → Machine), off by
-  default and kept with the exported settings: "When you open an empty chat, sends the screen's text to Claude to
-  suggest questions. Uses your API key." Hidden while Claude features is Off; without a key it shows, disabled, with
-  "Needs your API key". On, opening Ask Claude on an empty chat sends ONE request to Claude Haiku (150 tokens) with only
-  the machine's name and the screen's text; the page's own questions show at once and a valid answer (1-3 questions of
-  at most 60 characters) within 3 s replaces them under "Suggested by Claude", otherwise they stay. At most one
-  request per distinct screen and one per 30 s; never from the line under the screen, never on a graphics screen,
-  never while your own WAD's level is loaded. A tap
-  fills the message box and sends nothing. While it is on, the Claude features note and the panel's what-is-sent line
-  say what an empty chat sends (`js/claude/suggest.js`; `tests/claude-suggest.test.js` and the browser check's
-  `askSuggest` group).
-
-- **WYRMFIRE from the welcome menu, on every model.** On the Dragon and CoCo, 5 PLAY A GAME now lists 3 WYRMFIRE (DRAGON 64)
-  ("PRESS 1, 2, 3 OR 0"); on the MC-10 and Alice the menu has 5 PLAY WYRMFIRE (DRAGON 64), the carry-on line moves to 6 and
-  the prompt reads PRESS 1 TO 5 (1 TO 6 with a carry-on). On the Dragon 64 it starts at once; anywhere else CLOADM switches to
-  the Dragon 64 without the switch question (the menu loses nothing) and says "WYRMFIRE runs on the Dragon 64, so CLOADM
-  switched to it." Always the Freedoom level; the download, offline and failure cases are the strip's, and offline with
-  nothing kept the menu stays. The menu's new choice is the event `welcome:wyrmfire`.
-- **A better touch pad for WYRMFIRE.** Pad mode on a phone or tablet has an 8-way thumb stick that presses the arrow keys
-  (nothing within a 20% dead zone), FIRE (Space) and USE (E), and a row with STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3. The stick and
-  each button take their own finger. Sideways the stick is left of the screen and the buttons right; upright they are under the
-  screen, with the one-time hint "Turn sideways for a bigger view." The switch is Keys | Pad (no Stick: the game reads the
-  keyboard), and the choice is kept for WYRMFIRE on the Dragon 64.
-- **WYRMFIRE on a phone held upright gets the whole width.** While it plays, the card under the screen is one line,
-  "WYRMFIRE · Freedoom level (BSD) · Details" (or "your <file>" with your own WAD), and Details opens the whole card,
-  unchanged, as a sheet (✕, a tap outside or Esc closes it). The screen takes the page's width; where the height is short the
-  pad's keys shrink to 44 px first. No key label is cut short (ENTER shows ↵ where the word cannot fit). Sideways and on a
-  desktop nothing changes.
-
-#### Changed
-
-- **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
-  plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
-  named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
-  ROMs (BASIC needs them)"), and neither it nor Menu wears an orange dot. The first visit's side card is the machine question alone ("Running with no
-  ROMs." is gone), and goes once answered or dismissed; the machine menu drops its "No ROMs yet:" line. Orange is left
-  for a real fault, a socket holding a file it does not recognise. The browser check's `romOnce` group holds this at
-  four sizes on the Dragon 64, the CoCo 3 and the MC-10, in every ROM state, the chat screen and `?embed=1`.
-- **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
-  on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
-  licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
-  `tools/wyrmfire-vendor.js`).
-- **The side-panel connector checks `Origin`,** as the MCP Streamable HTTP transport requires: a request from a browser whose
-  `Origin` is not claude.ai, claude.com or the connector's own gets 403. Requests with no `Origin` (Claude's servers, Claude Code,
-  command-line clients) are served as before (`docs/deploy-connector.md`, "Origin").
-- **README and the MCP guide say how to update the plugin.** In Claude Code, new versions arrive by themselves when auto-update
-  is on for the marketplace (off by default for a third-party marketplace); to get one at once, Update marketplace (or
-  `claude plugin update`) and `/reload-plugins`. claude.ai and the desktop app don't pick up a new version on their own: remove the
-  CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
-
-- **A moment on your own ROMs says so in one plain sentence on the Share screen.** The two orange ROM lines became one line in
-  normal text, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." (named by the machine, not
-  by its ROM slots; "Needs your Dragon 64 ROMs to open." where space is short), the orange note under the buttons became the
-  plain "Copy link gives a long link: short links are only for moments that run without ROMs.", and the picture's caption always reads
-  "This moment · Dragon 64", with ROMs or without. A moment on a cartridge says "This link holds none of your cartridge. Whoever opens it needs the same
-  cartridge: <its file name>." (with ROMs too: "…none of your ROMs or your cartridge… their own Dragon 64 ROMs and the same cartridge: …"),
-  also in normal text, and the note under Copy link is the same plain sentence for it ("…without a cartridge.", or "…without ROMs
-  or a cartridge." with both), never the orange refusal. A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
-
-
-- **LIZA, the colour demo, 2048 and Minesweeper always start on the built-in firmware, without your ROMs,** even when you
-  have added ROMs for that model (the welcome menu always did). Your ROMs stay stored and untouched, nothing is left behind
-  for later boots, and BASIC starts on them as before (the welcome menu's option 3, or a reload). A moment of one of these
-  programs then holds no code of your ROMs, so Share gives a short link anyone can open; leaving a game with BREAK goes to
-  the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept: picking a
-  program from the Programs list asks first when there is one ("Starting LIZA restarts the Dragon 64, and the BASIC program in memory
-  (3 lines) will be lost."; the welcome menu's keys do not ask), and with your ROMs stored the status line says "LIZA loaded · runs
-  without ROMs; yours are untouched". Only the page does this: the MCP `load` tool and the CLI's `--program` start the program on
-  the machine as it is, as before.
-
-#### Fixed
-
-- **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
-  this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
-  Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border
-  and of the keys' bar under it (it hung 9 px below the monitor), and a window under 300 px high, where the picture fills
-  the monitor, shows no chip, as upright (the first tap anywhere still starts the sound). And a toast held sideways with the touch
-  keys round the screen no longer covers a key or a Pad button: it lies over the top of the picture, in compact type, the
-  action inline at the end of its last line with a 44 px tap area, at most two lines (and 40 px, and 22% of the picture). One that
-  does not fit is never cut silently: with the letter keys showing it docks over them (full text, a key under it still types),
-  and with the Pad or the stick it is clamped to two lines ending "… More", a tap opening it in place with its time paused.
-  Where a key stands over the picture's top edge the toast narrows to the free span between keys (at least 200 px), and
-  takes the picture's bottom edge, clamped first, only when there is none. A game's start toast is one short line there,
-  "2048: tap a key to play" (the BREAK hint stays on upright phones). The browser check's `layoutBugs` group measures each.
-- **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
-  welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
-  screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /
-  semigraphics-4 mode: with PIA1 PB4 high, the MC6847's INT/EXT (semigraphics-6 and external characters),
-  `screen_text` declines, as for a graphics mode (not on the CoCo 2B, whose MC6847T1 takes PB4 as GM0, its lowercase
-  enable, nor on the Dragon 200-E, where PB4 picks the character bank). New firmware `movedtext.asm` moves the
-  page to `$0E00` and `$1C00`; `run.js <profile> --video --movedtext` compares its pictures with MAME.
-
-- **WYRMFIRE's toasts are no longer lost.** Starting it from the welcome menu on another machine raised the switch toast, the keys
-  toast and, on an upright phone, the turn-sideways hint at once, and each replaced the one before; now they show in turn:
-  the switch, the keys, then the hint.
-- **A phone's Disks and Cartridge chips no longer cut their value short.** They say "1 disk" / "2 disks" and the cartridge's short
-  name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
-- **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
-
-- **A shared moment opens directly on a first visit.** A short link (or a long one) to a moment made on another model
-  than the page starts on (a CoCo 2 or an MC-10 moment, opened in a browser that had never been to CLOADM) landed on the
-  Dragon 64's welcome menu with "Switching to CoCo 1/2 (64K) resets the Dragon 64. The running program will be lost.",
-  and the moment opened only after **Switch**. A link's moment now switches without asking when the machine on screen
-  holds nothing of yours: no key, typed line, load, assembled program or POKE of yours reached it (or your BASIC
-  session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
-  too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
-  shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
-
 #### Added
 
 - **A clean-room BASIC for the Dragon 64, phase 1: the design** ([docs/clean-room-basic.md](docs/clean-room-basic.md)): our own
@@ -365,7 +207,165 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   changed. Every loop of `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` and `rnd-timing`, the eight
   of `ram-pointers2`, `cas-cloadm2`'s spans and `snd-timer`'s typed loop now takes the original's count of fields or more, at most 7.4% more
   (`RND(.5)`; most within 3%), where 36 of those 71 loops were faster before; `tests/basic-timing.test.js` checks the probes, with
-  mutants of the model. The ROM is 171 bytes larger (16,080).
+  mutants of the model. The ROM is 171 bytes larger (16,102 with the numbers and cassette changes).
+
+### 0.4.0
+
+#### Added
+
+- **Share a program with its source.** The Assembler's **Share…** (after a successful assemble) opens the Share screen on
+  "Share your program and its source": the link holds the source (64 KB at most), its name, the machine and the CRC-32
+  of what it built to, never the built bytes. Whoever opens it gets a fresh machine, the source in the Assembler and a
+  card with **Run** and **Show source**; nothing runs until Run, which builds it and starts it only if it builds to the
+  same CRC ("This source builds differently in this CLOADM, so it won't run here. The code is in the Assembler to
+  read." otherwise). A build holding bytes of your ROMs is not shared. A new link kind: a long link's byte 0 = 4 and a
+  short link's sealed kind 4, with golden fixtures; the short-link Worker names it ("A program and its source for the
+  Dragon 64").
+- **The BASIC program in memory as a tape.** Share's program mode, under "More ways to share", has **Download .CAS**
+  and **Download .WAV** beside Download .bas (and the command box "Save program as .CAS/.WAV"): the program as CSAVE
+  writes it (one tokenised BASIC file), as `NAME.CAS` on a Dragon or CoCo, `NAME.C10` on the MC-10 family, and that tape
+  as a WAV for a real machine's cassette port. "Name on tape" (8 at most, upper case letters and digits) starts as the
+  loaded file's name, cleaned, else PROGRAM; the note says which BASIC it is for. A program holding bytes of your ROMs
+  is not saved ("Not saved: the program contains bytes of your ROMs."). `Session.programTape(name, { wav })`.
+- **Send a chat with LIZA as a postcard.** While LIZA runs (and just after its goodbye), the Share screen offers "Your
+  chat with LIZA · N lines · Send it as a postcard instead": the link holds only the lines typed (the last 20), and
+  whoever opens it gets LIZA started afresh with a card, "A postcard from LIZA · N lines", **Replay** (about 25
+  characters a second; a key skips) and **Skip to the end**, then "Your turn: type to LIZA." LIZA is deterministic, so
+  the replay gives the same answers; the Share screen's picture (and **Save picture**, `liza-postcard.png`) is the
+  postcard replayed off-screen from its own link. After BYE or BREAK, one note offers it ("Send this chat as a
+  postcard…"; a toast on a phone). A new link kind: a long link's byte 0 = 3 and a short link's sealed kind 3 (both
+  reserved by the 0.3 freeze), with golden fixtures; the short-link Worker names it on its arrival page ("A postcard
+  from LIZA on a Dragon 64") and refuses a postcard with a picture. Never for the Claude chat; no ROMs on either side.
+- **The agent skill comes with CLOADM's MCP servers.** `node cli/cloadm.js --mcp` and the connector at
+  `https://mcp.cloadm.dev/mcp` serve `skills/cloadm/` over the MCP extension Skills over MCP
+  (`io.modelcontextprotocol/skills`): declared in `server/discover` (protocol `2026-07-28`), with `skills/list` (the
+  frontmatter and a manifest of every file's size and sha-256), `skills/get` and `resources/read` giving the files byte
+  for byte, from one transport-neutral module (`js/mcp/skills.js`) fed from the skill folder itself
+  (`cli/skill-files.js`; `connector/build.js` copies the files into the Worker's views). A client that adds the server
+  or the connector, such as Claude Code 2.1.331 or later, gets the skill without the plugin, and it changes with the
+  server. On the handshake revisions (`initialize`) the extension is declared only to a client that declares it, so
+  clients that don't ask see the same handshake, tools and resources (the stateless connector still answers
+  `skills/list` and `skills/get` to any client that calls them). The connector now also speaks `2026-07-28` (stateless, its HTTP headers
+  checked against the body). `--no-skills` serves no skill; the plugin's own local server uses it, since the plugin
+  ships the skill. `tests/mcp-skills.test.js`; docs/mcp.md, "The agent skill over MCP".
+- **Old TV warm-up,** a Display checkbox, off by default and kept with the exported settings (no link sets it): "A
+  one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs
+  slow." At the page's start, Switch off and on, and a machine switch, in the CRT view only, the page draws over the
+  screen for 1.0 s: a dot that becomes a horizontal line (0-150 ms), the line opening to full height over-bright
+  (150-450 ms), then the real picture fading from 40% to 100% (450-1000 ms); no noise, no roll, no hum. Never on a visit
+  from a share link (`#z=`, `#l=`) or a program page's start link (`start=liza`, `2048`, `minesweeper`, `wyrmfire`),
+  while the arrival card is up, with `?demo=1` or `?embed=1`, with Reduce motion or Save data, or when the picture ran
+  below 45 fps over the last 2 s. The machine is untouched: keys go to it through the overlay, its frames (and so share
+  cards, GIFs and screenshots) never hold it, and the regression hashes are unchanged (`js/video/warmup.js`,
+  `js/ui/warmup.js`; `tests/warmup.test.js` and the browser check's `warmup` group).
+
+- **Suggest questions with Claude,** an opt-in setting directly under Claude features (Settings → Machine), off by
+  default and kept with the exported settings: "When you open an empty chat, sends the screen's text to Claude to
+  suggest questions. Uses your API key." Hidden while Claude features is Off; without a key it shows, disabled, with
+  "Needs your API key". On, opening Ask Claude on an empty chat sends ONE request to Claude Haiku (150 tokens) with only
+  the machine's name and the screen's text; the page's own questions show at once and a valid answer (1-3 questions of
+  at most 60 characters) within 3 s replaces them under "Suggested by Claude", otherwise they stay. At most one
+  request per distinct screen and one per 30 s; never from the line under the screen, never on a graphics screen,
+  never while your own WAD's level is loaded. A tap
+  fills the message box and sends nothing. While it is on, the Claude features note and the panel's what-is-sent line
+  say what an empty chat sends (`js/claude/suggest.js`; `tests/claude-suggest.test.js` and the browser check's
+  `askSuggest` group).
+
+- **WYRMFIRE from the welcome menu, on every model.** On the Dragon and CoCo, 5 PLAY A GAME now lists 3 WYRMFIRE (DRAGON 64)
+  ("PRESS 1, 2, 3 OR 0"); on the MC-10 and Alice the menu has 5 PLAY WYRMFIRE (DRAGON 64), the carry-on line moves to 6 and
+  the prompt reads PRESS 1 TO 5 (1 TO 6 with a carry-on). On the Dragon 64 it starts at once; anywhere else CLOADM switches to
+  the Dragon 64 without the switch question (the menu loses nothing) and says "WYRMFIRE runs on the Dragon 64, so CLOADM
+  switched to it." Always the Freedoom level; the download, offline and failure cases are the strip's, and offline with
+  nothing kept the menu stays. The menu's new choice is the event `welcome:wyrmfire`.
+- **A better touch pad for WYRMFIRE.** Pad mode on a phone or tablet has an 8-way thumb stick that presses the arrow keys
+  (nothing within a 20% dead zone), FIRE (Space) and USE (E), and a row with STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3. The stick and
+  each button take their own finger. Sideways the stick is left of the screen and the buttons right; upright they are under the
+  screen, with the one-time hint "Turn sideways for a bigger view." The switch is Keys | Pad (no Stick: the game reads the
+  keyboard), and the choice is kept for WYRMFIRE on the Dragon 64.
+- **WYRMFIRE on a phone held upright gets the whole width.** While it plays, the card under the screen is one line,
+  "WYRMFIRE · Freedoom level (BSD) · Details" (or "your <file>" with your own WAD), and Details opens the whole card,
+  unchanged, as a sheet (✕, a tap outside or Esc closes it). The screen takes the page's width; where the height is short the
+  pad's keys shrink to 44 px first. No key label is cut short (ENTER shows ↵ where the word cannot fit). Sideways and on a
+  desktop nothing changes.
+
+#### Changed
+
+- **The ROM requirement is said once**, by the Welcome menu's "3 ADD YOUR ROMS FOR BASIC". Elsewhere adding ROMs is a
+  plain action: the app bar's button reads **Add ROMs…** (it was the orange "No BASIC · Add ROMs"), styled as Share and
+  named "Add ROMs for BASIC" (its visible words in its name); a phone's Menu item reads **Add ROMs…** (it was "Add
+  ROMs (BASIC needs them)"), and neither it nor Menu wears an orange dot. The first visit's side card is the machine question alone ("Running with no
+  ROMs." is gone), and goes once answered or dismissed; the machine menu drops its "No ROMs yet:" line. Orange is left
+  for a real fault, a socket holding a file it does not recognise. The browser check's `romOnce` group holds this at
+  four sizes on the Dragon 64, the CoCo 3 and the MC-10, in every ROM state, the chat screen and `?embed=1`.
+- **WYRMFIRE is re-pinned to 2f47134,** whose engine counts the level clock from the PAL field-sync interrupt and shows TIME
+  on the end screen again. Only the engine changed (`wyrmfire.bin`, SHA-256 2094d081, 10,432 bytes); the converter, the
+  licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
+  `tools/wyrmfire-vendor.js`).
+- **The side-panel connector checks `Origin`,** as the MCP Streamable HTTP transport requires: a request from a browser whose
+  `Origin` is not claude.ai, claude.com or the connector's own gets 403. Requests with no `Origin` (Claude's servers, Claude Code,
+  command-line clients) are served as before (`docs/deploy-connector.md`, "Origin").
+- **README and the MCP guide say how to update the plugin.** In Claude Code, new versions arrive by themselves when auto-update
+  is on for the marketplace (off by default for a third-party marketplace); to get one at once, Update marketplace (or
+  `claude plugin update`) and `/reload-plugins`. claude.ai and the desktop app don't pick up a new version on their own: remove the
+  CLOADM marketplace, add it again and Connect *CLOADM side panel* again.
+
+- **A moment on your own ROMs says so in one plain sentence on the Share screen.** The two orange ROM lines became one line in
+  normal text, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." (named by the machine, not
+  by its ROM slots; "Needs your Dragon 64 ROMs to open." where space is short), the orange note under the buttons became the
+  plain "Copy link gives a long link: short links are only for moments that run without ROMs.", and the picture's caption always reads
+  "This moment · Dragon 64", with ROMs or without. A moment on a cartridge says "This link holds none of your cartridge. Whoever opens it needs the same
+  cartridge: <its file name>." (with ROMs too: "…none of your ROMs or your cartridge… their own Dragon 64 ROMs and the same cartridge: …"),
+  also in normal text, and the note under Copy link is the same plain sentence for it ("…without a cartridge.", or "…without ROMs
+  or a cartridge." with both), never the orange refusal. A moment that runs without ROMs, and the cases where nothing can be shared, read as before.
+
+
+- **LIZA, the colour demo, 2048 and Minesweeper always start on the built-in firmware, without your ROMs,** even when you
+  have added ROMs for that model (the welcome menu always did). Your ROMs stay stored and untouched, nothing is left behind
+  for later boots, and BASIC starts on them as before (the welcome menu's option 3, or a reload). A moment of one of these
+  programs then holds no code of your ROMs, so Share gives a short link anyone can open; leaving a game with BREAK goes to
+  the welcome menu instead of back to BASIC. Starting a program restarts the machine, so a BASIC program in memory is not kept: picking a
+  program from the Programs list asks first when there is one ("Starting LIZA restarts the Dragon 64, and the BASIC program in memory
+  (3 lines) will be lost."; the welcome menu's keys do not ask), and with your ROMs stored the status line says "LIZA loaded · runs
+  without ROMs; yours are untouched". Only the page does this: the MCP `load` tool and the CLI's `--program` start the program on
+  the machine as it is, as before.
+
+#### Fixed
+
+- **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
+  this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
+  Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border
+  and of the keys' bar under it (it hung 9 px below the monitor), and a window under 300 px high, where the picture fills
+  the monitor, shows no chip, as upright (the first tap anywhere still starts the sound). And a toast held sideways with the touch
+  keys round the screen no longer covers a key or a Pad button: it lies over the top of the picture, in compact type, the
+  action inline at the end of its last line with a 44 px tap area, at most two lines (and 40 px, and 22% of the picture). One that
+  does not fit is never cut silently: with the letter keys showing it docks over them (full text, a key under it still types),
+  and with the Pad or the stick it is clamped to two lines ending "… More", a tap opening it in place with its time paused.
+  Where a key stands over the picture's top edge the toast narrows to the free span between keys (at least 200 px), and
+  takes the picture's bottom edge, clamped first, only when there is none. A game's start toast is one short line there,
+  "2048: tap a key to play" (the BREAK hint stays on upright phones). The browser check's `layoutBugs` group measures each.
+- **Screen text follows a text page a program moves.** On the Dragon and CoCo 1/2, the ROM self-test's screen and the
+  welcome menu's taps now read the page the SAM's display offset shows (as `screen_text`, `Session.screenText` and the
+  screen's text alternative already did), and every reader reads text only in the VDG's alphanumeric /
+  semigraphics-4 mode: with PIA1 PB4 high, the MC6847's INT/EXT (semigraphics-6 and external characters),
+  `screen_text` declines, as for a graphics mode (not on the CoCo 2B, whose MC6847T1 takes PB4 as GM0, its lowercase
+  enable, nor on the Dragon 200-E, where PB4 picks the character bank). New firmware `movedtext.asm` moves the
+  page to `$0E00` and `$1C00`; `run.js <profile> --video --movedtext` compares its pictures with MAME.
+
+- **WYRMFIRE's toasts are no longer lost.** Starting it from the welcome menu on another machine raised the switch toast, the keys
+  toast and, on an upright phone, the turn-sideways hint at once, and each replaced the one before; now they show in turn:
+  the switch, the keys, then the hint.
+- **A phone's Disks and Cartridge chips no longer cut their value short.** They say "1 disk" / "2 disks" and the cartridge's short
+  name ("Dragon FDC"); the full names stay in the chip's sheet and its label.
+- **WYRMFIRE's one-line card no longer ends in a dangling "·"** before Details.
+
+- **A shared moment opens directly on a first visit.** A short link (or a long one) to a moment made on another model
+  than the page starts on (a CoCo 2 or an MC-10 moment, opened in a browser that had never been to CLOADM) landed on the
+  Dragon 64's welcome menu with "Switching to CoCo 1/2 (64K) resets the Dragon 64. The running program will be lost.",
+  and the moment opened only after **Switch**. A link's moment now switches without asking when the machine on screen
+  holds nothing of yours: no key, typed line, load, assembled program or POKE of yours reached it (or your BASIC
+  session beside the chat) and nothing would come out of it (`Session.switchLoses`; a key typed in an embed now counts
+  too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
+  shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
 
 ### 0.3.1
 

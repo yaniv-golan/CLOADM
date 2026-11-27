@@ -218,7 +218,13 @@ These are hard rules for everyone who works on this ROM.
     | `ram-pointers2`: FOR, ADD, MUL, DIV, STR, GOSUB, IF, MID | 113, 205, 224, 177, 174, 83, 516, 137 | 113, 206, 225, 177, 175, 83, 518, 139 | 114, 207, 225, 177, 175, 83, 517, 138 |
     | `cas-cloadm2` spans A1, A2, B | 1887, 1874, 2396 | 1889, 1877, 2399 | 1893, 1879, 2418 |
 
-    Nothing is faster than the original. The slowest against it: `RND(.5)` 7.4% (its `INT(.5)` and `INT` of 1 wait
+    "Ours now" is the timing change built alone (16,080 bytes); merged with the numbers and cassette changes (16,102
+    bytes, the code ending at `$BFD8`; `MOVMF` keeps its old time with a `BRN` where the numbers change took out its
+    zero test) seven loops take a field or two more: `X=PEEK(I AND 32767)` 605, `X=I AND 1` 282, `VAL("32767")`
+    482, `INT(.5)` 202, `RND(.5)` 234, `RND(-3)` 121, `RND(-1.99999999)` 186. `SIN` and `COS` are about a third
+    slower than before (1000 of `X=SIN(1)`: 1497 fields, now 1670): the turns' `INT` and the series' products wait
+    as `INT` and a product do; no record times them (open, for bb11).
+    Nothing is faster than the original. The slowest against it: `RND(.5)` 7.4% (7.8% merged; its `INT(.5)` and `INT` of 1 wait
     for the places as `INT` does), `INT(-1000.5)` 5.5% (ours adds the -1 slower), `X=Y` and `X=I` 5.3% and 4.7% (ours
     reads a variable and assigns slower: no wait in it to take back), `X=1.1` 4.0%. 171 bytes (16,080, the code
     ending at `$BFC2`); by module: `fp.inc` +57, `fpconv.inc` +67, `mathfn.inc`
