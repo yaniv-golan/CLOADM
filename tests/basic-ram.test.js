@@ -129,8 +129,8 @@ const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF:
 // I=0 TO 599:S=S+PEEK(28928+I AND 32767):NEXT`): from BIGMC's last block (its last top-row flag) to the case's end,
 // which holds loop B's 600 passes, NEW, three lines and RUN (a CLOADM and a SKIPF whose motor runs match the
 // original's). The typist is paced alike on both, so these spans differ by what the machine runs; without FIN's
-// wait for each digit (FIDLY: a digit that is not 0, before the point, with a digit that was not 0 before it) ours took 326 fields
-// less in each of A's spans and 186 less in B's.
+// wait for each digit (FPNX10: the original's time for a digit, by the number so far and the digit's bits, bb10
+// time-literals) ours took 326 fields less in each of A's spans and 186 less in B's.
 {
   const want = real('bb8-real.jsonl', 'cas-cloadm2'), text = caseText('cas-cloadm2');
   const spans = (r) => {
@@ -144,20 +144,21 @@ const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF:
   check('cas-cloadm2: loops A and B take the original\'s time or up to 1% more (fields)', within(g), JSON.stringify({ ours: g, original: w }));
   const mutant = (from, to) => buildBasic({ edit: (f, t) => { if (f !== 'fpconv.inc') return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${from}`); return t.replace(from, to); } }).rom;
   for (const [what, from, to] of [
-    ['no wait for a digit', '        LDB     #FIDLY\nFPN1', '        LDB     #1\nFPN1'],
-    ['a wait a tenth shorter', '        LDB     #FIDLY\nFPN1', '        LDB     #FIDLY*9/10\nFPN1'],
+    ['a digit waits a tenth less', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*9/10\nFPW1'],
+    ['a digit waits a tenth more', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*11/10\nFPW1'],
   ]) {
     const m = judge(mutant(from, to));
     check(`cas-cloadm2 mutant "${what}": outside the original's time .. +1%`, !within(m), JSON.stringify(m));
   }
-  // which digits wait is pinned by ram-pointers2's loops: 1000 (IF) and 2.5 (ADD, MUL) would be far too slow
+  // how long a 0 and a digit after the point wait is pinned by ram-pointers2's loops too: 1000 (IF), 2.5 (ADD, MUL)
   for (const [what, from, to] of [
-    ['the wait for a 0 too', 'FPNX10  TSTA\n        BEQ     FPN2\n', 'FPNX10  '],
-    ['the wait after the point too', '        TST     <FPDP\n        BNE     FPN2\n        LDB     #FIDLY', '        LDB     #FIDLY'],
+    ['a 0 waits a tenth more', 'LDB     #FIZERO', 'LDB     #FIZERO*11/10'],
+    ['a 0 waits a tenth less', 'LDB     #FIZERO', 'LDB     #FIZERO*9/10'],
+    ['a digit after the point waits as one before it', 'SUBB    #FIDP', 'SUBB    #0'],
   ]) {
     const t = lines(runCase(mutant(from, to), caseText('ram-pointers2'))).join(' ');
-    const slow = Object.entries(REAL8).filter(([k, v]) => { const all = [...t.matchAll(new RegExp(`\\b${k} (\\d+)`, 'g'))]; return !(all.length && +all[all.length - 1][1] <= v + 2); }).map(([k]) => k);
-    check(`ram-pointers2 mutant "${what}": a loop more than two fields slower than the original`, slow.length > 0, slow.join(','));
+    const out = Object.entries(REAL8).filter(([k, v]) => { const all = [...t.matchAll(new RegExp(`\\b${k} (\\d+)`, 'g'))]; return !(all.length && +all[all.length - 1][1] >= v && +all[all.length - 1][1] <= v + 2); }).map(([k]) => k);
+    check(`ram-pointers2 mutant "${what}": a loop outside the original's count .. +2`, out.length > 0, out.join(','));
   }
 }
 

@@ -229,9 +229,12 @@ EXO2    INCA
 * integer then shifted right into the guard byte (FPDROP places) and rounded when it is next used, as the original
 * reads 4294967296 as 2^32 [BB bb9 rnd-args: RND(4294967296)]; later digits only count as places. Leaves the
 * text pointer on the first character after the number.
-FIDLY   EQU     135             ; a digit's delay (FPNX10), 5 cycles a step: ours would be faster than the original
-*                                 otherwise [BB bb8 cas-cloadm2, bb3 crunch-else: loops of PEEK(I AND 32767)
-*                                 with 112, 114, 131, 88 or 28928 took about 700 cycles more a digit on it]
+FIDLY   EQU     156             ; a digit's wait (FPNX10), in steps of 5 cycles: see there
+FIBYT   EQU     12
+FINRM   EQU     15
+FIZERO  EQU     107
+FIDP    EQU     40
+FIFST   EQU     20
 FIN     CLR     <FPDP
         CLR     <FPDROP
         CLR     <FACEXT
@@ -327,16 +330,17 @@ FIE7    ADDD    <FPE10
 * the integer, then the places
 FIEND   CLR     <FACSGN         ; the integer, 2^FPDROP x FACM with the guard byte
         LDA     #128+32
-        ADDA    <FPDROP
+        LDX     <FACM           ; (below 256: its byte moved to the top first, NORM's shortest way)
+        BNE     FIEN1
+        TST     <FACM+2
+        BNE     FIEN1
+        LDB     <FACM+3
+        STB     <FACM
+        CLR     <FACM+3
+        LDA     #128+8
+FIEN1   ADDA    <FPDROP
         STA     <FACEXP
         JSR     NORM
-        LDD     <FPE10          ; no places: 29 cycles, the 26 of the old tests for steps of 1E9 and the 3 the
-        BNE     FIE8            ; integer's inline conversion saves, so PEEK loops of constants keep the
-        MUL                     ; original's time [BB bb8 cas-cloadm2 loops A, B]
-        NOP
-        NOP
-        BRN     FIE10
-        BRA     FIE10
 FIE8    LDD     <FPE10          ; one product or quotient by 10 a place, each rounded, as the original: it
         BEQ     FIE10           ; reads 1E38 and 1E30 two units above the nearest, 1E-30, 1.00000001 and .999999999
         BMI     FIE9            ; one above, as these steps do [BB bb9 rnd-args, rnd-neg]
@@ -350,25 +354,51 @@ FIE9    ADDD    #1
         LDB     #1
         JSR     FDIVP
         BRA     FIE8
-FIE10   LDA     <FPSGNI
+FIE10   CLR     <FPDP           ; (FDIV's wait is for the places only)
+        LDA     <FPSGNI
         STA     <FACSGN
         TST     <FACEXP
         BNE     FIE11
         CLR     <FACSGN
 FIE11   JMP     <ZCHRGOT
 
-* FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack. A digit that is
-* not 0, before the point and with a digit that was not 0 before it (tested as FACM's low 16 bits not 0) first
-* waits (FIDLY)
-FPNX10  TSTA
-        BEQ     FPN2
-        LDX     <FACM+2
-        BEQ     FPN2
-        TST     <FPDP
-        BNE     FPN2
+* FPNX10: FACM = FACM x 10 + A (32 bits), a byte at a time from the last, the carry on the stack. First it waits
+* as long as the original takes for a digit beyond what ours takes [BB bb10 time-literals, time-ops: X=1 to X=655361,
+* VAL and READ of 32767 and 1]: nothing while the number so far is 0, FIZERO steps of 5 cycles for a 0, and for
+* another digit FIDLY less FIBYT for each byte of the number so far that is 0 (from its top), plus FINRM for each
+* place the digit is below 8 (1: three, 2-3: two, 4-7: one)
+FPNX10  LDX     <FACM+2
+        BNE     FPW0
+        LDX     <FACM
+        BNE     FPW0
+        LDB     #FIFST          ; 0 so far: the digit is the number, after FIFST steps
+FPF1    DECB
+        BNE     FPF1
+        STA     <FACM+3
+        CLRA
+        RTS
+FPW0    LDX     #FACM
         LDB     #FIDLY
+FPW1    TST     ,X+
+        BNE     FPW2
+        SUBB    #FIBYT
+        BRA     FPW1
+FPW2    TST     <FPDP           ; after the point, FIDP steps less
+        BEQ     FPW2A
+        SUBB    #FIDP
+FPW2A   TSTA
+        BNE     FPW3
+        LDB     #FIZERO
+FPW3    PSHS    A
+FPW4    BEQ     FPN1            ; (a 0, or 8 or more)
+        CMPA    #8
+        BHS     FPN1
+        ADDB    #FINRM
+        ASLA
+        BRA     FPW4
 FPN1    DECB
         BNE     FPN1
+        PULS    A
 FPN2    LDX     #FACM+4
         PSHS    A
 FPX1    LDA     ,-X
@@ -388,8 +418,17 @@ QINT    JSR     ROUND
         SUBB    <FACEXP         ; places to shift right
         BLS     QI3             ; (not reached: |FAC| >= 2^32)
         CMPB    #40
-        BLO     QI1
-        LDB     #40             ; below 1/256: 0 all the same
+        BLO     QI0
+        LDB     #40             ; below 1/256: 0 all the same, at once
+        BRA     QI1
+QI0     CMPB    #16             ; below 65536: 17 cycles for each place under 16 bits, as the original's
+        BLS     QI1             ; conversion to an integer takes [BB bb10 time-ops: X=I AND 1 against bb8
+        TFR     B,A             ; cas-cloadm2's PEEK(28928+I AND 32767); ram-pointers2: MID$("HELLO",2,2)]
+        SUBA    #16
+QIW     PSHS    B
+        PULS    B
+        DECA
+        BNE     QIW
 QI1     SUBB    #24
         BLO     QI2
         LDA     <FACM           ; below 256: the top byte alone, shifted in A

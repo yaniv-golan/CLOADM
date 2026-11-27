@@ -65,6 +65,7 @@ INCFM   LDD     <FACM+2
 * 1E-39 and 1E-40 0,32,0,0,0 (10's mantissa: the divisor, left by a quotient known to be too small before it
 * is worked out, FDIV) [BB bb10 num-literal-bytes]
 MOVMF   BSR     ROUND
+        BRN     MOVMF           ; (3 cycles, the time of the test for 0 this had: every assignment's time as before)
         LDA     <FACEXP
         STA     ,X
         LDA     <FACM
@@ -197,16 +198,26 @@ NORM1   TST     <FACM
         CLR     <FACEXT
         BRA     NORM1
 NORM2   BMI     NORM3           ; (TST FACM's flags)
-        LDD     <FACM+1
+        LDD     <FACM+2
         BNE     NORM2A
-        LDD     <FACM+3
+        TST     <FACEXT
         BNE     NORM2A
+        LDD     <FACM           ; nothing below the top two bytes: they are shifted in D
+        TSTB
+        BNE     NORM2C
         LDD     <FACEXP         ; nothing below the top byte (a small whole number): the exponent and it, in D
 NORM2B  DECA
         BEQ     NORMZ
         ASLB
         BPL     NORM2B
         STD     <FACEXP
+        RTS
+NORM2C  DEC     <FACEXP
+        BEQ     NORMZ
+        ASLB
+        ROLA
+        BPL     NORM2C
+        STD     <FACM
         RTS
 NORM2A  DEC     <FACEXP
         BEQ     NORMZ
@@ -220,9 +231,12 @@ NORM3   RTS
 NORMZ   JMP     FZERO
 
 * SHFTR: the five bytes at X (a mantissa and its guard byte) shifted right B places (B below 48): whole bytes
-* first. Keeps X.
-SHFTR     CMPB    #8
+* first; 6 or 7 places left over are a byte more, the byte that goes out kept below (FPI), and then 2 or 1 back
+* to the left: the same bits, sooner. Keeps X.
+SHFTR   CMPB    #6
         BLO     SHFT2
+        LDA     4,X
+        STA     <FPI
         LDA     3,X
         STA     4,X
         LDA     2,X
@@ -233,7 +247,16 @@ SHFTR     CMPB    #8
         STA     1,X
         CLR     ,X
         SUBB    #8
-        BRA     SHFTR
+        BPL     SHFTR
+SHFTL   ASL     <FPI
+        ROL     4,X
+        ROL     3,X
+        ROL     2,X
+        ROL     1,X
+        ROL     ,X
+        INCB
+        BNE     SHFTL
+        RTS
 SHFT1    LSR     ,X
         ROR     1,X
         ROR     2,X
@@ -287,18 +310,32 @@ FM5     LDD     <FPEXP
 FMZ     JMP     FZERO
 FMOV    JMP     OVERR
 * MULMAN: PROD (64 bits) = FACM x ARGM, the two mantissas as whole numbers (FMUL's product; RND's, whose seed and
-* multiplier are no normal mantissas: a 0 byte of ARGM only skips its row). Uses D, X, Y, U and FPI.
+* multiplier are no normal mantissas). A row for each byte of FACM (the right operand) from the last, a 0 byte
+* skipped, and each row waits MBDLY steps of 5 cycles and MBIT more for each bit of it set, as the original's time
+* hangs on the right operand's bytes that are not 0 and its bits set, not the left one's [BB bb10 time-mul: 1000 X=Y*Z
+* with Z of one bit (2), one byte (255), all 32 bits, alternate bits and the first and last bits, each both ways
+* round; bb9 rnd-timing: RND by the seed's bytes and bits]. Uses D, X, Y, U and FPI.
+MBDLY   EQU     2
+MBIT    EQU     8
 MULMAN  LDX     #PROD
         LDB     #8
 FM0     CLR     ,X+
         DECB
         BNE     FM0
-        LDU     #ARGM+4         ; ARG's bytes from the last, FPI counting them (4 to 1)
+        LDU     #FACM+4         ; FAC's bytes from the last, FPI counting them (4 to 1)
         LDA     #4
         STA     <FPI
 FM1     LDA     ,-U             ; a 0 byte adds nothing: its row is skipped
         BEQ     FM4A
-        LDY     #FACM+4
+        LDB     #MBDLY
+FMB     LSRA
+        BCC     FMB1
+        ADDB    #MBIT
+FMB1    TSTA
+        BNE     FMB
+FMW     DECB
+        BNE     FMW
+        LDY     #ARGM+4
         LDX     #PROD+3
         LDB     <FPI
         ABX                     ; the low byte of this row's first partial product
@@ -314,7 +351,7 @@ FM3     INC     ,-X             ; the carry ripples up
         BEQ     FM3
         PULS    X
 FM4     LEAX    -1,X
-        CMPY    #FACM
+        CMPY    #ARGM
         BNE     FM2
 FM4A    DEC     <FPI
         BNE     FM1
@@ -363,8 +400,12 @@ FD3A    CMPD    <FACM
         CMPD    <FACM+2
         LDD     <FACM           ; (the remainder's top half again; the carry is the comparison's)
         BLO     FD5
-FD4     STD     <DVR+1          ; remainder - divisor
-        LDD     <DVR+3
+FD4     STD     <DVR+1          ; remainder - divisor (and while reading a number's places, a wait for each 1: there
+        LDB     <FPDP           ; the original's quotient takes longer the more of its bits are 1 [BB bb10
+        BEQ     FD4A            ; time-literals: X=1.1, X=11.1 against ram-pointers2's X=I+2.5])
+        PSHS    X
+        PULS    X
+FD4A    LDD     <DVR+3
         SUBD    <FACM+2
         STD     <DVR+3
         LDD     <DVR+1

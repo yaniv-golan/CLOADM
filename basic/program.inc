@@ -3,21 +3,20 @@
 * VARTAB is just past it [MBF; docs/clean-room-basic.md section 3].
 
 * FNDLIN: find line BINVAL. X = the line (or the first line after it, or the end link); C set if found.
-* Keeps D.
-FNDLIN  PSHS    D
+* Uses D (= BINVAL).
+FNDLIN  LDD     <BINVAL
         LDX     <TXTTAB
-FL1     LDD     ,X
-        BEQ     FLNO            ; the end
-        LDD     2,X
-        CMPD    <BINVAL
+FL1     TST     ,X
+        BEQ     FLNO            ; the end (a link's high byte is never 0)
+        CMPD    2,X
         BEQ     FLYES
-        BHI     FLNO
+        BLO     FLNO
         LDX     ,X
         BRA     FL1
 FLYES   ORCC    #1
-        PULS    D,PC
+        RTS
 FLNO    ANDCC   #$FE
-        PULS    D,PC
+        RTS
 
 * EDLINE: a typed line BINVAL with its text at TXTPTR (crunched, 0-terminated): store it, replace the line
 * with that number, or delete it when the text is empty.

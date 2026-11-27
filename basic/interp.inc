@@ -304,7 +304,7 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         STA     <JMPFLG
         RTS
 GOSN    JMP     <ZSNERR
-GSDLY   EQU     34              ; GOSUB's delay: 5 cycles a step (with RETURN's 24 for the statement's end)
+GSDLY   EQU     52              ; GOSUB's delay: 5 cycles a step (with RETURN's 24 for the statement's end)
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
