@@ -2006,11 +2006,15 @@ own behaviour (docs/claude.md).
 No MAME oracle: a link is a container (AGENTS.md 4.6). Since 0.3.0 every link and sealed object ever written must keep
 opening (AGENTS.md rule 7). `tests/fixtures/links/` holds one golden link per format version, written once by
 `tools/gen-link-fixtures.js` and never regenerated: a long link holding a moment (`#z=`, byte 0 = 1), one holding a
-BASIC program (byte 0 = 2), and a short link's sealed object of each kind (version 1, kind 1 and kind 2, with its key).
+BASIC program (byte 0 = 2), one holding a LIZA postcard (byte 0 = 3) and one holding a program's source (byte 0 = 4),
+and a short link's sealed object of each kind (version 1, kinds 1 to 4, each with its key): eight files, `z1-moment`,
+`z2-program`, `z3-postcard`, `z4-source` and `sealed1-moment`, `sealed1-program`, `sealed1-postcard`, `sealed1-source`.
 `tests/link-freeze.test.js` checks each file's SHA-256 against the committed value, then opens each in a fresh Session
 and checks it against values worked out by hand from what made it: the moment is a Dragon 64 on the built-in firmware
 whose 14-byte program at `$7000` filled the text screen (`$0400`-`$05FF`) with `$41` and loops at `$700C`; the program,
-opened on our stand-in BASIC, lists as written. Its check that the generator never overwrites runs the generator on a
+opened on our stand-in BASIC, lists as written; the postcard (a 0.4 kind) replays its three lines on a Dragon 64, each
+answered on screen; and the source (also 0.4) is `fill.asm`, 9 lines, which runs nothing when opened and, on Run, builds
+to its recorded CRC and fills the screen with `A`. Its check that the generator never overwrites runs the generator on a
 temporary copy of the fixtures (`tools/gen-link-fixtures.js DIR`), so a test run cannot rewrite the tracked files
 whatever state that guard is in, and it checks the committed files are untouched as well. No ROM is involved.
 
