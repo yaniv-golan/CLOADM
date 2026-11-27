@@ -5690,43 +5690,61 @@ async function phoneChecks(browser, base, check) {
     hiddenNow && chipsWhileHidden && back && await page.evaluate(() => document.getElementById('chipRow').checkVisibility()), JSON.stringify({ hiddenNow, chipsWhileHidden, back }));
   // The screen's height is measured from the panel's own box (--tk-below, js/ui/touch-keys.js): a class change that
   // resizes the panel must update that length in the same task, or the screen keeps the height of the layout that was
-  // there before. A wait cannot see that frame -- by the time a check reads, the layout has caught up -- so BOTH
-  // transitions (Hide keys, Show keys) and the reads after each happen in ONE page task here, with no await and no
-  // second evaluate between a click and its read: a task boundary is the only thing that lets the ResizeObservers run.
-  // WHAT THIS PROVES, exactly: that fit() runs inside apply(), at the instant the class changes (red 3/3 on clean main,
-  // the first read after each click off by the whole panel: gotDown 330 against the 56 the keys-hidden layout needs).
-  // It does NOT reproduce the 18 px overflow itself, which needs a frame between the two transitions (measured: at the
-  // frame after a Show keys click, not synchronously); the group's own "upright, the page does not scroll" check is
-  // what saw that, intermittently, before the fix.
-  await page.tap('#chipPower');                     // (Hide keys is in the Power sheet; the keys are up here)
-  await waitFor(page, () => document.getElementById('sheetPower').open && !document.getElementById('touchKeys').hidden);
-  const sameTask = await page.evaluate(() => {
-    const doc = document.documentElement, below = () => parseFloat(getComputedStyle(doc).getPropertyValue('--tk-below'));
-    // what the length must be for the layout showing now: the same sum js/ui/touch-keys.js's fit() makes (the chip
+  // there before. A wait cannot see that frame -- by the time a check reads, the layout has caught up -- so each
+  // transition (Hide keys, Show keys) and the reads after it happen in ONE page task here, with no await and no second
+  // evaluate between a click and its read: a task boundary is the only thing that lets the ResizeObservers run.
+  // Between the two transitions the page DOES get its frames (two animation frames, as between two taps), so the
+  // observers settle --tk-below on the keys-hidden layout (56 px) first: that is the length a Show keys click finds,
+  // and the one the screen kept for a frame before the fix. Without that pause both clicks would run on the length of
+  // the keys-up layout, which happens to be right again after Show keys, and the overflow could not be seen.
+  // Measured on main (fit() not in apply()), read in the Show keys task: Keys mode gotUp 56 against 330 and
+  // scrollHeight 677 in 659 (the screen 283 px, the keys-hidden one, over a 266 px keyboard: the browser check's
+  // failure on a Mac, where its own read hit that frame); Stick mode gotUp 56 against 312, scrollHeight 685 before the
+  // first tap (sound's chip still under the screen) -- after it the stick's panel and the keys-hidden screen happen to
+  // sum to the window, so there the length is the only witness. Both modes, because the panel's height differs
+  // (the keyboard 266 px, the stick 248 px) and each is a length the screen must be sized from at once.
+  // (The stick's screen growing from 257 to 283 px after the first tap is not part of this: that tap starts sound,
+  // "Tap for sound" leaves the strip under the screen (--chip-room, play/index.html), and the screen takes it back.)
+  const want = () => {
+    // what --tk-below must be for the layout showing now: the same sum js/ui/touch-keys.js's fit() makes (the chip
     // row's foot, or the panel's, past the screen)
-    const want = () => {
-      const m = document.querySelector('.layout > main > .monitor').getBoundingClientRect();
-      const chips = document.getElementById('chipRow'), box = document.getElementById('touchKeys');
-      const last = chips.checkVisibility() ? chips : box.hidden ? null : box;
-      return last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
-    };
-    // (the boxes the first transition starts from: measured with the keys up, before anything changes)
-    const wantUp0 = want(), gotUp0 = below();
-    document.getElementById('btnHideKeys').click();
-    const gotDown = below();                         // the FIRST read after the click: no task boundary since it
-    const wantDown = want(), shDown = doc.scrollHeight;
-    document.getElementById('btnShowKeys').click();
-    const gotUp = below();                           // ditto: the first read after the click
-    const wantUp = want(), shUp = doc.scrollHeight;
-    return { up: !document.getElementById('touchKeys').hidden, wantUp0, gotUp0, gotDown, wantDown, shDown, gotUp, wantUp, shUp, h: innerHeight };
-  });
-  check('phone: the panel\'s height is measured again in the task that changes it, so the screen never keeps the height of the layout before (Hide keys, then Show keys, each read with no frame between)',
-    sameTask.up && sameTask.gotUp0 === sameTask.wantUp0 && sameTask.gotDown === sameTask.wantDown && sameTask.gotUp === sameTask.wantUp
-      && sameTask.shDown <= sameTask.h && sameTask.shUp <= sameTask.h, JSON.stringify(sameTask));
-  await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
-  // the page does not scroll: the header, the screen, the panel and the chips fit the window
-  const fits = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, h: innerHeight }));
-  check('phone: upright, the page does not scroll (scrollHeight within the window)', fits.sh <= fits.h, JSON.stringify(fits));
+    const m = document.querySelector('.layout > main > .monitor').getBoundingClientRect();
+    const chips = document.getElementById('chipRow'), box = document.getElementById('touchKeys');
+    const last = chips.checkVisibility() ? chips : box.hidden ? null : box;
+    return last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
+  };
+  for (const mode of ['keys', 'joystick']) {
+    await page.evaluate((m) => document.querySelector(`[data-touchmode="${m}"]`).click(), mode);
+    await waitFor(page, (m) => document.getElementById('touchKeys').dataset.mode === m, mode);
+    await page.tap('#chipPower');                     // (Hide keys is in the Power sheet; the keys are up here)
+    await waitFor(page, () => document.getElementById('sheetPower').open && !document.getElementById('touchKeys').hidden);
+    const down = await page.evaluate(`(() => {
+      const doc = document.documentElement, below = () => parseFloat(getComputedStyle(doc).getPropertyValue('--tk-below')), want = ${want};
+      // (the boxes the first transition starts from: measured with the keys up, before anything changes)
+      const wantUp0 = want(), gotUp0 = below();
+      document.getElementById('btnHideKeys').click();
+      const gotDown = below();                         // the FIRST read after the click: no task boundary since it
+      return { wantUp0, gotUp0, gotDown, wantDown: want(), shDown: doc.scrollHeight };
+    })()`);
+    // two frames, as between two taps: the observers run and settle the length on the keys-hidden layout
+    const settled = await page.evaluate(`new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() =>
+      res(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tk-below')) === (${want})()))))`);
+    const up = await page.evaluate(`(() => {
+      const doc = document.documentElement, below = () => parseFloat(getComputedStyle(doc).getPropertyValue('--tk-below')), want = ${want};
+      document.getElementById('btnShowKeys').click();
+      const gotUp = below();                           // ditto: the first read after the click
+      return { up: !document.getElementById('touchKeys').hidden, mode: document.getElementById('touchKeys').dataset.mode, gotUp, wantUp: want(), shUp: doc.scrollHeight, h: innerHeight };
+    })()`);
+    const t = { ...down, settled, ...up };
+    check(`phone: ${mode === 'keys' ? 'Keys' : 'Stick'} mode: the panel's height is measured again in the task that changes it, so the screen never keeps the height of the layout before (Hide keys, two frames, then Show keys, each read with no frame after its click)`,
+      t.up && t.mode === mode && t.settled && t.gotUp0 === t.wantUp0 && t.gotDown === t.wantDown && t.gotUp === t.wantUp
+        && t.shDown <= t.h && t.shUp <= t.h, JSON.stringify(t));
+    await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
+    // the page does not scroll: the header, the screen, the panel and the chips fit the window
+    const fits = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, h: innerHeight }));
+    check(`phone: upright${mode === 'keys' ? '' : ', Stick mode'}, the page does not scroll (scrollHeight within the window)`, fits.sh <= fits.h, JSON.stringify(fits));
+  }
+  await page.evaluate(() => document.querySelector('[data-touchmode="keys"]').click());
   // Menu → Settings…: the Settings sheet with its tabs, each at least 44 px tall; Display one tap further; its top
   // edge at or below the screen's foot; Expand makes it the whole height, Collapse gives that back
   await page.tap('#btnMenu');
