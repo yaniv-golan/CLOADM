@@ -6050,24 +6050,30 @@ async function phoneChecks(browser, base, check) {
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
     // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and
     // 110 px shorter: a link naming the machine asks no machine question, so the first visit has no side card since)
-    // WHERE, derived rather than pinned: the numbers below are computed from the page's own client width, because the
-    // pinned ones were measured on a host with a 15 px classic scrollbar and a host without one puts both boxes 7 and 15
-    // px further right (measured: overlay scrollbar here, innerWidth - clientWidth = 0). The layout is fixed: the
-    // .layout pads 20 px a side and gaps 20 px, the drawer is 364 px wide and flush right, main is the rest, and .slots
-    // (max-width 900) is centred in it -- so the positions follow from the client width alone:
-    //   drawer.left = cw - 20 - 364 ; main = cw - 40 - 364 - 20 ; slots.left = 20 + (main - 900) / 2
-    // At the old host's cw 1425 this gives 1041 and 71, the pinned values exactly; at 1440 it gives 1056 and 78, what
-    // this page measures. A layout change still fails it: the heights, widths and the formula's constants are asserted.
-    // The width and the rects come from ONE evaluate: a scrollbar that appears between two round-trips (a classic 15 px
-    // one does, once the page becomes scrollable -- CI's Chromium has one, a Mac overlay has none) would otherwise be
-    // read at 1440 and measured at 1425, which is exactly how this check failed on CI.
-    const layoutAt = await p.evaluate(() => ({
-      cw: document.documentElement.clientWidth,
-      rects: ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }),
-    }));
-    const { cw } = layoutAt;
-    const mainW = cw - 40 - 364 - 20;
-    const baseline = [[20 + Math.round((mainW - 900) / 2), 849, 900, 254], [cw - 20 - 364, 88, 364, 783]];
+    // WHERE, derived rather than pinned, from the element that owns the width: .layout (the body's flex row). The page
+    // sets `scrollbar-gutter: stable` on <html> from 700 px up (play/index.html, the notes line), so the body is the
+    // window less a scrollbar's gutter wherever the scrollbar takes room -- and the gutter is kept even where the
+    // scrollbar is hidden: Playwright's headless default (--hide-scrollbars, CI's and Linux's) reports
+    // documentElement.clientWidth 1440 while the layout is 1425 wide, which is how this check failed on CI when it
+    // derived from clientWidth. Only an overlay scrollbar (a Mac's) takes no gutter, and there the layout is 1440. No
+    // inner scroller is involved: the document is the only one, and it is not even scrolled here. The layout's rules:
+    // .layout pads 20 px a side and gaps 20 px; the drawer (flex 1 1 320px, but never under its min-content width) sits
+    // at its min-content width, 364 px, flush right; main is the rest; .slots (max-width 900) is centred in main:
+    //   drawer.left = L + W - 20 - 364 ; main = W - 40 - 364 - 20 ; slots.left = L + 20 + (main - 900) / 2
+    // (L, W: the .layout box's left and width). At W 1425 that is 1041 and 71, at 1440 it is 1056 and 78 (a Mac).
+    // The drawer's 364 is a text measure, its widest unbreakable line: 363.86 px in this container's fonts, under 363.5
+    // on CI's (measured 363 there, and its left 1042), 364 on a Mac -- within the 1 px the comparison allows. A layout
+    // change still fails it: the heights, widths and the formula's constants are asserted.
+    // The layout box and the rects come from ONE evaluate (a scrollbar that appeared between two round-trips would
+    // otherwise be read before and measured after).
+    const layoutAt = await p.evaluate(() => {
+      const l = document.querySelector('.layout').getBoundingClientRect();
+      return { left: l.left, width: l.width,
+        rects: ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }) };
+    });
+    const { left: L0, width: W } = layoutAt;
+    const mainW = W - 40 - 364 - 20;
+    const baseline = [[Math.round(L0 + 20 + (mainW - 900) / 2), 849, 900, 254], [Math.round(L0 + W - 20 - 364), 88, 364, 783]];
     const before = { rects: layoutAt.rects, order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -6084,7 +6090,7 @@ async function phoneChecks(browser, base, check) {
     const near = before.rects.every((r, i) => r.every((v, j) => Math.abs(v - baseline[i][j]) <= 1));
     check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900, within 1 px of the measure taken then); after the touch keys on (the controls moved into the sheets) and off, back in place exactly and in their order, and a moved button still works',
       near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
-      JSON.stringify({ baseline, before, movedIn, after, works }));
+      JSON.stringify({ layout: { left: L0, width: W }, baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
     // the palette's "Programs" on a desktop: the Media tab selected (from Display) and the focus on the shelf's first item
@@ -8752,7 +8758,12 @@ async function commandsChecks(browser, site, check) {
   // the tape in the deck, so a longer tape name lengthens it, and the machine is paused so the status is its words
   // rather than the running dot (screen.js: dot-only while running, whatever the text). The name is stepped up one
   // character at a time until the bar goes tight; that point must arrive, and loudly, or the rest of this check would
-  // assert nothing. Then the title/aria, unchanged; then the name is shortened again and tight must go.
+  // assert nothing. Then the title/aria, unchanged; then the tape comes out and tight must go: the bar is back to the
+  // content it held, paused, before any tape, read then and required to be not tight. (Not a SHORTER name: the status
+  // with any tape in is "Paused · tape A.CAS 0%" at the least, and in a wider mono font -- this container's and CI's --
+  // that alone needs tight at 1200 (with tight off the status needs 199 px and gets 184), so a short name legitimately
+  // keeps it; only a narrower font, a Mac's, let a short name take it off. fit() measures with tight off, so the
+  // over/cut read here, taken with the class on, are diagnostics, not fit()'s own inputs.)
   // (A long load-error status is not used: it fades, so the state it creates does not last to be read.)
   {
     const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
@@ -8767,6 +8778,7 @@ async function commandsChecks(browser, site, check) {
     const plain = await read();
     await page.click('#btnPause');   // held: the status shows its words (Paused, then the tape), not the dot
     await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'), null, 5000);
+    const held = await read();   // paused, no tape: the content the bar returns to at the end, and it must fit untight
     // step the tape's name up until the bar goes tight, and keep what it took (a regression that makes tight
     // unreachable throws here, with the last state, instead of timing out later with a misleading message)
     let at = null, last = null;
@@ -8779,17 +8791,19 @@ async function commandsChecks(browser, site, check) {
     }
     // the precondition, as a check of its own: it must be green, and if it is not the group goes on (the title/aria check
     // then fails on `tight` too, with its own numbers) rather than the whole group stopping on a throw
-    check('commands (app bar): content that outgrows the bar does make it tight (a long tape name, the machine paused)',
-      !!at, at ? JSON.stringify({ at }) : `never tight up to a 48-character tape name; the last state: ${JSON.stringify(last)}`);
+    check('commands (app bar): content that outgrows the bar does make it tight (a long tape name, the machine paused); paused with no tape it was not',
+      !!at && !held.tight && held.status === 'Paused', at ? JSON.stringify({ held, at }) : `never tight up to a 48-character tape name; the last state: ${JSON.stringify({ held, last })}`);
     const tight = at ? await read() : last;
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
       && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, at, tight }));
-    // the reverse: the tape shortened again, the bar is no longer tight (the class is fit()'s, applied and removed)
-    await page.evaluate(() => window.emu.session.insertTape('A.CAS', new Uint8Array(300).fill(0x55)));
+    // the reverse: the tape out again, the status is back to "Paused" (which fitted), and the bar is no longer tight
+    // (the class is fit()'s, applied and removed)
+    await page.evaluate(() => window.emu.session.ejectTape());
     const undone = await waitFor(page, () => !document.getElementById('appbar').classList.contains('tight'), null, 10000);
-    check('commands (app bar): a short name again takes tight off (the class follows the content both ways)',
-      undone && !(await read()).tight, JSON.stringify(await read()));
+    const back = await read();
+    check('commands (app bar): the tape out again (the status back to "Paused", which fitted) takes tight off (the class follows the content both ways)',
+      undone && !back.tight && back.status === 'Paused' && back.specShown, JSON.stringify({ held, back }));
     await closeCtx(ctx);
   }
 
