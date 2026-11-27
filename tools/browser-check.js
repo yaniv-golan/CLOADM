@@ -6137,8 +6137,34 @@ async function phoneChecks(browser, base, check) {
     // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and
     // 110 px shorter: a link naming the machine asks no machine question, so the first visit has no side card since; and
     // taller again since every row of the shelf has two lines)
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 891]];
-    const before = { rects: await rects(), order: await order() };
+    // WHERE, derived rather than pinned, from the element that owns the width: .layout (the body's flex row). The page
+    // sets `scrollbar-gutter: stable` on <html> from 700 px up (play/index.html, the notes line), so the body is the
+    // window less a scrollbar's gutter wherever the scrollbar takes room -- and the gutter is kept even where the
+    // scrollbar is hidden: Playwright's headless default (--hide-scrollbars, CI's and Linux's) reports
+    // documentElement.clientWidth 1440 while the layout is 1425 wide, which is how this check failed on CI when it
+    // derived from clientWidth. Only an overlay scrollbar (a Mac's) takes no gutter, and there the layout is 1440. No
+    // inner scroller is involved: the document is the only one, and it is not even scrolled here. The layout's rules:
+    // .layout pads 20 px a side and gaps 20 px; the drawer (flex 1 1 320px, but never under its min-content width) sits
+    // at its min-content width, 364 px, flush right; main is the rest; .slots (max-width 900) is centred in main:
+    //   drawer.left = L + W - 20 - 364 ; main = W - 40 - 364 - 20 ; slots.left = L + 20 + (main - 900) / 2
+    // (L, W: the .layout box's left and width). At W 1425 that is 1041 and 71, at 1440 it is 1056 and 78 (a Mac).
+    // The drawer's 364 is a text measure, its widest unbreakable line: 363.86 px in this container's fonts, under 363.5
+    // on CI's (measured 363 there, and its left 1042), 364 on a Mac -- within the 1 px the comparison allows. A layout
+    // change still fails it: the heights, widths and the formula's constants are asserted.
+    // The box the formula derives from is itself asserted (L0 0, W 1440 or 1425), or a layout change that moved everything
+    // would move the expectations with it.
+    // The layout box and the rects come from ONE evaluate (a scrollbar that appeared between two round-trips would
+    // otherwise be read before and measured after).
+    const layoutAt = await p.evaluate(() => {
+      const l = document.querySelector('.layout').getBoundingClientRect();
+      return { left: l.left, width: l.width,
+        rects: ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }) };
+    });
+    const { left: L0, width: W } = layoutAt;
+    const layoutBoxOk = L0 === 0 && (W === 1440 || W === 1425);
+    const mainW = W - 40 - 364 - 20;
+    const baseline = [[Math.round(L0 + 20 + (mainW - 900) / 2), 849, 900, 254], [Math.round(L0 + W - 20 - 364), 88, 364, 891]];
+    const before = { rects: layoutAt.rects, order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
     const movedIn = await waitFor(p, () => !!document.querySelector('#sheetPower #btnPause') && !!document.querySelector('#sheetSettings #panel-input') && !!document.querySelector('#sheetPrograms #shelf'));
@@ -6153,8 +6179,8 @@ async function phoneChecks(browser, base, check) {
     // pixel, so it is matched within 1 px; before and after here are the same page and must be exactly equal)
     const near = before.rects.every((r, i) => r.every((v, j) => Math.abs(v - baseline[i][j]) <= 1));
     check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900, within 1 px of the measure taken then); after the touch keys on (the controls moved into the sheets) and off, back in place exactly and in their order, and a moved button still works',
-      near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
-      JSON.stringify({ baseline, before, movedIn, after, works }));
+      layoutBoxOk && near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
+      JSON.stringify({ layout: { left: L0, width: W }, baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
     // the palette's "Programs" on a desktop: the Media tab selected (from Display) and the focus on the shelf's first item
@@ -8874,23 +8900,62 @@ async function commandsChecks(browser, site, check) {
     check('commands (desktop): the Ask panel\'s empty state says "Ctrl K: find a command or ask"', ask.emptyShown && ask.shown && ask.text === 'Ctrl K: find a command or ask', JSON.stringify(ask));
     await closeCtx(ctx);
   }
-  // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
-  // (at 1200, the one-row bar's narrowest, in a wide font spaced wider still: with five of its links in More ▾ the bar
-  // needs both to go tight; 2 px, since "Add ROMs…" is a plain button, narrower than the bold "No BASIC · Add ROMs" was)
+  // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM. At
+  // 1200 (the one-row bar's narrowest) the bar's flexible spacer absorbs any slack -- that is its job -- so nothing about
+  // the WINDOW ever reaches tight; what reaches it is CONTENT that outgrows the bar, which is what .tight is for (a
+  // larger user font, a longer name or status). Here the content is product-sourced and idle-free: the status line names
+  // the tape in the deck, so a longer tape name lengthens it, and the machine is paused so the status is its words
+  // rather than the running dot (screen.js: dot-only while running, whatever the text). The name is stepped up one
+  // character at a time until the bar goes tight; that point must arrive, and loudly, or the rest of this check would
+  // assert nothing. Then the title/aria, unchanged; then the tape comes out and tight must go: the bar is back to the
+  // content it held, paused, before any tape, read then and required to be not tight. (Not a SHORTER name: the status
+  // with any tape in is "Paused · tape A.CAS 0%" at the least, and in a wider mono font -- this container's and CI's --
+  // that alone needs tight at 1200 (with tight off the status needs 199 px and gets 184), so a short name legitimately
+  // keeps it; only a narrower font, a Mac's, let a short name take it off. fit() measures with tight off, so the
+  // over/cut read here, taken with the class on, are diagnostics, not fit()'s own inputs.)
+  // (A long load-error status is not used: it fades, so the state it creates does not last to be read.)
   {
     const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
-    const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
+    const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec'),
+      bar = document.getElementById('appbar'), nav = bar.querySelector('nav'), st = document.getElementById('status');
+      const nr = nav.getBoundingClientRect(), br = bar.getBoundingClientRect();
       return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
-        tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
+        tight: bar.classList.contains('tight'), nostatus: bar.classList.contains('nostatus'), specShown: sp.getClientRects().length > 0,
+        // the app bar's own two conditions (js/ui/main.js fit()), read atomically with the class they decide
+        over: nr.right > br.right + 0.5, cut: st.scrollWidth > st.clientWidth + 0.5,
+        spacer: Math.round(bar.querySelector('.grow').getBoundingClientRect().width), status: st.textContent }; });
     const plain = await read();
-    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 2px !important; }' });
-    await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
-    const tight = await read();
+    await page.click('#btnPause');   // held: the status shows its words (Paused, then the tape), not the dot
+    await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'), null, 5000);
+    const held = await read();   // paused, no tape: the content the bar returns to at the end, and it must fit untight
+    // step the tape's name up until the bar goes tight, and keep what it took (a regression that makes tight
+    // unreachable throws here, with the last state, instead of timing out later with a misleading message)
+    let at = null, last = null;
+    for (let n = 4; n <= 48; n++) {
+      const name = `${'X'.repeat(n)}.CAS`;
+      await page.evaluate((nm) => window.emu.session.insertTape(nm, new Uint8Array(300).fill(0x55)), name);
+      await waitFor(page, () => !document.getElementById('status').classList.contains('dot-only'), null, 5000);
+      last = await read();
+      if (last.tight) { at = { n, name, ...last }; break; }
+    }
+    // the precondition, as a check of its own: it must be green, and if it is not the group goes on (the title/aria check
+    // then fails on `tight` too, with its own numbers) rather than the whole group stopping on a throw
+    check('commands (app bar): content that outgrows the bar does make it tight (a long tape name, the machine paused); paused with no tape it was not',
+      !!at && !held.tight && held.status === 'Paused', at ? JSON.stringify({ held, at }) : `never tight up to a 48-character tape name; the last state: ${JSON.stringify({ held, last })}`);
+    const tight = at ? await read() : last;
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
-      && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, tight }));
+      && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, at, tight }));
+    // the reverse: the tape out again, the status is back to "Paused" (which fitted), and the bar is no longer tight
+    // (the class is fit()'s, applied and removed)
+    await page.evaluate(() => window.emu.session.ejectTape());
+    const undone = await waitFor(page, () => !document.getElementById('appbar').classList.contains('tight'), null, 10000);
+    const back = await read();
+    check('commands (app bar): the tape out again (the status back to "Paused", which fitted) takes tight off (the class follows the content both ways)',
+      undone && !back.tight && back.status === 'Paused' && back.specShown, JSON.stringify({ held, back }));
     await closeCtx(ctx);
   }
+
   {
     const { ctx, page } = await open({ viewport: { width: 1280, height: 720 } }, () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
     const mac = await page.evaluate(() => [document.getElementById('navCommands').textContent.replace(/\s+/g, ' ').trim(), document.getElementById('askKbd').textContent, document.getElementById('askEmptyKbd').textContent]);
@@ -23741,6 +23806,12 @@ async function noRomChromeChecks(browser, base, check) {
   for (const installed of [false, true]) {
     const L = installed ? 'app bar (installed)' : 'app bar';
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    // A PC's platform, pinned before the page loads, so this block asserts the literal "Ctrl K" whatever host runs it.
+    // Before this pin the block asserted whichever platform it happened to run on: on a Mac the page correctly shows
+    // "Commands… ⌘K" (js/ui/command-box.js:151-153 derives it from navigator.platform) and these two failed for nothing.
+    // The Mac side has its own row after this loop; the platform -> key rule keeps its literals in the controlled-
+    // platforms block below.
+    await ctx.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }));
     // (installed: the page runs as an installed app, display-mode standalone)
     if (installed) await ctx.addInitScript(() => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (/display-mode:\s*standalone/.test(q) ? { ...mm(q), matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)); });
     const page = await ctx.newPage();
@@ -23798,6 +23869,22 @@ async function noRomChromeChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.setClaudeFeatures(true));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // the app bar on a Mac: the More ▾ hint says ⌘K there, from the page's own platform rule (js/ui/command-box.js:151-153).
+  // Its own literal, not a copy of the Linux row's: with the platform pinned to Mac, a page that always said "Ctrl K"
+  // fails this row while the Linux rows above still pass, so neither is satisfied by the other.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    await ctx.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.click('#btnMore');
+    const list = await page.evaluate(() => [...document.getElementById('moreMenu').children].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    check('app bar (Mac): More ▾ lists "Commands… ⌘K" (the key the page shows for a Mac)', list.includes('Commands… ⌘K'), JSON.stringify(list));
+    check('app bar (Mac): no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
   // The line under the tube once the hints are done (a desktop): the typing line while the screen has the focus, the Ask
