@@ -95,60 +95,86 @@ function oddSubsections(text, allow = []) {
 // comparison keeps, SECTION_BOUNDARY below, so the two cannot disagree about where a section stops.
 const UNRELEASED_BOUNDARY = /^(?:#{1,2} |### \d)/;
 
-// A fenced code block is an example the file shows, not its structure: a heading or a stray letter on a line inside
-// one is neither, so each [Unreleased] scan skips those lines. The byte comparison against a tag does not need this,
-// because whatever a fence holds is compared with the tag's copy of the same text, so it can neither hide a change
-// nor invent one; the kind-name check (oddSubsections) does read released sections, and a repetition there is not its
-// subject (a released section is the tag comparison's).
+// A fenced code block is an example the file shows, not its structure: a heading, a release heading or a stray letter
+// on a line inside one is none of those, so each [Unreleased] scan skips fenced lines, and the [Unreleased] region does
+// not end at a boundary line a fence holds. (The byte comparison against a tag needs none of this: whatever a fence
+// holds is compared with the tag's copy of the same text, so it can neither hide a change nor invent one.)
 //
-// The fence is bounded by [Unreleased] itself. A fence that opened and never closed would otherwise read to the end of
-// the file and skip every line after it -- a stray "```" left by a merge would hide a real duplicate, a real stray
-// letter and a real bogus kind, which are exactly what these scans exist to catch -- and a fence opened above a
-// release heading would swallow that heading's section into [Unreleased]. So the region's end (a release heading or a
-// level 1-2 heading) ends any fence, and a fence opened outside the region does not reach inside it.
+// Two things keep the skip from hiding the debris these scans exist to catch:
+//  - only a BALANCED pair of fences counts. An opener with no closer of its own fences nothing (see fencePairs below),
+//    so a stray "```" left by a merge is read as an ordinary line and what it was hiding is reported again.
+//  - a later "## [Unreleased]" does not end the region: a duplicated heading is itself merge debris, and everything
+//    below it is still new work.
 //
 // A fence opens with three or more ` or ~ (at most three spaces of indent) and closes with the same character, at
 // least as many of them, and nothing after it but spaces. A CRLF line ends with "\r", which `.` does not match, so it
 // is dropped from the line first: a file a Windows editor saved must not read as one long unfenced document.
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+const CR = /\r$/;
+const isUnreleasedHeading = (line) => /^## \[Unreleased\]/i.test(line);
 
-// [Unreleased]'s lines: `from` (exclusive) to `to` (exclusive), where `to` is the first release heading or level 1-2
-// heading after it, or the end of the file. `from` is -1 when the file has no [Unreleased] heading.
+// The balanced fence pairs in `lines` after index `after` (and before `limit`, when given), as [open, close] pairs in
+// the order they open. A pair is an opener and the first later line that closes it; an opener with no closer by the
+// end is no pair.
+//
+// A fence line opens when it is not already inside one. Inside a fence, a line that closes it closes it; a line that
+// is a fence opener WITH an info string ("```md") cannot close anything, so it re-anchors the pair there. That last
+// part is what stops a stray opener from pairing with a LEGITIMATE later fence: the stray read as ordinary text cannot
+// reach across the "```md" that starts the real example. The cost is that an open fence whose example shows another
+// fence line with an info string re-anchors there; that is the only shape it affects.
+function fencePairs(lines, after, limit = lines.length) {
+  const pairs = [];
+  let open = -1, ch = null, len = 0;
+  for (let i = after + 1; i < limit; i++) {
+    const line = lines[i].replace(CR, '');
+    const m = FENCE_OPEN.exec(line);
+    if (open < 0) {
+      // a backtick fence's info string may not contain a backtick, so "```js`x" is prose, not a fence
+      if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;
+      open = i; ch = m[1][0]; len = m[1].length;
+    } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(line)) {
+      pairs.push([open, i]); open = -1; ch = null;
+    } else if (m && m[2].trim()) {
+      open = i; ch = m[1][0]; len = m[1].length;          // an info-string fence cannot close: it re-anchors
+    }
+  }
+  return pairs;
+}
+
+// [Unreleased]'s lines: `from` is its heading (the first one), `to` the line after its last content. `to` is the
+// first release heading or level 1-2 heading after `from` that is NOT inside a fence, or the end of the file.
+// `from` is -1 when the file has no [Unreleased] heading.
+//
+// Iterative because a fence changes where the region ends and the region changes which fences are balanced: a pair
+// that closes past a boundary line only counts once the region is cut at or before it. Two or three passes settle any
+// file; the loop is bounded so a pathological one cannot spin.
 function unreleasedRegion(lines) {
   let from = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^## \[Unreleased\]/i.test(lines[i])) { from = i; break; }
+    if (isUnreleasedHeading(lines[i])) { from = i; break; }
   }
   if (from < 0) return { from, to: from };
-  for (let i = from + 1; i < lines.length; i++) {
-    if (UNRELEASED_BOUNDARY.test(lines[i])) return { from, to: i };
+  let to = lines.length;
+  for (let pass = 0; pass < 8; pass++) {
+    const inside = new Set();
+    for (const [a, b] of fencePairs(lines, from, to)) for (let j = a + 1; j < b; j++) inside.add(j);
+    let next = lines.length;
+    for (let i = from + 1; i < lines.length; i++) {
+      if (inside.has(i) || isUnreleasedHeading(lines[i])) continue;    // a later [Unreleased] heading is not an end
+      if (UNRELEASED_BOUNDARY.test(lines[i])) { next = i; break; }
+    }
+    if (next === to) return { from, to };
+    to = next;
   }
-  return { from, to: lines.length };
+  return { from, to };
 }
 
-// Which lines of a region [from, to) are in a BALANCED fence (the fence's own lines included: no heading starts with
+// Which lines of a region [from, to) are in a balanced fence (the fence's own lines included: no heading starts with
 // ``` or ~~~). The fence state starts closed at `from`, so no fence from above reaches in, and ends with the region.
-//
-// Only a pair counts. An opener with no closer inside the region fences nothing: Markdown would run it to the end of
-// the document, and for a reader that is right, but for this guard it would make one stray "```" (a half-deleted
-// example, merge debris) hide every real duplicate, stray letter and bogus kind after it -- the very debris these
-// scans exist to catch, one line above them. So a stray opener is read as an ordinary line, which reports what it was
-// hiding, and a stray opener is harmless by itself (it starts with ``` and is neither a heading nor a bare letter).
 function fencedLines(lines, from, to) {
   const out = new Array(lines.length).fill(false);
   if (from < 0) return out;
-  let open = -1, ch = null, len = 0;
-  for (let i = from + 1; i < to; i++) {
-    const line = lines[i].replace(/\r$/, '');
-    if (open < 0) {
-      const m = FENCE_OPEN.exec(line);
-      if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;   // a backtick fence's info string has no backtick
-      open = i; ch = m[1][0]; len = m[1].length;
-    } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(line)) {
-      for (let j = open; j <= i; j++) out[j] = true;                 // a balanced pair, and only then
-      open = -1; ch = null;
-    }
-  }
+  for (const [a, b] of fencePairs(lines, from, to)) for (let j = a; j <= b; j++) out[j] = true;
   return out;
 }
 

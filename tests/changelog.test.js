@@ -156,13 +156,23 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     // a tilde fence is a fence too
     check('...and a ~~~ fence is a fence (its "#### Fixed" pair is an example)',
       duplicateUnreleasedKinds(fenced(['~~~', '#### Fixed', '- an example', '#### Fixed', '~~~'])).length === 0);
+    // a backtick fence's info string may not contain a backtick, so "```js`x" is prose: what follows it is read
+    check('...and a backtick line whose info string holds a backtick is prose, not a fence (CommonMark)',
+      duplicateUnreleasedKinds(fenced(['```js`x', '#### Fixed', '#### Fixed', '```'])).join() === 'Fixed: line 6 and line 7',
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['```js`x', '#### Fixed', '#### Fixed', '```']))));
     // an opener with no closer fences nothing: Markdown would run it to the end, but here it would let one stray "```"
     // hide every real duplicate past it, so what follows it is still read (and a stray opener is nothing by itself)
     check('...and an opener with no closer fences nothing, so what follows a stray "```" is still read',
       duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])).join() === 'Fixed: line 6 and line 8' &&
       bareLetterLines(fenced(['```', '', 'D'])).map((x) => x.text).join() === 'D',
       `${JSON.stringify(duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])))} / ${JSON.stringify(bareLetterLines(fenced(['```', '', 'D'])))}`);
-    // ...and its counterpart: a stray opener above a release heading cannot reach past it
+    // a stray opener above a release heading cannot reach past it. It must not pair with a LEGITIMATE later fence
+    // either: "```md" carries an info string, so it cannot close anything and re-anchors the pair there. (This case
+    // replaced one that could not fail: with the region clipped the tail was out of range, and without the clip the
+    // stray fence swallowed it, so both readings said []. Its fixture is below, where it does discriminate.)
+    check('...and a stray "```" cannot pair with a later legitimate fence to hide a real duplicate',
+      duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```md', '```'])).join() === 'Fixed: line 5 and line 11',
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```md', '```']))));
     check('...and a stray "```" above a release heading does not take that section into [Unreleased]',
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Changed\n\n- a\n\n```\n\n### 0.4.0\n\n#### Changed\n\n- old\n').length === 0);
     // a file a Windows editor saved ends every line with "\r": its fence is a fence, and its quoted headings are not read
@@ -175,6 +185,20 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     check('...and a fenced block\'s "### Fixed", "D" and "#### Upgrading" lines are not read as this section\'s',
       unreleasedLevel3(QUOTED).length === 0 && bareLetterLines(QUOTED).length === 0 && unreleasedKinds(QUOTED).join() === 'Added',
       `H3 ${JSON.stringify(unreleasedLevel3(QUOTED))} / letters ${JSON.stringify(bareLetterLines(QUOTED))} / kinds ${JSON.stringify(unreleasedKinds(QUOTED))}`);
+    // A fenced example that quotes a BOUNDARY line is an example, so it does not end the section: a fence holding
+    // "## [Unreleased]" above the real heading must not move the start, and one holding a release heading must not end
+    // the scan, or everything after the fence goes unread. Both were broken once, in the region the round-1 fix added.
+    check('...and a fenced "## [Unreleased]" above the real heading does not hide the real section\'s duplicates',
+      duplicateUnreleasedKinds(fenced(['```md', '## [Unreleased]', '#### Fixed', '```', '', '## [Unreleased]', '', '#### Fixed', '', '- real', '', '#### Fixed', '', '- a real duplicate'])).join() === 'Fixed: line 12 and line 16',
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['```md', '## [Unreleased]', '#### Fixed', '```', '', '## [Unreleased]', '', '#### Fixed', '', '- real', '', '#### Fixed', '', '- a real duplicate']))));
+    check('...and a fenced "### 0.4.0" does not end the section, so what follows the fence is still read',
+      duplicateUnreleasedKinds(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D'])).join() === 'Added: line 10 and line 14' &&
+      bareLetterLines(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D'])).map((x) => x.text).join() === 'D',
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D']))));
+    // a second "## [Unreleased]" is merge debris itself: it does not end the section, and what is below it is still new
+    check('...and a duplicated "## [Unreleased]" heading does not hide what is below it',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').join() === 'Fixed: line 3 and line 9' &&
+      bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D');
   }
 
   // A "####" heading with no name: no rule that reads headings by name can report it (there is no name to report), so
