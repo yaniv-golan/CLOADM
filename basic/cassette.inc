@@ -96,7 +96,7 @@ CRBY1   BSR     CRBIT
 * (X ends past it). Z set when the checksum is right. The motor is left running. When the block's leader is heard
 * (its first byte and three bits), the letter at the top left of the screen (S or F, CFIND) changes between normal and
 * inverse [BB bb4, bb5: one change a block, a little after its leader starts], unless the cassette is quiet (CQUIET).
-CRBLK   JSR     CMSTD
+CRBLK   BSR     CMSTD           ; (its callers call it with LBSR: BSR and LBSR take the cycles of two JSRs)
         CLRB
         BSR     CQUIET
         BMI     CRS0
@@ -232,7 +232,7 @@ CFN2    LDX     #SCREEN+32      ; the cursor on the second row
 * at a time). Z as CRBLK.
 * Uses A, X.
 CRDBLK  LDX     #BLKBUF
-CRDX    JSR     CRBLK
+CRDX    LBSR    CRBLK
         PSHS    CC
         LDA     <CBTYP
         BNE     CRK1
@@ -316,7 +316,7 @@ CLDONE  CLR     <CLDBAS
 CLASC   JSR     NEWPRG
         LDU     #LINBUF
 CLA1    LDX     #BLKBUF
-        JSR     CRBLK
+        LBSR    CRBLK
         LBNE    CLIO
         JSR     CASOFF
         LDD     #$FFFF
@@ -743,7 +743,7 @@ CFILL   LDB     <CBIDX
         INCA
         BEQ     CFI2            ; the end-of-file block was read (C clear, from the CMPB)
         LDX     #BLKBUF
-        JSR     CRBLK
+        LBSR    CRBLK
         BNE     CFI3
         JSR     CASOFF
         CLR     <CBIDX
