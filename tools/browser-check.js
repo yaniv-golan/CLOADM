@@ -2017,7 +2017,9 @@ async function typingChecks(browser, base, check) {
 
 // The printer: bytes the machine prints appear in the Machine tab's Printer box, "Save
 // printout" downloads them as received, and Clear empties it. The Dragon's parallel port, driven by writing its
-// PIAs (the stub firmware does not print); the serial printers are checked against MAME (run.js --printer).
+// PIAs (the stub firmware does not print): one byte per strobe pulse, a DAC tone inside the last pulse and after it
+// printing nothing, and BUSY (PIA1 PB0) low, the printer ready (tests/dragon-printer.test.js); the serial printers are
+// checked against MAME (run.js --printer).
 async function printerChecks(browser, base, check) {
   const page = await browser.newPage();
   const errors = [];
@@ -2029,15 +2031,21 @@ async function printerChecks(browser, base, check) {
     const m = window.emu.machine;
     m.write(0xFF03, 0x00); m.write(0xFF02, 0xFF); m.write(0xFF03, 0x04);
     m.write(0xFF21, 0x00); m.write(0xFF20, 0xFE); m.write(0xFF21, 0x04);
-    for (const c of 'HELLO PRINTER\r') { m.write(0xFF02, c.charCodeAt(0)); m.write(0xFF20, 0x02); m.write(0xFF20, 0x00); }
+    for (const c of 'HELLO PRINTER\r') {
+      m.write(0xFF02, c.charCodeAt(0)); m.write(0xFF20, 0x02);
+      if (c === '\r') for (let i = 0; i < 64; i++) m.write(0xFF20, i & 1 ? 0xFE : 0x56);   // a tone, the strobe held high
+      m.write(0xFF20, 0x00);
+    }
+    for (let i = 0; i < 64; i++) m.write(0xFF20, i & 1 ? 0xFC : 0xA8);                     // a tone, the strobe held low
   });
+  check('printer: the Dragon\'s printer BUSY (PIA1 PB0) reads 0, ready', await page.evaluate(() => (window.emu.machine.read(0xFF22) & 1) === 0));
   await waitFor(page, () => document.getElementById('printout').textContent.includes('HELLO PRINTER'), null, 3000);
   check('printer: printed bytes appear in the Machine tab', (await page.textContent('#printout')).includes('HELLO PRINTER')
     && /Parallel printer port/.test(await page.textContent('#printerKind')));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnPrintSave')]);
   const bytes = fs.readFileSync(await dl.path());
   check('printer: "Save printout" downloads the bytes as received', dl.suggestedFilename() === 'dragon64-printout.prn'
-    && bytes.toString('latin1').endsWith('HELLO PRINTER\r'), `${dl.suggestedFilename()}, ${bytes.length} bytes`);
+    && bytes.toString('latin1') === 'HELLO PRINTER\r', `${dl.suggestedFilename()}, ${JSON.stringify(bytes.toString('latin1'))}`);
   await page.click('#btnPrintClear');
   check('printer: Clear empties it', await page.textContent('#printout') === '' && await page.isDisabled('#btnPrintSave'));
   await pickMachine(page, 'coco');

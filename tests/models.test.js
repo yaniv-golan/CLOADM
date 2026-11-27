@@ -118,8 +118,8 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
 // ---- Dragon 200-E: a Dragon in everything but the keyboard legends and the character generator ----
 // MAME 0.264 src/mame/trs/dragon.cpp: dragon200e_state::dragon200e() is dragon64(config) plus the generator, so it has
 // the Dragon 64's cartridge slot (COCOCART_SLOT ... dragon_cart, default "dragon_fdc"), the Dragon parallel printer
-// (dragon_state::pia1_pa_changed: PIA1 PA1 high prints PIA0 port B) and the 6551 with an RS-232 port
-// (RS232_PORT "rs232", whose RXD coco_state::pia1_pb_r reads on PB0 through m_rs232->rxd_r(), coco.cpp).
+// and the 6551 with an RS-232 port. The printer's strobe and BUSY are the Dragon 64's (tests/dragon-printer.test.js,
+// which runs on every Dragon profile).
 {
   const p = Emu.profiles.dragon200e;
   check('every profile names its lineage: dragon, coco or mc10',
@@ -135,34 +135,22 @@ check('the CP-400 ROM is the archive name cp400bas.rom', p.roms[0].files.include
   const m = Emu.createMachine('dragon200e');
   m.reset(true);
   check('dragon200e has no bit-banger (its printer is the Dragon parallel port)', !m.bitBanger);
-  check('dragon200e: reset prints PIA0 port B ($FF), as on the Dragon 64', m.printed.join() === '255', m.printed.join());
-  m.printed.length = 0;
+  check('dragon200e: power-on prints nothing, as on the Dragon 64', m.printed.join() === '', m.printed.join());
   m.write(0xFF03, 0x00); m.write(0xFF02, 0xFF); m.write(0xFF03, 0x04);   // PIA0 PB outputs
   m.write(0xFF21, 0x00); m.write(0xFF20, 0xFE); m.write(0xFF21, 0x04);   // PIA1 PA1-7 outputs
   m.write(0xFF02, 0x41); m.write(0xFF20, 0x00); m.write(0xFF20, 0x02);   // strobe low, then high: 'A'
   m.write(0xFF02, 0x42); m.write(0xFF20, 0xFC); m.write(0xFF20, 0xFE);   // 'B'
-  check('dragon200e: PIA1 PA1 high prints PIA0 port B (MAME dragon_state::pia1_pa_changed)', m.printed.join() === '65,66', m.printed.join());
-  // the 6551's port: PB0 is its RXD, idle at mark, and a terminal's start bit reads 0
+  check('dragon200e: each strobe pulse (PA1 rising) prints PIA0 port B', m.printed.join() === '65,66', m.printed.join());
   check('dragon200e: the 6551 has its RS-232 port, as the Dragon 64\'s', p.acia === true && p.rs232 === true && !!m.acia);
-  m.write(0xFF23, 0x00); m.write(0xFF22, 0x00); m.write(0xFF23, 0x04);
-  m.acia.attachSerial('terminal', { baud: 1200 });
-  const idle = m.read(0xFF22) & 1;
-  m.acia.port.send([0x00], m.ioTime());
-  check('dragon200e: PIA1 PB0 follows the 6551\'s port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
 }
 
 // The Dragon 64 Plus: MAME's d64plus() starts from dragon64(config) (src/mame/trs/dragon.cpp), so it has the 64's
-// 6551 and its RS-232 port, with PB0 of PIA1 reading the port's RXD.
+// 6551 and its RS-232 port (its printer port: tests/dragon-printer.test.js).
 {
   const p = Emu.profiles.d64plus;
   const m = Emu.createMachine('d64plus');
   m.reset(true);
   check('d64plus: the 6551 has its RS-232 port, as the Dragon 64\'s', p.acia === true && p.rs232 === true && !!m.acia);
-  m.write(0xFF23, 0x00); m.write(0xFF22, 0x00); m.write(0xFF23, 0x04);
-  m.acia.attachSerial('terminal', { baud: 1200 });
-  const idle = m.read(0xFF22) & 1;
-  m.acia.port.send([0x00], m.ioTime());
-  check('d64plus: PIA1 PB0 follows the 6551\'s port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
 }
 
 // ---- RAM options: the CoCo's 4K/16K/32K/64K ----
