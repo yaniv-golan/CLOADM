@@ -582,8 +582,21 @@ export function createFeedback() {
     // `settle()` records the key from the state the page is actually in now; `box`'s class and the region's own inline
     // style are both inputs, so this must follow the last write of each branch.
     const settle = () => { measuredFor = JSON.stringify(readInputs()); };
-    if (d.kind === 'natural') { decided = d; if (cur) cur.pinned = false; dropClass(box, 'compact'); settle(); seen(); return; }
-    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; if (cur) cur.pinned = false; settle(); seen(); return; }
+    // A placement whose own box lies over a touch key is never SETTLED: the cache would keep it there for the rest of
+    // the toast's life. That is what a phone's first frame does -- the toast is raised and decided before the pad's
+    // keys are laid out (keyRects empty), so the stylesheet's bottom spot looks free and is cached while the keys,
+    // laid out a frame later, are under it (measured: page.tap on #touchPad [data-key="→"] timed out, the toast at
+    // y 478-540 over the key at 461-509). Left unsettled, the next frame re-decides with the keys in hand and the
+    // toast moves clear (measured after: 521-540, the key's centre back on the key).
+    // THIS is the fix; decide() needed no change of its own. `controls` (CONTROLS, above) already holds every shown
+    // #touchKeys button, so the places decide() tries already avoid the keys once they are laid out, and keyRects is a
+    // subset of them: adding it there changed nothing (measured: with those additions removed the mobile check is
+    // still green 3/3, and mutants of them survive). What was missing was only this: not trusting a decision taken
+    // before the keys existed. The cost is transient: while no key-free place can be found the toast re-runs
+    // readInputs() and decide() each frame, and it stops as soon as a clear place exists (or the toast goes).
+    const overKey = () => (I.keyRects || []).some((k) => hitsRect(box.getBoundingClientRect(), k));
+    if (d.kind === 'natural') { decided = d; if (cur) cur.pinned = false; dropClass(box, 'compact'); if (!overKey()) settle(); seen(); return; }
+    if (d.kind === 'placed') { put(d.left, d.top, d.width); decided = d; if (cur) cur.pinned = false; if (!overKey()) settle(); seen(); return; }
     if (d.kind === 'band') {
       // the compact form is a layout question, so it is measured here; `decided` records which form fit, so the
       // re-apply never measures again

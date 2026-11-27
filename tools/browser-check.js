@@ -5680,6 +5680,42 @@ async function phoneChecks(browser, base, check) {
   const back = await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
   check('phone: Hide keys (Power sheet), then ⌨: the keys come back, and the chip row is up throughout',
     hiddenNow && chipsWhileHidden && back && await page.evaluate(() => document.getElementById('chipRow').checkVisibility()), JSON.stringify({ hiddenNow, chipsWhileHidden, back }));
+  // The screen's height is measured from the panel's own box (--tk-below, js/ui/touch-keys.js): a class change that
+  // resizes the panel must update that length in the same task, or the screen keeps the height of the layout that was
+  // there before. A wait cannot see that frame -- by the time a check reads, the layout has caught up -- so BOTH
+  // transitions (Hide keys, Show keys) and the reads after each happen in ONE page task here, with no await and no
+  // second evaluate between a click and its read: a task boundary is the only thing that lets the ResizeObservers run.
+  // WHAT THIS PROVES, exactly: that fit() runs inside apply(), at the instant the class changes (red 3/3 on clean main,
+  // the first read after each click off by the whole panel: gotDown 330 against the 56 the keys-hidden layout needs).
+  // It does NOT reproduce the 18 px overflow itself, which needs a frame between the two transitions (measured: at the
+  // frame after a Show keys click, not synchronously); the group's own "upright, the page does not scroll" check is
+  // what saw that, intermittently, before the fix.
+  await page.tap('#chipPower');                     // (Hide keys is in the Power sheet; the keys are up here)
+  await waitFor(page, () => document.getElementById('sheetPower').open && !document.getElementById('touchKeys').hidden);
+  const sameTask = await page.evaluate(() => {
+    const doc = document.documentElement, below = () => parseFloat(getComputedStyle(doc).getPropertyValue('--tk-below'));
+    // what the length must be for the layout showing now: the same sum js/ui/touch-keys.js's fit() makes (the chip
+    // row's foot, or the panel's, past the screen)
+    const want = () => {
+      const m = document.querySelector('.layout > main > .monitor').getBoundingClientRect();
+      const chips = document.getElementById('chipRow'), box = document.getElementById('touchKeys');
+      const last = chips.checkVisibility() ? chips : box.hidden ? null : box;
+      return last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
+    };
+    // (the boxes the first transition starts from: measured with the keys up, before anything changes)
+    const wantUp0 = want(), gotUp0 = below();
+    document.getElementById('btnHideKeys').click();
+    const gotDown = below();                         // the FIRST read after the click: no task boundary since it
+    const wantDown = want(), shDown = doc.scrollHeight;
+    document.getElementById('btnShowKeys').click();
+    const gotUp = below();                           // ditto: the first read after the click
+    const wantUp = want(), shUp = doc.scrollHeight;
+    return { up: !document.getElementById('touchKeys').hidden, wantUp0, gotUp0, gotDown, wantDown, shDown, gotUp, wantUp, shUp, h: innerHeight };
+  });
+  check('phone: the panel\'s height is measured again in the task that changes it, so the screen never keeps the height of the layout before (Hide keys, then Show keys, each read with no frame between)',
+    sameTask.up && sameTask.gotUp0 === sameTask.wantUp0 && sameTask.gotDown === sameTask.wantDown && sameTask.gotUp === sameTask.wantUp
+      && sameTask.shDown <= sameTask.h && sameTask.shUp <= sameTask.h, JSON.stringify(sameTask));
+  await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
   // the page does not scroll: the header, the screen, the panel and the chips fit the window
   const fits = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, h: innerHeight }));
   check('phone: upright, the page does not scroll (scrollHeight within the window)', fits.sh <= fits.h, JSON.stringify(fits));
