@@ -16,7 +16,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   the screen stayed green, and "No OK after 5 seconds" blamed CLOADM. Open… now sorts what it is given as a drop on the
   screen does (a ROM to Your ROMs, the rest loaded as before, a cartridge still a cartridge), and a load of a machine's
   or a disk controller's ROM image (by its contents or its usual name) is refused as a ROM to add (Add ROMs on the page,
-  `--roms` for the command line and the MCP server), also through the MCP `load` tool and the command line.
+  `add_roms` for the MCP server, `--roms` for the command line), also through the MCP `load` tool and the command line.
 
 ### 0.4.1
 

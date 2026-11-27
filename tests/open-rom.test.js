@@ -54,7 +54,7 @@ const D64_2 = Emu.profiles.dragon64.roms.find((r) => r.id !== 'basic' && !r.chip
     check(`${what}: Session.isRom says so`, Emu.Session.isRom(name, bytes));
     const e = refused(() => s.load(name, bytes));
     check(`${what}: load refuses it, saying it is a ROM to add, not a cartridge`,
-      e instanceof Emu.SessionError && e.message === `${name} is a ROM image for a machine or a disk controller, not a cartridge: add it as a ROM (Add ROMs on the page, --roms for the command line and the MCP server).`, e && e.message);
+      e instanceof Emu.SessionError && e.message === `${name} is a ROM image for a machine or a disk controller, not a cartridge: add it as a ROM (Add ROMs on the page, \`add_roms\` for the MCP server, --roms for the command line).`, e && e.message);
     check(`${what}: nothing went into the cartridge slot, the machine was not restarted, and it is not on the recent list`,
       m.cartPort === null && s.shownMachine === m && !m.hasRom && s.library.recentMedia().length === before,
       JSON.stringify({ cart: m.cartPort && m.cartPort.name, recent: s.library.recentMedia().length }));
@@ -84,7 +84,7 @@ const D64_2 = Emu.profiles.dragon64.roms.find((r) => r.id !== 'basic' && !r.chip
       m.cartPort === null, m.cartPort && m.cartPort.name);
     const sockets = s.machineRoms('dragon64').sockets;
     check('the stand-in ROMs are recognised by contents (as in the report)', sockets.filter((x) => !x.chip).every((x) => x.status === 'verified'), JSON.stringify(sockets));
-    check('BASIC (our stand-in) prints OK: the boot watchdog finds no failure', s.bootStatus().state === 'ok', JSON.stringify(s.bootStatus()));
+    check('with the ROMs added and the slot empty, our stand-in BASIC boots to OK (a sanity check of this set-up; it masks FIRQ, so it would boot with a cartridge in too)', s.bootStatus().state === 'ok', JSON.stringify(s.bootStatus()));
     console.log(fail ? `${fail} failed` : 'all passed');
     process.exitCode = fail ? 1 : 0;
   })().catch((err) => { console.log(`FAIL ${err.stack}`); process.exitCode = 1; });

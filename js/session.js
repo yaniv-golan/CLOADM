@@ -2622,7 +2622,7 @@ export class Session {
   // prints OK. It is a ROM to add (addRoms; the page's Open… and a drop on the screen send it there).
   load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false, noRoms = false } = {}) {
     if (detectMedia(name, bytes).kind === 'cart' && Session.isRom(name, bytes)) {
-      throw new SessionError(`${name} is a ROM image for a machine or a disk controller, not a cartridge: add it as a ROM (Add ROMs on the page, --roms for the command line and the MCP server).`);
+      throw new SessionError(`${name} is a ROM image for a machine or a disk controller, not a cartridge: add it as a ROM (Add ROMs on the page, \`add_roms\` for the MCP server, --roms for the command line).`);
     }
     this.loadStarted = true;
     const m = this.loadTarget().m;

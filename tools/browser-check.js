@@ -3915,6 +3915,11 @@ async function mediaChecks(browser, base, check) {
   await waitFor(page, () => !document.getElementById('mediaOffer').hidden);
   check('media: a CoCo binary on a Dragon offers to switch', /^game\.bin is a DECB binary for a CoCo; the Dragon 64 may not run it\.$/.test(await page.textContent('#mediaOfferText'))
     && await page.textContent('#btnMediaSwitch') === 'Open on CoCo 1/2', await page.textContent('#mediaOffer'));
+  // the offer keeps the keyboard focus: Open… sorts the files first (js/ui/rom-panel.js take), which must not take the
+  // focus back to the screen after the loader has shown the offer (a short wait lets any later focus call happen)
+  await page.waitForTimeout(300);
+  check('media: the offer has the focus (Open on…), not the screen', await page.evaluate(() => document.activeElement && document.activeElement.id) === 'btnMediaSwitch',
+    await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
   if (shotDir) await page.locator('#mediaOffer').screenshot({ path: path.join(shotDir, 'media-offer.png') });
   await page.click('#btnMediaSwitch');
   check('media: "Open on" switches machine and runs it there', await waitFor(page, () => window.emu.machine.id === 'coco' && window.emu.machine.cpu.a === 0x41 && window.emu.machine.cpu.pc === 0x3002));
