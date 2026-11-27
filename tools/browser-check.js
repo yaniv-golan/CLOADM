@@ -2649,7 +2649,7 @@ async function romUiChecks(browser, base, check) {
   check('sockets: nothing dropped yet', /Nothing yet/.test(await page.textContent('#romFound')) && await page.isHidden('#btnRomSwitchOn'));
   check('sockets: the given copy, and the way to the /roms page', await page.$eval('#romsLink', (a) => new URL(a.href).pathname) === '/roms/'
     && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(await page.textContent('#romCard'))
-    && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Anthropic as part of your conversation\./.test(await page.textContent('#romCard')));
+    && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Kapai \(or to Anthropic, with your own key\) as part of your conversation\./.test(await page.textContent('#romCard')));
   await shot('missing');
   await page.click('#btnRunStub');
   check('sockets: "Run without ROMs" runs without them: the welcome menu', await waitFor(page, () => window.emu.session.welcomeRunning && !window.emu.machine.hasRom)
@@ -9752,7 +9752,7 @@ async function readingChecks(browser, site, check) {
       check('/roms: says it in one place: dump your own, the archive keeps the XRoar sets, copyright, never downloaded',
         /Dump your own/.test(text) && /The community-run Color Computer Archive keeps the ROM sets XRoar uses/.test(text)
         && /ROMs are copyrighted by Microsoft, Tandy, Dragon Data and others\. CLOADM doesn't include them and never\s+downloads them\./.test(text)
-        && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(text) && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Anthropic as part of your conversation\./.test(text));
+        && /File names don't matter: CLOADM recognises ROMs by their contents\./.test(text) && /ROMs stay in this browser\. CLOADM never uploads them and never puts them in share links or exported settings\. If you use Claude, what it reads from the machine's memory \(ROM areas included\) is sent to Kapai \(or to Anthropic, with your own key\) as part of your conversation\./.test(text));
       check('/roms: links the archive\'s ROM folder as a plain link', await page.getAttribute('#archiveRoms', 'href') === 'https://colorcomputerarchive.com/repo/ROMs/XRoar/'
         && /noreferrer/.test(await page.getAttribute('#archiveRoms', 'rel')));
       const rows = await page.$$eval('table.plain tbody tr td:first-child', (r) => r.map((x) => x.textContent));
@@ -12891,7 +12891,8 @@ async function consentFullscreenChecks(browser, base, check) {
   await page.goto(`${base}?machine=dragon64&app=claude`);
   await started(page);
   await waitFor(page, () => window.emu.session.claudeView === 'full', null, 15000);
-  await page.evaluate(() => { const b = window.emu.session.chat.backend, f = b.fetch; window.emu.__sent = 0; b.fetch = (...a) => { window.emu.__sent++; return f(...a); }; });
+  // (the saved key's requests are the page's own fetch to the Messages API, made for Kapai's own-AI source: counted there)
+  await page.evaluate(() => { const f = window.fetch; window.emu.__sent = 0; window.fetch = (...a) => { if (String(a[0]).startsWith('https://api.anthropic.com/')) window.emu.__sent++; return f(...a); }; });
   check(`${L}: "Let Claude use the emulator" starts off`, !(await page.isChecked('#chkClaudeTools')) && await page.evaluate(() => !window.emu.session.consent.allowed));
 
   // the first acting tool asks; "Just tell me the fix" refuses it
@@ -22759,6 +22760,12 @@ async function armGuardChecks(browser, base, check) {
   await stubPrompt(page);
   // ---- the key card: Save key ----
   await page.click('#btnAsk');
+  // (no key is needed: Kapai's included AI answers, so the message box shows and arms first; once it has, and its
+  // announcement is read, "Use my own key…" shows the key card, which arms on its own)
+  await until('askComposer', 520);
+  await waitFor(page, () => document.getElementById('armAnnounce').textContent !== '', null, 5000);
+  await ev(() => { document.getElementById('armAnnounce').textContent = ''; });
+  await page.click('#btnAskKeyChange');
   await waitFor(page, () => document.getElementById('askKeyForm').checkVisibility());
   const state0 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), disabled: document.getElementById('btnAskKeySave').disabled,
     anim: getComputedStyle(document.getElementById('askKeyForm')).animationName, dur: getComputedStyle(document.getElementById('askKeyForm')).animationDuration,
@@ -22773,9 +22780,11 @@ async function armGuardChecks(browser, base, check) {
   const inputSoon = await tooSoon('askKeyForm', 'btnAskKeySave', 'enter@askKeyInput', () => !!window.emu.session.keyStore.get());
   check(`${L}: Enter in the key box too soon (it presses Save key) does nothing, and the typing stays where it was`,
     !inputSoon.late && inputSoon.done === false && inputSoon.focus === 'askKeyInput', JSON.stringify(inputSoon));
+  // (every announcement is kept: the message box is on screen beside the key form, so its own "ready" can come last)
+  await ev(() => { window.__armSaid = []; new MutationObserver(() => { const t = document.getElementById('armAnnounce').textContent; if (t) window.__armSaid.push(t); }).observe(document.getElementById('armAnnounce'), { childList: true, characterData: true, subtree: true }); });
   await until('askKeyForm', 520);
-  await waitFor(page, () => document.getElementById('armAnnounce').textContent !== '', null, 5000);
-  const state1 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), said: document.getElementById('armAnnounce').textContent,
+  await waitFor(page, () => window.__armSaid.includes('API key form ready.'), null, 5000);
+  const state1 = await ev(() => ({ aria: document.getElementById('btnAskKeySave').getAttribute('aria-disabled'), said: window.__armSaid.includes('API key form ready.') ? 'API key form ready.' : window.__armSaid.join('|'),
     look: (() => { const c = getComputedStyle(document.getElementById('btnAskKeySave')); return `${c.opacity} ${c.backgroundColor} ${c.color}`; })() }));
   check(`${L}: at 500 ms it takes presses, looking just as it did (no flash), and the card is announced`,
     state1.aria === null && state1.look === state0.look && state1.said === 'API key form ready.', JSON.stringify({ state0, state1 }));
@@ -22864,7 +22873,9 @@ async function armGuardChecks(browser, base, check) {
   // ---- the full-screen chat's key card and switch ----
   await page.goto(`${base}?machine=dragon64&app=claude`);
   await started(page);
-  await waitFor(page, () => window.emu.session.claudeView === 'full' && document.getElementById('claudeKeyCard').checkVisibility(), null, 15000);
+  await waitFor(page, () => window.emu.session.claudeView === 'full' && document.getElementById('btnClaudeKeyChange').checkVisibility(), null, 15000);
+  await page.click('#btnClaudeKeyChange');
+  await waitFor(page, () => document.getElementById('claudeKeyCard').checkVisibility(), null, 15000);
   await page.fill('#claudeKeyInput', KEY);
   await ev(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   const fsSoon = await tooSoon('claudeKeyCard', 'btnClaudeKeySave', 'click', () => !!window.emu.session.keyStore.get());
