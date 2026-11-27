@@ -8,6 +8,8 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+### 0.4.0
+
 #### Added
 
 - **Share a program with its source.** The Assembler's **Share…** (after a successful assemble) opens the Share screen on
