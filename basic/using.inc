@@ -263,7 +263,29 @@ UM1     LDA     <USFLG
         JSR     QINT
         JSR     U32DEC          ; X = the digits, B = how many
         LBRA    UMBODY
-UMOV    JSR     FOUT            ; too large for 32 bits: % and the number as PRINT has it
+* Too large for 32 bits: FOUT's nine digits and zeros after them, in the field as any other (too wide for it:
+* after a %), so "#####.#####" prints 100000.5 as "%100000.50000" and 99999.5 as "99999.50000" [BB bb9
+* print-using-odd]. From 2^66 on (more than 20 digits): % and the number as PRINT has it [OWN].
+UMOV    CMPA    #128+66
+        BHI     UMOV2
+        INC     <FONINE
+        JSR     FOUT            ; nine digits in FPDIG, the exponent of the first in FPE10 (9 to 19)
+        CLR     <FONINE
+        LDX     #FBUFFR
+        LDU     #FPDIG
+        LDB     #9
+        JSR     CPYUX
+        LDB     <FPE10+1        ; the zeros: FPE10 - 8 of them
+        SUBB    #8
+        LDA     #'0'
+UMOV1   STA     ,X+
+        DECB
+        BNE     UMOV1
+        LDB     <FPE10+1
+        INCB
+        LDX     #FBUFFR
+        LBRA    UMBODY
+UMOV2   JSR     FOUT
         LDA     #'%'
         JSR     <ZCHROUT
         JMP     <ZPRTSTR
@@ -313,6 +335,13 @@ UME3    DECB                    ; round up: carry along
 UME4    LDA     #'1'            ; it carried out: 1000... and one place more
         STA     ,X
         JSR     E10INC
+        TST     ,S              ; with a sign's place, the 1 takes it and the exponent stays: ".##^^^^" prints
+        BEQ     UME5            ; 999999999 as ".10E+10", "#.##^^^^" as "1.00E+09" [BB bb9 print-using-odd]
+        CLR     ,S
+        INC     <USNB
+        LDB     <USK
+        LDA     #'0'
+        STA     B,X
 UME5    LDD     <FPE10          ; the exponent shown: E - (digits before the point - 1)
         TST     <FACEXP
         BNE     UME6

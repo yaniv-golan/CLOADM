@@ -291,6 +291,7 @@ node tests/basic-lang.test.js [case...]       # the clean-room BASIC: each case 
 node tests/basic-fp.test.js [n]   # the clean-room BASIC's floating point, its routines called on the CPU against the bit-exact model tests/basic/fpmodel.js (n random operand pairs per operation, default 3000)
 node tests/basic-math.test.js [n]   # the clean-room BASIC's SQR, LOG, EXP, SIN, COS, ATN, ^, INT called on the CPU against the exact values (tolerances in units in the last place)
 node tests/basic-rnd.test.js   # the clean-room BASIC's RND against the original's recorded sequence (bb8 rnd-seq): its 434 values and their bytes, the seed at 278-281, the generator's formula on the CPU
+node tests/basic-bb9-expr-using.test.js   # the clean-room BASIC against two bb9 records replayed whole: NOT after an operator (expr-not) and PRINT USING's odd fields (print-using-odd); with mutants
 node tests/basic-screen.test.js   # the clean-room BASIC's CLS and CLS c (each colour's block in screen memory, ?FC past 8)
 node tests/basic-pause.test.js   # the clean-room BASIC's keyboard checks while a program runs: SHIFT-@ pauses it until another key, @ alone does not, BREAK stops it; with mutants
 node tests/basic-gfx.test.js   # the clean-room BASIC's graphics pages and points: PSET, PRESET, PCLS, COLOR in every PMODE and colour set against the reference model tests/basic/gfxmodel.js byte for byte, PPOINT, PCOPY, SET/RESET/POINT, SCREEN's PIA and SAM bits, PCLEAR moving the program, the return to text at OK, the errors

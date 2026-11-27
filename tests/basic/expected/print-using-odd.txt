@@ -1,0 +1,24 @@
+# [BB bb9 print-using-odd] the real ROM's transcript: a number of more than 32 bits once scaled to its decimals prints its digits in the field ("%100000.50000" in a field one place too narrow, "100000.50000" and "99999.50000" where it fits); an exponent field's rounding that carries out puts the 1 in the sign's place and keeps the exponent (".10E+10", ".10E+09", "1.00E+09")
+OK
+PRINT USING "#####.#####";100000
+.5
+%100000.50000
+OK
+PRINT USING "######.#####";10000
+0.5
+100000.50000
+OK
+PRINT USING "#####.#####";99999.
+5
+99999.50000
+OK
+PRINT USING ".##^^^^";999999999
+.10E+10
+OK
+PRINT USING ".##^^^^";99999999
+.10E+09
+OK
+PRINT USING "#.##^^^^";999999999
+
+1.00E+09
+OK
