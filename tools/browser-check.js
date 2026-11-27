@@ -12379,7 +12379,9 @@ async function wyrmfireChecks(browser, site, check) {
       await started(pg);
       await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
       for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
-      const seen = await waitFor(pg, (n) => window.__toasts.length >= n, 3, 20000) && await pg.evaluate(() => ({ toasts: window.__toasts, raised: window.__raised }));
+      // the wait returns false on timeout; the check's detail carries what WAS seen either way
+      await waitFor(pg, (n) => window.__toasts.length >= n, 3, 20000);
+      const seen = await pg.evaluate(() => ({ toasts: window.__toasts, raised: window.__raised }));
       check('wyrmfire: an unrelated toast replacing one in the chain is shown itself, and the chain goes on after it: the switch, the unrelated one, the keys (none dropped, in order)',
         seen.raised && seen.toasts.join(' | ') === `${SWITCHED} | ${UNRELATED} | ${KEYS}`, JSON.stringify(seen));
       await c.close();
