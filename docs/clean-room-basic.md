@@ -183,6 +183,11 @@ These are hard rules for everyone who works on this ROM.
     0 or reaches 65536, so neither is evidenced (`X=105`, `X=1005`, `X=655361`). The wait is in `FIN`, so `VAL`,
     `READ` and `INPUT` of a number wait as a constant does; no record times them (`X=VAL("32767")`, `READ X` of
     `DATA 32767`).
+* **`EDIT`** ([BB] bb10 `stmt-edit`, section 11 row 57; `lineinput.inc`) took 206 bytes: 16,115, the code ending at
+  `$BFE5`, 13 bytes below the vectors. The line is spelt out by `LSTLIN` itself, its output sent into the line buffer
+  by pointing the two-byte call `ZCHROUT` at a store for that one call, so no `LIST` code was added or slowed; the
+  count lives in B, which `KEYWT` keeps; ENTER hands the line to the main loop where a typed line goes (`MAINLN`, which
+  now sets `CURLIN` to `$FFFF` after the line is typed instead of before: nothing reads it during the wait).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -243,7 +248,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `boot.inc` | cold start (PIAs, SAM, pointers, banner), warm start (reset with a valid flag), the RAM vectors, the 50 Hz field interrupt (`TIMER`) |
 | `screen.inc` | character output: the 32 x 16 screen, scrolling, `CLS`, lower case shown inverse [HW]; printing line numbers |
 | `keyboard.inc` | the matrix scan through PIA 0, debounce, SHIFT, SHIFT-0 lower-case toggle, the blinking cursor, BREAK and SHIFT-@ between statements [UM, HW] |
-| `lineinput.inc` | the input line editor: typing, left arrow erases, SHIFT-left arrow erases the line, BREAK, CLEAR [UM] |
+| `lineinput.inc` | the input line editor: typing, left arrow erases, SHIFT-left arrow erases the line, BREAK, CLEAR [UM]; `EDIT` [BB bb10 stmt-edit] |
 | `errors.inc` | the error codes and messages, `?XX ERROR` / `?XX ERROR IN n` [UM] |
 | `interp.inc` | the main loop: direct mode, statement dispatch, `CHRGET`, `END`, `STOP`, `CONT`, `REM`, `DATA` when run, `TRON` / `TROFF`, `GOTO`, `GOSUB` / `RETURN`, `RUN`, `NEW`, `CLS` |
 | `program.inc` | finding, storing, replacing and deleting lines; `NEW`; `LIST` and `DEL` (and their range); `RENUM`; uncrunching keywords |
@@ -419,6 +424,8 @@ All of them run with no ROM, on our ROM assembled at test time.
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
+* **`tests/basic-edit.test.js`:** `EDIT`: the bb10 record `stmt-edit` replayed, ours identical to it, with a mutant of
+  each rule (row 57) that must not be; and our own limit (an insertion into a full line takes nothing).
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
   off-by-one in `MID$`, a missing scroll) that must fail it; the list is kept in the report of each milestone.
 * **The regression hashes** (`tests/regress.test.js`) stay unchanged: nothing in the emulator changes.
@@ -758,6 +765,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 54 | `$0115` is 128 at a cold start; `RND` neither reads nor writes it, and NEW, CLEAR and RUN leave `$0115-$0119` as they are | [BB] bb9 `rnd-state` (2026-11-27) |
 | 55 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours not yet matched: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
 | 56 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads all six so now: open question 11; the old "at most one unit" round-trip bound was our assumption, not a record) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
+| 57 | `EDIT n` prints the line as `LIST` does, then the line's number and a space again, and takes keys: ENTER shows the rest of the line and stores it as a typed line is stored (no `OK` after it, in direct mode or in a program, which ends there); X shows the rest and inserts what is typed; L shows the rest and starts the line again (a third copy); a count of digits and space moves that many characters on, showing them; H deletes the rest and inserts; nD deletes n characters, showing nothing for them (`2D` on `PRINT 7` leaves `INT 7`). `EDIT 99` with no line 99, and `EDIT` with no number, are `?UL ERROR`. The other keys and commands, BREAK, the left arrow in insertion and a full line are ours [OWN] until bb11's `stmt-edit2` and `stmt-edit3` answer them (ours: a key that is no command does nothing; in insertion only a printable key goes in; a line of 250 characters with its number takes no more) | [BB] bb10 `stmt-edit` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -967,7 +975,7 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | Update or scan first | whether a key already down when the wait starts is accepted before the first update |
 | Cold-start values | `PEEK(143)` and `PEEK(151)*256+PEEK(152)` right after power-on and after the reset button |
 | The debounce | what the original's delay at `$0097-$0098` times, and its value |
-| Where else updates run | whether any other wait (a cassette prompt, `EDIT`, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait |
+| Where else updates run | whether any other wait (a cassette prompt, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait and `EDIT`'s, which is the same `KEYWT` |
 
 **Entry points (input for P3, not built).** Where ROM-call compatibility is in scope, the specification names these
 addresses as interfaces, not as places in the original's code. Register, condition-code and stack effects, and the

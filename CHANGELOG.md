@@ -170,6 +170,12 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   sign's place and keeps the exponent (`".##^^^^";999999999` is `.10E+10`, `"#.##^^^^"` gives `1.00E+09`), as on the
   original. Both bb9 cases now match their records (`tests/basic-bb9-expr-using.test.js`). The ROM is 66 bytes larger
   (15,905).
+  `EDIT` works, as the bb10 record `stmt-edit` shows it on the original (it gave `?FC ERROR`): `EDIT n` prints the
+  line, then its number again for editing; ENTER shows the rest and stores the line, X goes to the end and inserts,
+  L shows the line and starts again, a count and space moves on, H deletes the rest and inserts, nD deletes n
+  characters, and a missing line or no number is `?UL ERROR`; in a program it ends the program with no `OK`. Ours
+  matches the record exactly (`tests/basic-edit.test.js`). The other edit commands wait for the bb11 probes
+  (`stmt-edit2`, `stmt-edit3`). The ROM is 206 bytes larger (16,115; 13 bytes are left below the vectors).
 
 ### 0.3.1
 
