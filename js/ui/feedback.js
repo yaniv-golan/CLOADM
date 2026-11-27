@@ -78,12 +78,14 @@ export function decide(I) {
   const band = t && t.width && t.height && text ? { left: Math.max(t.left, c.left, area.left) + 8, right: Math.min(t.right, c.right, area.right) - 8,
     top: Math.max(text.bottom, c.bottom) + 2, bottom: Math.min(t.bottom, area.bottom) - 4 } : null;
   const offText = controls.concat(text ? [text] : []);
-  // a toast never takes a key's tap, upright as well as sideways: the pad's keys are avoided like a control here, so the
-  // stylesheet's own (bottom) spot, the top edge and the band all keep off them. Held upright the band stops at the
-  // canvas, so without this a toast on a phone short enough for the pad (WYRMFIRE, 375x548) sat on the pad's own row and
-  // took the → key's tap (measured: #touchPad [data-key="→"] at y 461-509 under a toast at 478-540).
-  const off = offText.concat(I.keyRects || []);
-  const keysHit = (a) => (I.keyRects || []).some((k) => hits(a, k));
+  // a toast never takes a key's tap, upright as well as sideways: the pad's keys join `controls` (the list the
+  // candidate places avoid -- NOT `offText`, which is those places plus the screen's text, a different rule), and the
+  // band, whose own list is `offText`, gets them too. Held upright the band stops at the canvas, so without this a
+  // toast on a phone short enough for the pad (Minesweeper, 375x548) sat on the pad's own row and took the → key's tap
+  // (measured: #touchPad [data-key="→"] at y 461-509 under a toast at 478-540, and page.tap on it timed out).
+  const keys = I.keyRects || [];
+  const off = controls.concat(keys);
+  const keysHit = (a) => keys.some((k) => hits(a, k));
   tries.push([r.left, area.top + (phone ? 8 : 16), true]);
   const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? off.concat(screen) : off.concat(pic)));
   if (at) {
@@ -92,7 +94,7 @@ export function decide(I) {
     // is not `natural` -- it takes the first free place below, or the fallback slot)
     return { kind: 'placed', left: `${Math.round(at[0])}px`, top: `${Math.round(at[1])}px`, width: phone ? `${Math.round(w)}px` : null };
   }
-  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText: off, fullWidth: w };
+  if (band && band.right - band.left > 40 && band.bottom - band.top > 12) return { kind: 'band', band, offText: offText.concat(keys), fullWidth: w };
   return { kind: 'top' };
 }
 
