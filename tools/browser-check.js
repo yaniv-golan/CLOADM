@@ -26110,23 +26110,51 @@ async function menuStructureChecks(browser, base, check) {
   // a tablet with the touch keys (820x1180 upright, 1180x820 sideways but taller than 500 px): no Menu button, the app
   // bar's own links are Menu's rows in Menu's order, less what the bar or the page shows itself (Open…, Ask Claude…,
   // Share…, Add ROMs…, the machine; the ports and Power with their chips; Hide keys in Power); GitHub with its ↗; and
-  // "Ctrl K" after Commands… as the app bar shows it there
+  // "Ctrl K" after Commands… as the app bar shows it there (the Mac row after this loop says ⌘K, its own literal)
+  //
+  // The bar's links, read from the page. Shared by the PC and Mac rows below, which differ only in the platform pinned
+  // before the page loads and in the key they expect.
+  const TABLET_BAR = async (page) => page.evaluate(() => {
+    const nav = document.querySelector('#appbar nav');
+    const rows = [...nav.children].filter((e) => e.matches('a, button') && e.id !== 'btnMore' && e.checkVisibility());
+    return { platform: navigator.platform, menuBtn: document.getElementById('btnMenu').checkVisibility(), touch: document.body.classList.contains('touch-keys'),
+      rows: rows.map((e) => e.innerText.replace(/\s+/g, ' ').trim()), kbd: document.getElementById('navCmdKbd').checkVisibility(),
+      github: document.querySelector('#navGithub .ext').checkVisibility() };
+  });
+  const TABLET_WANT = (kbd) => DESIGN_MENU.flat()
+    .filter((x) => !['Open…', 'Ask Claude…', 'Share…', 'Machine…', 'Tape, disks and cartridge…', 'Power…', 'Add ROMs…', 'Hide keys'].includes(x))
+    .map((x) => (x === 'Commands…' ? `Commands… ${kbd}` : x));
+  // A PC's platform, pinned before the page loads, so these rows assert the literal "Ctrl K" whatever host runs it.
+  // Before this pin they asserted whichever platform they happened to run on: on a Mac the page correctly shows
+  // "Commands… ⌘K" (js/ui/command-box.js:151-154 derives it from navigator.platform) and both failed for nothing.
+  // (The pin's own effect is asserted in the Mac row below: deleting the init there is invisible on a Mac host, so it
+  // must fail somewhere, or the pin would be unpinned without anyone knowing.)
   for (const [w, h] of [[820, 1180], [1180, 820]]) {
     const L = `menu structure (tablet, touch keys, ${w}x${h})`;
-    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64');
-    const bar = await page.evaluate(() => {
-      const nav = document.querySelector('#appbar nav');
-      const rows = [...nav.children].filter((e) => e.matches('a, button') && e.id !== 'btnMore' && e.checkVisibility());
-      return { menuBtn: document.getElementById('btnMenu').checkVisibility(), touch: document.body.classList.contains('touch-keys'),
-        rows: rows.map((e) => e.innerText.replace(/\s+/g, ' ').trim()), kbd: document.getElementById('navCmdKbd').checkVisibility(),
-        github: document.querySelector('#navGithub .ext').checkVisibility() };
-    });
-    const want = DESIGN_MENU.flat().filter((x) => !['Open…', 'Ask Claude…', 'Share…', 'Machine…', 'Tape, disks and cartridge…', 'Power…', 'Add ROMs…', 'Hide keys'].includes(x))
-      .map((x) => (x === 'Commands…' ? 'Commands… Ctrl K' : x));
+    const { ctx, page, errors } = await open({ width: w, height: h }, '?machine=dragon64', { init: () => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }) });
+    const bar = await TABLET_BAR(page);
+    const want = TABLET_WANT('Ctrl K');
+    check(`${L}: the page is pinned to a PC's platform, so the row below really tests the Ctrl K branch`, bar.platform === 'Linux x86_64', JSON.stringify(bar.platform));
     check(`${L}: the app bar's links are Menu's rows in Menu's order (the snapshots after Settings…, GitHub ↗), "Ctrl K" after Commands… as the bar shows it`,
       bar.touch && !bar.menuBtn && JSON.stringify(bar.rows) === JSON.stringify(want) && bar.kbd && bar.github, JSON.stringify({ bar, want }));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `menu-structure-tablet-${w}x${h}.png`) });
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // The app bar on a Mac: ⌘K after Commands…, from the page's own platform rule (js/ui/command-box.js:151-154). Its own
+  // literal, not a copy of the PC rows' above: with the platform pinned to MacIntel, a page that stopped taking its Mac
+  // branch fails this row while the PC rows stay green, and a page that always said ⌘K fails them while this one passes.
+  // (One row: the key does not depend on the viewport, and both tablet rows above already cover the bar at each size.)
+  {
+    const { ctx, page, errors } = await open({ width: 820, height: 1180 }, '?machine=dragon64', { init: () => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }) });
+    const bar = await TABLET_BAR(page);
+    const want = TABLET_WANT('⌘K');
+    // (asserted, not implied: on a Mac host the row below passes with or without the pin, so this is what fails if the
+    // pin is ever dropped, and what tells a Linux CI that this row is not accidentally testing the host's own platform)
+    check('menu structure (tablet, touch keys, Mac): the page is pinned to a Mac\'s platform, so the row below really tests the ⌘K branch', bar.platform === 'MacIntel', JSON.stringify(bar.platform));
+    check('menu structure (tablet, touch keys, Mac): the app bar\'s links are Menu\'s rows in Menu\'s order (the snapshots after Settings…, GitHub ↗), "⌘K" after Commands… as the bar shows it on a Mac',
+      bar.touch && !bar.menuBtn && JSON.stringify(bar.rows) === JSON.stringify(want) && bar.kbd && bar.github, JSON.stringify({ bar, want }));
+    check('menu structure (tablet, touch keys, Mac): no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
   // the open Menu, for the record (CI keeps these): upright, and sideways with the keys at 844x390
