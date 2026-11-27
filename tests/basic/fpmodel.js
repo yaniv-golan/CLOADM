@@ -15,17 +15,22 @@
 //    mantissas (with guard bytes) are added or subtracted as 40-bit numbers, and the result normalised;
 //  * multiply: the 64-bit product's top 40 bits (32 + 8 guard), normalised (at most one shift);
 //  * divide: 41 quotient bits by restoring division, normalised so 40 remain (32 + 8 guard);
-//  * an exponent above 255 is an overflow (?OV ERROR); below 1, the result is 0.
+//  * an exponent above 255 is an overflow (?OV ERROR); below 1, the result is 0;
+//  * a 0 (exponent 0) keeps a mantissa, as FAC does, and is packed with it, as the original stores 2.9E-39 as
+//    0,124,160,41,60 and 1E-39 as 0,32,0,0,0 [BB bb10 num-literal-bytes]: an underflow keeps the result's
+//    mantissa, a product or quotient with a 0 operand, or a quotient known to be too small before it is worked out,
+//    keeps FAC's (the right operand's), a sum with a 0 is the other operand.
 const M32 = (1n << 32n) - 1n;
 
 class OV extends Error { constructor() { super('OV'); } }
 class DZ extends Error { constructor() { super('/0'); } }
 
 const ZERO = () => ({ e: 0, m: 0n, s: false, x: 0 });
-const unpack = (b) => (b[0] === 0 ? ZERO() : { e: b[0], m: (BigInt(b[1] | 0x80) << 24n) | (BigInt(b[2]) << 16n) | (BigInt(b[3]) << 8n) | BigInt(b[4]), s: !!(b[1] & 0x80), x: 0 });
+const unpack = (b) => ({ e: b[0], m: (BigInt(b[1] | 0x80) << 24n) | (BigInt(b[2]) << 16n) | (BigInt(b[3]) << 8n) | BigInt(b[4]), s: b[0] !== 0 && !!(b[1] & 0x80), x: 0 });
+const zeroOf = (a) => ({ e: 0, m: a.m, s: false, x: 0 });   // FZERO: the exponent, sign and guard byte cleared
 // round to 32 bits (the guard byte's top bit rounds up); overflow past 255 is ?OV
 function round(a) {
-  if (a.e === 0) return ZERO();
+  if (a.e === 0) return { ...a, x: 0 };
   let { e, m } = a;
   if (a.x & 0x80) {
     m += 1n;
@@ -35,7 +40,6 @@ function round(a) {
 }
 function pack(a) {
   const r = round(a);
-  if (r.e === 0) return [0, 0, 0, 0, 0];
   const m = Number(r.m & M32);
   return [r.e, ((m >>> 24) & 0x7F) | (r.s ? 0x80 : 0), (m >>> 16) & 0xFF, (m >>> 8) & 0xFF, m & 0xFF];
 }
@@ -44,15 +48,15 @@ function norm40(v, e, s) {
   if (v === 0n) return ZERO();
   while (v < (1n << 39n)) { v <<= 1n; e--; }
   while (v >= (1n << 40n)) { v >>= 1n; e++; }
-  if (e < 1) return ZERO();
+  if (e < 1) return { e: 0, m: v >> 8n, s: false, x: 0 };
   if (e > 255) throw new OV();
   return { e, m: v >> 8n, s, x: Number(v & 0xFFn) };
 }
 
 function add(a0, b0) {
   let a = round(a0), b = round(b0);
+  if (a.e === 0) return b;                        // (FAC as it is when ARG is 0)
   if (b.e === 0) return a;
-  if (a.e === 0) return b;
   if (b.e > a.e) [a, b] = [b, a];                 // a: the larger exponent
   const d = a.e - b.e;
   const av = a.m << 8n;
@@ -67,7 +71,7 @@ const sub = (a, b) => add(a, neg(b));              // a - b
 
 function mul(a0, b0) {
   const a = round(a0), b = round(b0);
-  if (a.e === 0 || b.e === 0) return ZERO();
+  if (a.e === 0 || b.e === 0) return zeroOf(b);
   const p = a.m * b.m;                            // 64 bits, >= 2^62
   return norm40(p >> 24n, a.e + b.e - 128, a.s !== b.s);
 }
@@ -75,7 +79,8 @@ function mul(a0, b0) {
 function div(a0, b0) {                            // a / b
   const a = round(a0), b = round(b0);
   if (b.e === 0) throw new DZ();
-  if (a.e === 0) return ZERO();
+  if (a.e === 0) return zeroOf(b);
+  if (a.e - b.e + 128 < 0) return zeroOf(b);      // too small whatever the mantissas
   let r = a.m, q = 0n;
   for (let i = 0; i < 41; i++) {                  // quotient bits 2^0 .. 2^-40
     q <<= 1n;
@@ -136,10 +141,10 @@ function fout(a0) {
   if (a.e === 0) return sign + '0';
   a = { ...a, s: false };
   let e10 = 0;
-  // big steps of 1E9 from 1E17 down and from below 1 up, then single steps of 10, each rounded: the real ROM prints
-  // 1E5 - 6 x 2^-15 (its SQR(1E10)) as 99999.9999, which four rounded steps give and one product by 1E4 does not
-  // [BB bb1 fn-math, bb2 fn-sqr-bits]
-  while (cmp(a, P[17]) >= 0) { a = div(a, P[9]); e10 += 9; }
+  // big steps of 1E9 from below 1 up, then single steps of 10, each rounded: the real ROM prints 1E5 - 6 x 2^-15
+  // (its SQR(1E10)) as 99999.9999, which four rounded steps give and one product by 1E4 does not [BB bb1 fn-math,
+  // bb2 fn-sqr-bits]; from 1E9 up single quotients by 10 only: it prints 8E37's bytes as 8E+37 and
+  // 9.99999999E17's as 9.99999999E+17, which steps of 1E9 do not give [BB bb10 num-print-big, bb9 rnd-args]
   while (cmp(a, P[0]) < 0) { a = mul(P[9], a); e10 -= 9; }
   while (cmp(a, E8) < 0) { a = mul10(a); e10--; }
   while (cmp(a, E9) >= 0) { a = div10(a); e10++; }
@@ -238,12 +243,62 @@ function finTen(text) {
   let v;
   try {
     v = r32(n, 1n);
-    for (; v && e10 > 0; e10--) { const [a, b] = frac(v); v = r32(a * 10n, b); }
-    for (; v && e10 < 0; e10++) { const [a, b] = frac(v); v = r32(a, b * 10n); }
+    for (; e10 > 0; e10--) { const [a, b] = frac(v); v = r32(a * 10n, b); }
+    for (; e10 < 0; e10++) {
+      // a quotient below 2^-128 is 0 with a mantissa [BB bb10 num-literal-bytes]: 10's (FAC's, the divisor's) when
+      // the dividend is 0 or its exponent byte below 4, so that the quotient is known to be too small before it is
+      // worked out (1E-39, 1E-40: 0,32,0,0,0), else the quotient's own, cut to 32 bits (2.9E-39: 0,124,160,41,60)
+      if (v.E < 4) { v = { m: 0xA0000000n, E: 0 }; continue; }
+      const [a, b] = frac(v);
+      v = r32(a, b * 10n) || { m: (a << 160n) / (b * 10n), E: 0 };
+    }
   } catch (e) { if (e instanceof OV) return 'OV'; throw e; }
-  if (!v) return [0, 0, 0, 0, 0];
+  if (v.E === 0) neg = false;
   const m = Number(v.m);
   return [v.E, ((m >>> 24) & 0x7F) | (neg ? 0x80 : 0), (m >>> 16) & 0xFF, (m >>> 8) & 0xFF, m & 0xFF];
 }
 
-module.exports = { POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, finTen, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };
+// ---- SIN, COS and TAN (basic/mathfn.inc), in turns, as the original [BB bb10 fn-last-bit: all 39 of its SIN, COS
+// and TAN values bit for bit; fn-trig-big]. Written in turns with the constants 1/4 and 1/2, where the ROM works in
+// half turns (2f, 1/2 and 1: the same bits, a power of two apart) ----
+// INT (floor), for |a| below 2^32 exactly
+function fint(a0) {
+  const a = round(a0);
+  if (a.e === 0 || a.e >= 160) return a;
+  const sh = 160 - a.e;
+  const q = a.e <= 128 ? 0n : a.m >> BigInt(sh);
+  const fr = a.e <= 128 ? a.m !== 0n : (a.m & ((1n << BigInt(sh)) - 1n)) !== 0n;
+  const n = a.s && fr ? q + 1n : q;
+  if (n === 0n) return ZERO();
+  const v = norm40(n << 8n, 160, a.s);
+  return round(v);
+}
+// SIN's series in turns, u x (c1 + c3 u^2 + ... + c11 u^10), highest power first: tools/basic-consts.js's SINSER,
+// each a power of two apart (2^(2k+1) for u^(2k+1)) from the half-turn coefficients it holds
+const SINTURNS = [[132, 230, 79, 213, 12], [134, 40, 10, 61, 47], [135, 153, 104, 154, 109], [135, 35, 53, 224, 93], [134, 165, 93, 231, 43], [131, 73, 15, 218, 162]];
+const TWOPI = unpack([131, 73, 15, 218, 162]), PIO2 = unpack([129, 73, 15, 218, 162]), QTR = unpack([127, 0, 0, 0, 0]), ONE = unpack([129, 0, 0, 0, 0]);
+// x / 2 pi less its INT: f from 0 to below 1
+const turnsOf = (x) => { const y = div(round(x), TWOPI); return sub(y, fint(y)); };
+// the sine of f turns: g = f, or f - 1/2 with the sign changed; u = 1/4 - |1/4 - g|, each rounded; u x the series
+function sinTurns(f) {
+  let g = round(f), flip = false;
+  if (cmp(g, HALF) >= 0) { g = sub(g, HALF); flip = true; }
+  let a = round(sub(QTR, g));
+  a = { ...a, s: false };
+  const u = round(sub(QTR, a));
+  const u2 = round(mul(u, u));
+  let acc = unpack(SINTURNS[0]);
+  for (let i = 1; i < SINTURNS.length; i++) acc = add(unpack(SINTURNS[i]), mul(u2, acc));    // (ARG, FAC as the ROM has them)
+  const r = mul(u, acc);
+  return flip ? neg(r) : r;
+}
+const sin = (x) => sinTurns(turnsOf(x));
+const cos = (x) => sin(add(PIO2, round(x)));                          // SIN(x + pi/2), the sum rounded
+function tan(x) {                                                      // SIN(x) over the sine of 1/4 - f turns
+  const f = round(turnsOf(x));
+  let c = round(sub(QTR, f));
+  if (c.s && c.e !== 0) c = add(c, ONE);
+  return div(round(sinTurns(f)), round(sinTurns(c)));
+}
+
+module.exports = { fint, sin, cos, tan, SINTURNS, POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, finTen, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };

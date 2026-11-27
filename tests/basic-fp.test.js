@@ -104,13 +104,19 @@ const HAND = [
   ['FMUL', P.minus5, P.minus5, [0x85, 0x48, 0, 0, 0]],                // -5 x -5 = 25 = 0.11001b x 2^5
   ['FMUL', P.max, P.two, 'OV'],                               // largest x 2 overflows
   ['FMUL', P.min, P.half, P.zero],                            // smallest x .5 underflows to 0
-  ['FMUL', P.zero, P.minus5, P.zero],
+  ['FMUL', P.zero, P.minus5, [0, 0x20, 0, 0, 0]],              // 0 x -5 = 0, FAC's mantissa kept (5's, sign cleared)
   ['FDIV', P.one, P.three, [0x7F, 0x2A, 0xAA, 0xAA, 0xAB]],   // 1/3 = 0.1010...b x 2^-1: $AAAAAAAA, guard $AA rounds up
   ['FDIV', P.two, P.three, [0x80, 0x2A, 0xAA, 0xAA, 0xAB]],   // 2/3 = 0.1010...b x 2^0
   ['FDIV', P.ten, P.four, [0x82, 0x20, 0, 0, 0]],             // 10/4 = 2.5 = 0.101b x 2^2
   ['FDIV', P.minus5, P.ten, [0x80, 0x80, 0, 0, 0]],               // -5/10 = -.5
   ['FDIV', P.one, P.zero, '/0'],
-  ['FDIV', P.zero, P.three, P.zero],
+  ['FDIV', P.zero, P.three, [0, 0x40, 0, 0, 0]],              // 0 / 3 = 0 with 3's mantissa, as the original's 0 / 10
+  //                                                            is stored 0,32,0,0,0 [BB bb10 num-literal-bytes: 1E-40]
+  ['FDIV', P.min, P.ten, [0, 0x20, 0, 0, 0]],                  // 2^-128 / 10: exponent 1 - 132 + 128 below 0, 0 at once
+  //                                                            with the divisor's mantissa [BB bb10: 1E-39 likewise]
+  ['FDIV', [0x04, 0x1D, 0xC8, 0x27, 0x0C], P.ten, [0, 0x7C, 0x73, 0x71, 0xAC]],   // exponent 0: 0 with the quotient's
+  //                                                            mantissa, cut to 32 bits (hand: 0x9DC8270C / 0xA0000000
+  //                                                            = 0.FC7371AC... in hex)
   ['FDIV', P.max, P.half, 'OV'],                              // largest / .5 overflows
 ];
 for (const [op, a, b, want] of HAND) {
@@ -253,6 +259,13 @@ for (const [packed, want] of FOUTS) {
   const got = romFout(F.unpack(packed));
   check(`FOUT ${hex(packed)}`, got === want && F.fout(F.unpack(packed)) === want, `${JSON.stringify(got)} model ${JSON.stringify(F.fout(F.unpack(packed)))}`);
 }
+// the original's printing of numbers from 1E17 up, bytes and text [BB bb10 num-print-big; bb9 rnd-args: seed 3's
+// RND(1E38), 254,112,189,194,29, is 8E+37]: one quotient by 10 at a time from 1E9 up, each rounded (the old steps of
+// 1E9 from 1E17 printed 8E37's bytes as 8.00000001E+37 and 9.99999999E17's as 1E+18)
+for (const [packed, want] of [[[185, 49, 162, 188, 47], ' 1E+17'], [[186, 5, 58, 13, 35], ' 1.5E+17'], [[188, 94, 11, 107, 58], ' 9.99999999E+17'], [[188, 94, 11, 107, 59], ' 1E+18'], [[189, 9, 16, 135, 165], ' 1.23456789E+18'], [[192, 10, 199, 35, 5], ' 1E+19'], [[194, 114, 220, 125, 72], ' 7E+19'], [[195, 45, 120, 235, 198], ' 1E+20'], [[212, 35, 100, 201, 131], ' 1.23456789E+25'], [[230, 23, 118, 23, 91], ' 3E+30'], [[245, 26, 19, 11, 152], ' 1E+35'], [[254, 82, 166, 9, 216], ' 7.00000001E+37'], [[254, 109, 187, 98, 229], ' 7.90000002E+37'], [[254, 112, 189, 194, 30], ' 8E+37'], [[254, 112, 189, 194, 35], ' 8.00000001E+37'], [[254, 127, 201, 158, 65], ' 8.50000001E+37'], [[255, 7, 106, 189, 49], ' 9.00000001E+37'], [[255, 22, 118, 153, 80], ' 1E+38'], [[255, 22, 118, 153, 83], ' 1E+38'], [[255, 97, 177, 229, 253], ' 1.5E+38'], [[255, 127, 201, 158, 65], ' 1.7E+38'], [[254, 240, 189, 194, 30], '-8E+37'], [[187, 5, 58, 13, 35], ' 3E+17'], [[189, 0, 0, 0, 0], ' 1.15292151E+18'], [[195, 0, 0, 0, 44], ' 7.37869779E+19'], [[255, 0, 0, 0, 44], ' 8.50705935E+37'], [[254, 112, 189, 194, 29], ' 8E+37']]) {
+  const got = romFout(F.unpack(packed));
+  check(`FOUT ${hex(packed)} is the original's ${JSON.stringify(want)} [BB bb10]`, got === want && F.fout(F.unpack(packed)) === want, `${JSON.stringify(got)} model ${JSON.stringify(F.fout(F.unpack(packed)))}`);
+}
 quiet = true;
 {
   let mism = 0, first = '';
@@ -283,6 +296,12 @@ for (const [text, want, len] of FINS) {
 }
 check('FIN 1E39 overflows', romFin('1E39').st === 'OV' && F.finTen('1E39') === 'OV');
 check('FIN 1E-50 is 0', romFin('1E-50').v.e === 0 && F.finTen('1E-50')[0] === 0);
+// below the smallest number: 0, stored with a mantissa [BB bb10 num-literal-bytes]
+for (const [text, want] of [['2.9E-39', [0, 124, 160, 41, 60]], ['1E-39', [0, 32, 0, 0, 0]], ['1E-40', [0, 32, 0, 0, 0]], ['-0', [0, 0, 0, 0, 0]], ['5E-39', [1, 89, 199, 220, 238]], ['1.70141183E38', [255, 127, 255, 255, 248]]]) {
+  const r = romFin(text), got = hex(romPack(r.v));
+  check(`FIN ${text} is stored as the original's ${hex(want)} [BB bb10]`, r.st === 'ok' && got === hex(want) && hex(F.finTen(text)) === hex(want), `${got}, steps-of-ten model ${hex(F.finTen(text))}`);
+}
+check('FIN 1.7014119E38 overflows [BB bb10]', romFin('1.7014119E38').st === 'OV' && F.finTen('1.7014119E38') === 'OV');
 // the original's readings, from what RND made of them [BB bb9 rnd-args: RND(1E38) from 9 seeds fits only $96769953;
 // rnd-neg: the seed RND(-x) leaves is a step from x's mantissa]: one or two units above the nearest, as one rounded
 // product or quotient by 10 a place gives

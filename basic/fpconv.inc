@@ -71,25 +71,19 @@ FO1     STA     FBUFFR
 FO2     CLRA
         CLRB
         STD     <FPE10
-* scale FAC into [1E8, 1E9): steps of 1E9 from 1E17 down and from below 1 up, then single steps of 10, each one
-* rounded: the original prints 1E5 - 6 x 2^-15 (its SQR(1E10)) as 99999.9999, as four such steps do and one
-* product by 1E4 does not [BB bb1 fn-math, bb2 fn-sqr-bits]
+* scale FAC into [1E8, 1E9): from below 1 up by steps of 1E9, then single steps of 10, each one rounded: the
+* original prints 1E5 - 6 x 2^-15 (its SQR(1E10)) as 99999.9999, as four such steps do and one product by 1E4 does
+* not [BB bb1 fn-math, bb2 fn-sqr-bits]. From 1E9 up only steps of 10: it prints 8E37's bytes (254,112,189,194,30)
+* as 8E+37 and 9.99999999E17's (188,94,11,107,58) as 9.99999999E+17, as 29 and 9 single quotients by 10 give and
+* steps of 1E9 do not [BB bb10 num-print-big, bb9 rnd-args]
         LDB     #9
         JSR     FCMPP
-        BGT     FOU0            ; below 1E9
-FOD1    LDB     #17             ; 1E17 and up: / 1E9
-        JSR     FCMPP
-        BGT     FOFIX
-        LDB     #9
-        JSR     FDIVP
-        LDB     #9
-        JSR     E10ADJ
-        BRA     FOD1
+        BLE     FOFIX           ; 1E9 and up
 * below 1E9. A whole number has its digits as they are: no scaling, the same nine digits less the zeros that
 * would end them. It is one when the exponent and the mantissa's trailing 0 bits reach 32 bits (128 + 32).
 * (PRINT USING's exponent form wants all nine digits in FPDIG: it sets FONINE)
 FOIDLY  EQU     625
-FOU0    TST     <FONINE
+        TST     <FONINE
         BNE     FOU0A
         LDA     <FACEXP
         LDX     #FACM+4

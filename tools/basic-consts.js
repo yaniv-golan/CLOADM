@@ -1,8 +1,7 @@
 // The clean-room BASIC's mathematical constants (basic/mathfn.inc), computed here from the constants' decimal
 // expansions and exact rationals (BigInt), rounded to nearest in the 5-byte format: pi, ln 2 and sqrt 3 to 36
-// digits, Taylor coefficients 1/k!, 1/(2k+1). PIO2HI keeps 20 bits, so a multiple up to 4095 of it is exact, and
-// PIO2LO is the remainder (Cody and Waite's argument reduction, for SIN and COS). tools/build-basic.js
-// includes the result as "mathconst.inc"; the two tables are the series' coefficients, highest power first (which
+// digits, Taylor coefficients 1/k!, 1/(2k+1), and SIN's fitted series (below). tools/build-basic.js
+// includes the result as "mathconst.inc"; the tables are the series' coefficients, highest power first (which
 // ones a series takes is given where basic/mathfn.inc calls POLY).
 function mathConstsInc() {
 // packed MBF constants from high-precision decimal strings (round to nearest)
@@ -26,9 +25,18 @@ function mathConstsInc() {
   // two tables serve all five series. A series with alternating signs is evaluated in -x^2 with the signs left
   // off, which gives the same bits: every step of Horner's rule then differs from the signed one only in its sign.
   out.push('FACTAB');
-  out.push('* 1/k!, k = 14 down to 0. EXP: the 12 from 1/11!; COS: Q(-r^2), every other one from 1/14!; SIN: r x P(-r^2),');
-  out.push('* every other one from 1/13!');
-  for (let k=14;k>=0;k--) out.push(fcb('', packed(1n,fact(BigInt(k))), `1/${k}!`));
+  out.push('* 1/k!, k = 11 down to 0: EXP\'s series');
+  for (let k=11;k>=0;k--) out.push(fcb('', packed(1n,fact(BigInt(k))), `1/${k}!`));
+  // SIN's series, sin(pi v) = v (c1 + c3 v^2 + ... + c11 v^10) for v (half turns) from -1/2 to 1/2: our own
+  // least-squares fit of sin(2 pi u) / u in u^2 at 400 Chebyshev points of u in [0, 1/4] (relative weight), six
+  // terms, the coefficients rounded to the format and scaled to half turns (an exact power of two each). Then the
+  // fourth (of v^5) is 9 units higher and the fifth (of v^3) 1: with the fit as it is COS(6) and TAN(6) are one
+  // unit from the original's [BB bb10 fn-last-bit] and sin(pi/2), so COS(0), one unit below 1; with these every
+  // SIN, COS and TAN value of fn-last-bit and fn-trig-big is the original's bit for bit, and COS(0) is 1 (our
+  // choice: no record has it). Packed bytes, highest power first; the last is pi rounded to nearest
+  out.push('SINSER');
+  const sinT = [[121,230,79,213,12],[125,40,10,61,47],[128,153,104,154,109],[130,35,53,224,93],[131,165,93,231,43],[130,73,15,218,162]];
+  for (const b of sinT) out.push(fcb('', b, `${val(b)}`));
   out.push('ODDTAB');
   out.push('* 1/(2k+1), k = 9 down to 0. ATN: x x P(-x^2), all 10; LOG: 2t x P(t^2), the 8 from 1/15');
   for (let k=9;k>=0;k--) out.push(fcb('', packed(1n,BigInt(2*k+1)), `1/${2*k+1}`));
@@ -36,14 +44,9 @@ function mathConstsInc() {
   out.push('FPCON');
   const r=(s)=>dec(s);
   let p=r(PI); const pio2={num:p.num, den:p.den*2n};
-  const hi = packed(pio2.num, pio2.den, 20); out.push(fcb('PIO2HI', hi, 'pi/2, 20 bits'));
-  // lo = pio2 - hi
-  const hiv = (()=>{const b=hi; const m=(BigInt(b[1]|0x80)<<24n)|(BigInt(b[2])<<16n)|(BigInt(b[3])<<8n)|BigInt(b[4]); return {m, e:b[0]-160};})();
-  const lo = (() => { // pio2 - m*2^e as rational
-    const den = pio2.den * (1n << BigInt(-hiv.e)); const num = pio2.num * (1n << BigInt(-hiv.e)) - hiv.m * pio2.den; return packed(num, den); })();
-  out.push(fcb('PIO2LO', lo, 'pi/2 - PIO2HI'));
+  out.push(fcb('TWOPI', packed(p.num*2n,p.den), '2 pi'));
+  out.push(fcb('QUARTR', packed(1n,4n), '1/4'));
   out.push(fcb('PIO2', packed(pio2.num,pio2.den), 'pi/2'));
-  out.push(fcb('TWOOPI', packed(pio2.den, pio2.num), '2/pi'));
   let l=r(LN2);
   out.push(fcb('LN2', packed(l.num,l.den), 'ln 2'));
   out.push(fcb('INVLN2', packed(l.den,l.num), '1/ln 2'));

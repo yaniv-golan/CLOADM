@@ -3,7 +3,7 @@
 // The clean-room BASIC's numeric functions (basic/mathfn.inc) against the exact values: each routine is called on
 // the Dragon 64's CPU (as in tests/basic-fp.test.js) with a packed argument, and the packed result is compared
 // with JavaScript's Math on that same argument's exact value. Our approximations are our own (Taylor series after
-// a reduction, LOG and EXP's in base 2 as the original's), so the oracle is the mathematical value, not another
+// a reduction, LOG and EXP's in base 2 and SIN's in turns as the original's), so the oracle is the mathematical value, not another
 // BASIC; the tolerances say how close they come, as a multiple of the 5-byte format's unit in the last place (2^-31 relative), and are the
 // project's accuracy claim for these functions. Also: exact results where the format can hold them (SQR of
 // squares, whole powers, INT and FIX), the error cases (?FC ERROR, ?OV ERROR, ?/0 ERROR), and the constants of
@@ -78,9 +78,56 @@ sweep('LOG near 1', 'FLOG', (i) => 0.5 + rnd(), Math.log, { tol: 3, absScale: 0.
 // |t| 2^-32, and 1/ln 2's own rounding adds as much again, so e^x is off by up to ln 2 |t| 2^-31 = |x| units, plus
 // the series' 3
 sweep('EXP', 'FEXP', (i) => rnd() * 170 - 85, Math.exp, { tol: [3, Math.abs, '|x|'] });
-sweep('SIN', 'FSIN', (i) => rnd() * 200 - 100, Math.sin, { tol: 2, absScale: 1 });
-sweep('COS', 'FCOS', (i) => rnd() * 200 - 100, Math.cos, { tol: 2, absScale: 1 });
-sweep('SIN of small arguments', 'FSIN', (i) => (rnd() - 0.5) * 1e-3, Math.sin, { tol: 2 });
+// SIN, COS and TAN work in turns, as the original [BB bb10 fn-last-bit, fn-trig-big], so they are as exact as x / 2 pi
+// rounded, not as the sine: the bounds that were here (2 units of 1 for SIN and COS, 2 of the result for small
+// arguments) were our own, and the original is outside them (SIN(.001) 82 units below the nearest, SIN(100) 56,
+// COS(100) 84). Held instead to the model of the same steps (tests/basic/fpmodel.js sin, cos, tan) bit for bit, to the
+// original's own 39 values, and to the error the steps allow: y = x / 2 pi is off by up to |y| 2^-32 for its
+// rounding and as much again for 2 pi's, the fold rounds v at 1/4's place (2^-34 of a turn), and the series is
+// within 2 units, so the sine is within 2 pi (|y| 2^-31 + 2^-33) + 2 units of 1, plus one more turn's rounding (x +
+// pi/2 for COS, |x| 2^-32)
+const trigModel = { FSIN: F.sin, FCOS: F.cos, FTAN: F.tan };
+for (const [fnName, exact] of [['FSIN', Math.sin], ['FCOS', Math.cos]]) {
+  let mism = 0, first = '', worst = 0, at = null;
+  for (let i = 0; i < COUNT; i++) {
+    const x = (rnd() - 0.5) * 10 ** (rnd() * 12 - 5), a = packedOf(x);
+    const r = rom1(fnName, a);
+    let mo; try { mo = F.pack(trigModel[fnName](a)); } catch (e) { mo = e.message; }
+    const got = r.st === 'ok' ? F.pack(get(FAC)) : r.st;
+    if (String(got) !== String(mo)) { mism++; if (!first) first = `${num(a)}: rom ${got} model ${mo}`; }
+    const xv = num(a), bound = (2 * Math.PI * (Math.abs(xv / (2 * Math.PI)) * 2 ** -31 + 2 ** -33) + 2 * ULP + (fnName === 'FCOS' ? Math.abs(xv) * 2 ** -32 : 0));
+    if (r.st === 'ok') { const e = Math.abs(r.v - exact(xv)) / bound; if (e > worst) { worst = e; at = xv; } }
+  }
+  check(`${fnName.slice(1)}: ${COUNT} arguments from 1E-5 to 1E7 bit for bit as the model of its steps`, mism === 0, first);
+  check(`${fnName.slice(1)}: within the error its steps allow`, worst <= 1, `worst ${worst.toFixed(3)} of the bound at ${at}`);
+}
+{
+  let mism = 0, first = '';
+  for (let i = 0; i < COUNT; i++) {
+    const a = packedOf((rnd() - 0.5) * 10 ** (rnd() * 12 - 5)), r = rom1('FTAN', a);
+    let mo; try { mo = F.pack(F.tan(a)); } catch (e) { mo = e.message; }
+    const got = r.st === 'ok' ? F.pack(get(FAC)) : r.st;
+    if (String(got) !== String(mo)) { mism++; if (!first) first = `${num(a)}: rom ${got} model ${mo}`; }
+  }
+  check(`TAN: ${COUNT} arguments bit for bit as the model of its steps`, mism === 0, first);
+}
+// the original's values, bit for bit [BB bb10 fn-last-bit: the argument as read, the five bytes of the result]
+for (const [fnName, rec] of [['FSIN', [['.001', [119, 3, 18, 108, 215]], ['.1', [125, 76, 117, 118, 89]], ['.5', [127, 117, 119, 67, 161]], ['1', [128, 87, 106, 164, 119]], ['1.5', [128, 127, 91, 212, 218]], ['2', [128, 104, 199, 183, 86]], ['3', [126, 16, 129, 195, 103]], ['3.14159265', [100, 123, 83, 209, 75]], ['4', [128, 193, 189, 206, 238]], ['6', [127, 143, 15, 140, 79]], ['10', [128, 139, 68, 247, 177]], ['100', [128, 129, 161, 45, 132]], ['-.7', [128, 164, 235, 115, 75]]]],
+  ['FCOS', [['.001', [128, 127, 255, 247, 156]], ['.1', [128, 126, 184, 151, 205]], ['.5', [128, 96, 169, 64, 50]], ['1', [128, 10, 81, 64, 126]], ['1.5', [125, 16, 222, 170, 120]], ['2', [127, 213, 17, 50, 185]], ['3', [128, 253, 112, 37, 245]], ['3.14159265', [129, 128, 0, 0, 0]], ['4', [128, 167, 85, 48, 52]], ['6', [128, 117, 205, 184, 76]], ['10', [128, 214, 205, 100, 71]], ['100', [128, 92, 192, 238, 79]], ['-.7', [128, 67, 204, 178, 148]]]],
+  ['FTAN', [['.001', [119, 3, 18, 113, 34]], ['.1', [125, 77, 124, 67, 183]], ['.5', [128, 11, 218, 122, 223]], ['1', [129, 71, 89, 34, 228]], ['1.5', [132, 97, 159, 106, 144]], ['2', [130, 139, 215, 177, 113]], ['3', [126, 145, 247, 184, 139]], ['3.14159265', [100, 251, 83, 209, 75]], ['4', [129, 20, 51, 124, 221]], ['6', [127, 148, 254, 195, 111]], ['10', [128, 37, 250, 249, 169]], ['100', [128, 150, 83, 166, 90]], ['-.7', [128, 215, 160, 54, 26]]]]]) {
+  for (const [text, want] of rec) {
+    const a = F.unpack(F.finTen(text)), r = rom1(fnName, a);
+    const got = r.st === 'ok' ? F.pack(get(FAC)) : r.st;
+    check(`${fnName.slice(1)}(${text}) is the original's ${want} [BB bb10 fn-last-bit]`, String(got) === String(want) && String(F.pack(trigModel[fnName](a))) === String(want), String(got));
+  }
+}
+// large arguments: from 2^32 turns on the fraction is 0; at 1E9 a sixteenth of a turn [BB bb10 fn-trig-big]
+for (const [fnName, text, want] of [['FSIN', '1E9', ' .707106781'], ['FSIN', '-1E9', '-.707106781'], ['FCOS', '1E9', ' .923879533'], ['FCOS', '-1E9', ' .707106781'], ['FTAN', '1E9', ' 1'], ['FTAN', '-1E9', '-1'],
+  ['FSIN', '1000000', '-.34985613'], ['FCOS', '1000000', ' .936803442'], ['FTAN', '-1000000', ' .373457349'], ['FSIN', '1E10', ' 0'], ['FCOS', '1E20', ' 0'], ['FTAN', '1E38', ' 0'], ['FSIN', '1E5', ' .0357533055'], ['FCOS', '1E5', '-.999361503'], ['FTAN', '1E5', '-.0357761791']]) {
+  const r = rom1(fnName, F.unpack(F.finTen(text)));
+  const got = r.st === 'ok' ? F.fout(get(FAC)) : r.st;
+  check(`${fnName.slice(1)}(${text}) prints as the original's ${JSON.stringify(want)} [BB bb10 fn-trig-big]`, got === want, JSON.stringify(got));
+}
 sweep('ATN', 'FATN', (i) => Math.tan((rnd() - 0.5) * 3.1), Math.atan, { tol: 4 });
 {
   let worst = 0, at = null, bad = null;
@@ -140,9 +187,15 @@ check('(-8)^(1/3) is ?FC ERROR', errOf('FPOWER', -8, 1 / 3) === 'FC');
 check('0^-1 is ?/0 ERROR', errOf('FPOWER', 0, -1) === '/0');
 check('2^200 is ?OV ERROR', errOf('FPOWER', 2, 200) === 'OV');
 // the constants against Math (they are rounded to nearest from 36 digits, so within half a unit)
-for (const [name, want] of [['PIO2', Math.PI / 2], ['TWOOPI', 2 / Math.PI], ['LN2', Math.LN2], ['INVLN2', 1 / Math.LN2], ['SQRT3', Math.sqrt(3)], ['PIO6', Math.PI / 6], ['SQRHLF', Math.SQRT1_2], ['TANP12', 2 - Math.sqrt(3)]]) {
+for (const [name, want] of [['PIO2', Math.PI / 2], ['TWOPI', 2 * Math.PI], ['QUARTR', 0.25], ['LN2', Math.LN2], ['INVLN2', 1 / Math.LN2], ['SQRT3', Math.sqrt(3)], ['PIO6', Math.PI / 6], ['SQRHLF', Math.SQRT1_2], ['TANP12', 2 - Math.sqrt(3)]]) {
   const at = sym(name) - 0x8000, v = num(F.unpack(Array.from(rom.slice(at, at + 5))));
   check(`constant ${name}`, err(v, want) <= 0.5, `${v}`);
+}
+// SIN's series: the model's coefficients (in turns) a power of two from the ROM's (in half turns)
+{
+  const at = sym('SINSER') - 0x8000;
+  const same = F.SINTURNS.every((b, i) => String(Array.from(rom.slice(at + 5 * i, at + 5 * i + 5))) === String([b[0] - (11 - 2 * i), ...b.slice(1)]));
+  check('SIN\'s series: the model\'s six coefficients in half turns', same);
 }
 
 console.log(`\n${n - fail}/${n} passed`);

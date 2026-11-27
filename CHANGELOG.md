@@ -170,6 +170,18 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   sign's place and keeps the exponent (`".##^^^^";999999999` is `.10E+10`, `"#.##^^^^"` gives `1.00E+09`), as on the
   original. Both bb9 cases now match their records (`tests/basic-bb9-expr-using.test.js`). The ROM is 66 bytes larger
   (15,905).
+  From the bb10 records of numbers: printing a number of 1E9 or more now scales it by single quotients by 10, as
+  the original does, so 8E37's bytes print as `8E+37` (ours printed `8.00000001E+37`) and 9.99999999E17 as
+  `9.99999999E+17` (ours `1E+18`); bb9's `rnd-args` now matches its record whole. `SIN`, `COS` and `TAN` work in
+  turns as on the original: they give a value for any argument (0 from 1E10 on, where ours gave `?FC ERROR`), and
+  all 39 of the recorded values are the original's bit for bit, `TAN(1)` among them. `VAL` reads `&H` and `&O`
+  strings (`VAL("&HFFFF")` is 65535; it gave 0), and an octal number takes 8 as a digit. `PRINT USING` prints a
+  number of 1E9 or more in a fixed field as `%` and the number as `PRINT` has it (`"##.##";1E20` is `% 1E+20`), and
+  an E field with a sign of its own whose rounding carries out prints after a `%` (`"+.##^^^^";999999999` is
+  `%+1.00E+09`). A number below the smallest is stored with the mantissa the original leaves (2.9E-39 as
+  0,124,160,41,60, 1E-39 as 0,32,0,0,0). Still different: `LOG` near 1 and of a few other values, so `SQR` of
+  some and whole powers (2^66), and the printing of one number with exponent byte 1
+  (`tests/basic-bb10-num.test.js`). The ROM is 6 bytes smaller (15,903).
 
 ### 0.3.1
 
