@@ -351,8 +351,8 @@ class Basic {
 // A typed line that starts with a digit is a program line: waited for until the screen settles; any other line
 // is waited for until OK is back. -> { status, transcript, flags, frames, shots?, sounds?, tapes?, clears?, printer? };
 // printer: the bytes the machine's printer port received since the clean start (the Dragon's parallel port: PIA0
-// port B as PIA1 PA1, the strobe, rises from low to high; a write to PIA1 port A that leaves PA1 high, the DAC's
-// during sound or the cassette, is no new byte), as { length, hex }, and only when there are any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
+// port B as PIA1 PA1, the strobe, rises from low to high in a write that leaves the DAC's bits, PA2-PA7, as they
+// were: a sound's or the cassette's writes, which change them, are no printer byte whatever they do to PA1), as { length, hex }, and only when there are any: what the case's own LLIST and PRINT #-2 sent, as BASIC sends it to a printer. status 'ok',
 // 'no-boot', 'no-clean-start', 'timeout' (and where), 'stalled' (a typed line of which no key was taken, and where), or
 // the typist's status when the machine stopped reading the keyboard. clears: the screens a clear wiped (Basic.frame).
 // Nothing of the screen is recorded before the clean start (Basic.cleanStart): the boot screen, a ROM's banner among
@@ -362,6 +362,9 @@ class Basic {
 // status 'refused' and nothing of its screen recorded, if the CPU ever runs an instruction from RAM written since
 // the case began: machine code a case put there (through a vector it POKEd, say) could read the ROM. Our own
 // suite's EXEC and USR cases (tests/basic/own) run without it.
+// A printer's strobe on the Dragon: a write to PIA1 port A that raises PA1 and leaves PA2-PA7 (the DAC) as the write
+// before had them. A sound's and the cassette's writes change the DAC's bits, so whatever they do to PA1 is no byte.
+const isPrinterStrobe = (prev, v) => (v & 0x02) !== 0 && (prev & 0x02) === 0 && (v & 0xFC) === (prev & 0xFC);
 function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir } = {}) {
   const b = new Basic(rom, { machine });
   let refused = null;
@@ -378,15 +381,16 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   const listenPrinter = () => {
     if (b.m.profile.lineage !== 'dragon') return;
     const pa = b.m.pia1.a, before = pa.onOutput;
-    let high = (pa.outValue() & 0x02) !== 0;   // a strobe already high at the clean start is no rise
+    // PA1 is shared: the DAC is PA2-PA7 and a sound's or the cassette's writes carry a PA1 of their own, so only a
+    // write that raises PA1 and leaves PA2-PA7 as the write before had them (the strobe alone changed) is a printer's
+    let last = pa.outValue();   // a strobe already high at the clean start is no rise
     pa.onOutput = (v) => {
       if (before) before(v);
-      const now = (v & 0x02) !== 0;
-      if (strobing && now && !high) strobed.push(b.m.pia0.b.outValue());
-      high = now;
+      if (strobing && isPrinterStrobe(last, v)) strobed.push(b.m.pia0.b.outValue());
+      last = v;
     };
   };
-  const printer = () => (strobed.length ? { printer: { length: strobed.length, hex: Buffer.from(strobed).toString('hex') } } : {});
+  const printer = () => (strobed.length ? { printer: { rule: 2, length: strobed.length, hex: Buffer.from(strobed).toString('hex') } } : {});
   const out = (status, extra = {}) => {
     // after #expect-timeout a step that times out is the case's result: status ok, ended { at, as: 'timeout' }
     if (status === 'timeout' && expectTimeout) { status = 'ok'; extra = { ...extra, ended: { at: extra.at, as: 'timeout' } }; delete extra.at; }
@@ -468,4 +472,4 @@ function runCase(rom, text, { machine = 'dragon64', guard = true, tapes: tapeDir
   return out('ok');
 }
 
-module.exports = { Basic, cell, runCase, soundMeasures, tapeDeck, Emu };
+module.exports = { Basic, cell, runCase, soundMeasures, tapeDeck, isPrinterStrobe, Emu };

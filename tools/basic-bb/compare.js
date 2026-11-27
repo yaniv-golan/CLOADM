@@ -218,8 +218,10 @@ function compareClears(p, q) {
 // the printer's bytes (runCase's printer, { length, hex }: written only when the case printed): compared exactly when
 // the first record has the field; a first record without it (nothing printed, or made before the field existed) is
 // not compared, so older records keep their verdicts -> lines describing the difference
+// Only a first record taken under the strobe rule of `rule: 2` (tests/basic/harness.js isPrinterStrobe) is compared:
+// one without it (bb10's) was taken under the rule before, which counted a sound's DAC writes as printing.
 function comparePrinter(p, q) {
-  if (!p) return [];
+  if (!p || p.rule !== 2) return [];
   if (!q) return [`printer: ${p.length} bytes vs none`];
   if (p.length !== q.length || p.hex !== q.hex) {
     let i = 0;

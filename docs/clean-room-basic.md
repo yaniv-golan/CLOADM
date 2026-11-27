@@ -465,7 +465,7 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   wave's shape was ours alone (P2 decision 3), none of the three is compared, so its verdict stays as it was. The hash
   is not compared.
 * **The printer:** a record holds `printer`, `{ length, hex }`, the bytes the machine's printer port received since
-  the clean start (the Dragon's parallel port: PIA0 port B at each rise of PIA1 PA1, the strobe; writes that leave PA1 high, the DAC's during a sound or the cassette, add none), only when the case printed:
+  the clean start (the Dragon's parallel port: PIA0 port B at each rise of PIA1 PA1, the strobe, in a write that leaves the DAC's bits PA2-PA7 as they were; a sound's or the cassette's writes change those bits, so whatever they do to PA1 adds no byte: under the rule before this one the bb10 run of `snd-play-dac` on the original recorded 4,389 bytes of $7F and 0 that were its notes; a record made under this rule says so, `rule: 2`, and only such a record's bytes are compared), only when the case printed:
   what its own `LLIST` and `PRINT #-2` sent. `compare.js` compares them exactly when the first record has the field;
   a first record without it (nothing printed, or made before the field) is not compared. Our ROM sends nothing to the
   printer yet (section 13).

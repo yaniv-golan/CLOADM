@@ -68,7 +68,9 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   Printing no longer counts the cursor's countdown (`$008F`) down: on the original only the keyboard wait does.
   BREAK no longer ends a cassette search, as on the original; a black-box case can expect a timeout (`#expect-timeout`).
   A black-box record now holds the bytes the printer port received (`printer`, only when the case printed: what its own
-  `LLIST` and `PRINT #-2` sent), and each tone of a `#wav` its first level; `compare.js` compares the printer's bytes
+  `LLIST` and `PRINT #-2` sent: a byte at each rise of the strobe that leaves the DAC's bits as they were, so a
+  sound's or the cassette's writes are never taken for printing; records carry `rule: 2`, and the bb10 records
+  made before it are not compared on it), and each tone of a `#wav` its first level; `compare.js` compares the printer's bytes
   exactly and, for records that have first levels, each tone's first level and number of levels exactly and its writes
   within a field's worth (records made before these fields keep their verdicts).
   `LIST` prints no empty row after a line that fills its last row and shows at most 249 characters of a line, a

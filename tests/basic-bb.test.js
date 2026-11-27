@@ -314,15 +314,26 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   // printing what PIA0 port B holds; BASIC's BREAK check between statements leaves the keyboard columns all high, so
   // each byte is $FF. (A harness test, never linted or run on the real ROM.)
   const r = runCase(built.rom, '10 FOR I=1 TO 6:POKE 65312,2:POKE 65312,0:NEXT\nRUN\n');
-  check('printer: six strobes give six bytes, recorded as length and hex', r.status === 'ok' && JSON.stringify(r.printer) === JSON.stringify({ length: 6, hex: 'ff'.repeat(6) }), JSON.stringify(r.printer));
+  check('printer: six strobes give six bytes, recorded as length and hex', r.status === 'ok' && JSON.stringify(r.printer) === JSON.stringify({ rule: 2, length: 6, hex: 'ff'.repeat(6) }), JSON.stringify(r.printer));
   // only a rise of the strobe is a byte: writes that leave PA1 high (as the DAC's, a sound or the cassette, can) add none
   const held = runCase(built.rom, '10 FOR I=1 TO 3:POKE 65312,2:POKE 65312,6:POKE 65312,250:POKE 65312,0:NEXT\nRUN\n');
   check('printer: three rises of the strobe give three bytes, writes with it held high none', held.status === 'ok' && held.printer && held.printer.length === 3, JSON.stringify(held.printer));
+  // a sound is no printing: PLAY's DAC writes raise PA1 too, but change PA2-PA7 with it [the bb10 run on the original
+  // recorded 4,389 such bytes as printing under the rule before this one]
+  const play = runCase(built.rom, 'PLAY "T255L255CDEFGAB":PLAY "V31O1CO5B"\n10 PLAY "L4CEG"\nRUN\n');
+  check('printer: PLAY, typed and in a program, prints nothing', play.status === 'ok' && !('printer' in play), JSON.stringify(play.printer && play.printer.length));
+  // the rule on its own: the strobe rising with the DAC's bits (PA2-PA7) unchanged is a byte; a rise that comes with a
+  // DAC change (a sound's level, $7C to $FE or 0 to $7E) is not; a write that keeps PA1 high or lowers it is not
+  const { isPrinterStrobe } = require('./basic/harness.js');
+  check('printer strobe: PA1 rising alone (0 to 2, $FC to $FE) is a byte', isPrinterStrobe(0x00, 0x02) && isPrinterStrobe(0xFC, 0xFE));
+  check('printer strobe: PA1 rising with the DAC (0 to $7E, $7C to $FE) is not', !isPrinterStrobe(0x00, 0x7E) && !isPrinterStrobe(0x7C, 0xFE));
+  check('printer strobe: PA1 held high or falling is not', !isPrinterStrobe(0x02, 0x02) && !isPrinterStrobe(0x02, 0x00));
   const quiet = runCase(built.rom, 'PRINT 1\n');
   check('printer: a case that prints nothing has no printer field (older records unchanged)', quiet.status === 'ok' && !('printer' in quiet));
   const llist = runCase(built.rom, '10 REM\nLLIST\n');
   check('printer: LLIST on ours (?FC ERROR) prints nothing', llist.transcript.includes('?FC ERROR') && !('printer' in llist));
-  const P = (hex) => ({ length: hex.length / 2, hex });
+  const P = (hex) => ({ rule: 2, length: hex.length / 2, hex });
+  check('compare printer: a first record from the rule before (no rule: 2, the bb10 run) is not compared', comparePrinter({ length: 2, hex: '7f00' }, undefined).length === 0);
   check('compare printer: identical bytes pass', comparePrinter(P('31320d'), P('31320d')).length === 0);
   check('compare printer: a byte that differs is reported, with where', comparePrinter(P('31320d'), P('31330d')).some((l) => /3 vs 3 bytes, first difference at byte 1/.test(l)));
   check('compare printer: a missing byte is reported', comparePrinter(P('31320d'), P('3132')).some((l) => /3 vs 2 bytes/.test(l)));
