@@ -8777,9 +8777,11 @@ async function commandsChecks(browser, site, check) {
       last = await read();
       if (last.tight) { at = { n, name, ...last }; break; }
     }
-    if (!at) throw new Error(`the app bar never went tight, up to a ${48}-character tape name (the last state: ${JSON.stringify(last)}); `
-      + '.tight guards content that outgrows the bar, and nothing here outgrew it.');
-    const tight = await read();
+    // the precondition, as a check of its own: it must be green, and if it is not the group goes on (the title/aria check
+    // then fails on `tight` too, with its own numbers) rather than the whole group stopping on a throw
+    check('commands (app bar): content that outgrows the bar does make it tight (a long tape name, the machine paused)',
+      !!at, at ? JSON.stringify({ at }) : `never tight up to a 48-character tape name; the last state: ${JSON.stringify(last)}`);
+    const tight = at ? await read() : last;
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
       plain.title === plain.want && plain.aria === plain.want && /\d+K$/.test(plain.want)
       && tight.tight && !tight.specShown && tight.title === tight.want && tight.aria === tight.want, JSON.stringify({ plain, at, tight }));
