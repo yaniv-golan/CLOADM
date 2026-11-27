@@ -6022,6 +6022,31 @@ async function phoneChecks(browser, base, check) {
     check(`ui qa (landscape ${label}, touch keys): every Menu row is reachable by a real tap (scrolled into view, topmost at its centre, 44 px tall)`,
       sm.reach.length >= 6 && sm.reach.every((x) => x.inside && x.topmost && x.h >= 44) && sm.first === 'Programs…', JSON.stringify(sm.reach));
     check(`ui qa (landscape ${label}, touch keys): no page errors with the Menu sheet open`, !serrors.length, serrors.join('; '));
+    // fitMenu measures with its cap off, which clamps scrollTop to 0 for a moment; it must put the position back. The
+    // case: a row appears while the box is scrolled to its end. Run on a box with no stylesheet cap of its own (the
+    // real sheets have one, which keeps them from clamping), so the clamp is real. The mutation that drops
+    // `box.scrollTop = was` in js/ui/menu.js leaves the box at 0.
+    if (sm.scrolls) {
+      const fit = await spage.evaluate(async () => {
+        const { fitMenu } = await import('./js/ui/menu.js');
+        const box = document.createElement('div');
+        box.style.cssText = 'position:fixed;left:0;top:0;width:200px;overflow-y:auto;background:#000;z-index:99';
+        const rows = [];
+        for (let i = 0; i < 8; i++) { const r = document.createElement('div'); r.textContent = `row ${i}`; r.style.cssText = 'height:44px;line-height:44px'; rows.push(r); box.append(r); }
+        rows[7].hidden = true;                          // 7 rows showing: 308 px, in a room of 150
+        document.body.append(box);
+        fitMenu(box, rows, 150);
+        box.scrollTop = 1e6;                            // scrolled to its end
+        const before = box.scrollTop;
+        rows[7].hidden = false;                         // a row comes
+        fitMenu(box, rows, 150);
+        const out = { before, after: box.scrollTop, capped: box.style.maxHeight };
+        box.remove();
+        return out;
+      });
+      check(`ui qa (landscape ${label}, touch keys): a row that appears while a menu box is scrolled to its end leaves it where it was (fitMenu puts scrollTop back)`,
+        fit.before > 0 && fit.after === fit.before && !!fit.capped, JSON.stringify(fit));
+    }
     await sctx.close();
   }
 
