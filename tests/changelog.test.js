@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -132,95 +132,48 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n#### Fixed \n\n### 0.4.0\n').length === 1);
   }
 
-  // A fenced code block shows an example; it is not the section's structure. These very rules are quoted in fences
-  // (a "#### Fixed" twice, a "### Fixed", a stray "D"), and before this each quoted line was read as a real heading or
-  // a real stray letter: the duplicate check named a line inside an example, and the other two scans reported ones.
+  // A fenced code block ("```" or "~~~") under [Unreleased] is an error, not an example to skip: every rule that
+  // keeps this section honest reads structure line by line, and the fence skip needed three review rounds of fixes
+  // that each still left a way for a quoted heading to hide a real duplicate or end the region early. So the guard
+  // reads no fences at all -- the section may not carry one, and the docs or prose describe the shape instead.
   {
-    const fenced = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
-    // the same two headings inside a fence do not trip the duplicate check...
-    check('...and two "#### Fixed" inside a fenced code block are not a duplicate (they are an example)',
-      duplicateUnreleasedKinds(fenced(['```md', '#### Fixed', '- an example', '#### Fixed', '```', '', '#### Fixed', '', '- a real entry'])).length === 0,
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['```md', '#### Fixed', '- an example', '#### Fixed', '```', '', '#### Fixed', '', '- a real entry']))));
-    // ...while the same two headings outside a fence still are (the skip must not swallow them)
-    check('...while the same two headings OUTSIDE a fence still are (the fence skip does not hide a real one)',
-      duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '#### Fixed', '', '- two'])).join() === 'Fixed: line 5 and line 9',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '#### Fixed', '', '- two']))));
-    // the closing fence must be at least as long as the opening one, so a three-backtick line just after a
-    // four-backtick opener does not close it. The two "#### Fixed" are the next lines on purpose: a line between them
-    // would be skipped by BOTH readings (the fence runs past it either way), so the case would pass with the rule
-    // removed -- it did, with the fixture the review first proposed.
-    check('...and a four-backtick fence is not closed by a shorter line in it (a fence shown inside a fence)',
-      duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````'])).length === 0 &&
-      duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````'])).join() === '',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['````', '```', '#### Fixed', '#### Fixed', '````']))));
-    // a tilde fence is a fence too
-    check('...and a ~~~ fence is a fence (its "#### Fixed" pair is an example)',
-      duplicateUnreleasedKinds(fenced(['~~~', '#### Fixed', '- an example', '#### Fixed', '~~~'])).length === 0);
-    // a backtick fence's info string may not contain a backtick, so "```js`x" is prose: what follows it is read
-    check('...and a backtick line whose info string holds a backtick is prose, not a fence (CommonMark)',
-      duplicateUnreleasedKinds(fenced(['```js`x', '#### Fixed', '#### Fixed', '```'])).join() === 'Fixed: line 6 and line 7',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['```js`x', '#### Fixed', '#### Fixed', '```']))));
-    // an opener with no closer fences nothing: Markdown would run it to the end, but here it would let one stray "```"
-    // hide every real duplicate past it, so what follows it is still read (and a stray opener is nothing by itself)
-    check('...and an opener with no closer fences nothing, so what follows a stray "```" is still read',
-      duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])).join() === 'Fixed: line 6 and line 8' &&
-      bareLetterLines(fenced(['```', '', 'D'])).map((x) => x.text).join() === 'D',
-      `${JSON.stringify(duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])))} / ${JSON.stringify(bareLetterLines(fenced(['```', '', 'D'])))}`);
-    // a stray opener above a release heading cannot reach past it. It must not pair with a LEGITIMATE later fence
-    // either: "```md" carries an info string, so it cannot close anything and re-anchors the pair there. (This case
-    // replaced one that could not fail: with the region clipped the tail was out of range, and without the clip the
-    // stray fence swallowed it, so both readings said []. Its fixture is below, where it does discriminate.)
-    check('...and a stray "```" cannot pair with a later legitimate fence to hide a real duplicate',
-      duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```md', '```'])).join() === 'Fixed: line 5 and line 11',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```md', '```']))));
-    check('...and a stray "```" above a release heading does not take that section into [Unreleased]',
-      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Changed\n\n- a\n\n```\n\n### 0.4.0\n\n#### Changed\n\n- old\n').length === 0);
-    // a file a Windows editor saved ends every line with "\r": its fence is a fence, and its quoted headings are not read
-    check('...and a CRLF fence is a fence (a file saved with Windows line endings)',
-      duplicateUnreleasedKinds(fenced(['```\r', '#### Fixed\r', '- an example\r', '#### Fixed\r', '```\r'])).length === 0,
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['```\r', '#### Fixed\r', '- an example\r', '#### Fixed\r', '```\r']))));
-    // the other [Unreleased] scans skip fenced lines as well: a quoted "### Fixed" is not this section's H3, a quoted
-    // "D" is not a stray letter, and a quoted "#### Upgrading" is not one of its kinds
-    const QUOTED = fenced(['````md', '### Fixed', 'D', '#### Upgrading', '````', '', '#### Added', '', '- a real entry']);
-    check('...and a fenced block\'s "### Fixed", "D" and "#### Upgrading" lines are not read as this section\'s',
-      unreleasedLevel3(QUOTED).length === 0 && bareLetterLines(QUOTED).length === 0 && unreleasedKinds(QUOTED).join() === 'Added',
-      `H3 ${JSON.stringify(unreleasedLevel3(QUOTED))} / letters ${JSON.stringify(bareLetterLines(QUOTED))} / kinds ${JSON.stringify(unreleasedKinds(QUOTED))}`);
-    // A fenced example that quotes a BOUNDARY line is an example, so it does not end the section: a fence holding
-    // "## [Unreleased]" above the real heading must not move the start, and one holding a release heading must not end
-    // the scan, or everything after the fence goes unread. Both were broken once, in the region the round-1 fix added.
-    check('...and a fenced "## [Unreleased]" above the real heading does not hide the real section\'s duplicates',
-      duplicateUnreleasedKinds(fenced(['```md', '## [Unreleased]', '#### Fixed', '```', '', '## [Unreleased]', '', '#### Fixed', '', '- real', '', '#### Fixed', '', '- a real duplicate'])).join() === 'Fixed: line 12 and line 16',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['```md', '## [Unreleased]', '#### Fixed', '```', '', '## [Unreleased]', '', '#### Fixed', '', '- real', '', '#### Fixed', '', '- a real duplicate']))));
-    check('...and a fenced "### 0.4.0" does not end the section, so what follows the fence is still read',
-      duplicateUnreleasedKinds(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D'])).join() === 'Added: line 10 and line 14' &&
-      bareLetterLines(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D'])).map((x) => x.text).join() === 'D',
-      JSON.stringify(duplicateUnreleasedKinds(fenced(['```md', '### 0.4.0', '#### Fixed', '```', '', '#### Added', '', '- real', '', '#### Added', '', 'D']))));
-    // a second "## [Unreleased]" is merge debris itself: it does not end the section, and what is below it is still new
+    const un = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
+    check('CHANGELOG.md: [Unreleased] carries no fenced code block (```) or tilde fence (~~~)',
+      unreleasedFences(text).length === 0, unreleasedFences(text).map((x) => `line ${x.line}: ${x.text}`).join(' | '));
+    // both fence characters, both reported by line; an info string ("```md") is a fence line too
+    const FENCED = un(['- an entry', '', '```md', '#### Fixed twice inside is a fence the guard reports', '```', '', '~~~', '~~~']);
+    const found = unreleasedFences(FENCED);
+    check('...and a fenced code block under [Unreleased] is reported naming every fence line (``` and ~~~)',
+      found.length === 4 && found.map((x) => x.line).join() === '7,9,11,12' && found[0].text === '```md',
+      JSON.stringify(found));
+    // the closing line of a fence is a fence line too: one fence, two reports, so a reader sees where it ends
+    check('...and a fence written with an indent of up to three spaces, or on a CRLF file, is a fence',
+      unreleasedFences('## [Unreleased]\r\n\r\n   ```\r\n- x\r\n   ```\r\n\r\n### 0.4.0\r\n').map((x) => x.line).join() === '3,5',
+      JSON.stringify(unreleasedFences('## [Unreleased]\r\n\r\n   ```\r\n- x\r\n   ```\r\n\r\n### 0.4.0\r\n')));
+    // a fence in a RELEASED section is that section's history, frozen against its tag: not this rule's
+    const releasedFence = '## [Unreleased]\n\n#### Changed\n\n- a\n\n### 0.4.0\n\n```\n#### Fixed twice\n```\n';
+    check('...and a fence inside a RELEASED section is not this rule\'s (the tag comparison holds it)',
+      unreleasedFences(releasedFence).length === 0, JSON.stringify(unreleasedFences(releasedFence)));
+    // with no fence skip, the shape the old rule failed open on is now caught twice over: the fence is an error,
+    // AND what it quotes is read as the structure it was going to be mistaken for -- so neither can hide it
+    check('...and a duplicate "#### Fixed" around a fence is still caught (the skip that hid it is gone)',
+      duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```'])).join() === 'Fixed: line 5 and line 11',
+      JSON.stringify(duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```']))));
+    // a fence under the real [Unreleased] that quotes a release heading is itself reported (the section may not
+    // carry one), and the quoted heading is structure to the region rule, which ends only at a version heading --
+    // so the file is red on the fence line, never silent
+    check('...and a fenced "### 0.4.0" under the real heading is a fence line the guard reports (never silent)',
+      unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n').map((x) => x.line).join() === '3',
+      JSON.stringify(unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n')));
+    // a duplicated "## [Unreleased]" heading (merge debris) is not a release heading: the region runs on through
+    // it, so a real duplicate and a stray letter below it are still reported
     check('...and a duplicated "## [Unreleased]" heading does not hide what is below it',
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').join() === 'Fixed: line 3 and line 9' &&
       bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D');
-    // A BARE fence (no info string) that runs across a release heading is what a merge leaves, not an example: if it
-    // could carry the region past that heading, a real duplicate above it would vanish, or a released section would be
-    // read as [Unreleased]. Either way the region stops at the heading.
-    check('...and a bare fence spanning a release heading does not hide a real duplicate above it',
-      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n#### Fixed\n\n- b\n\n### 0.1.0\n\n- old\n\n```\n\n### 0.0.9\n').join() === 'Fixed: line 3 and line 9',
-      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n#### Fixed\n\n- b\n\n### 0.1.0\n\n- old\n\n```\n\n### 0.0.9\n')));
-    check('...and it does not read the released section below it as [Unreleased] (no false duplicate)',
-      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n### 0.1.0\n\n- an old entry\n\n```\n\n#### Fixed\n\n- shipped in 0.1.0\n\n### 0.0.9\n').length === 0,
-      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n### 0.1.0\n\n- an old entry\n\n```\n\n#### Fixed\n\n- shipped in 0.1.0\n\n### 0.0.9\n')));
-    // ...but a bare fence holding only a quoted level-1 heading is ordinary prose, and does not end the section
-    check('...while a bare fence holding a quoted "# " line does not end the section',
-      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a heading in an example\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n').join() === 'Fixed: line 3 and line 13',
-      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a heading in an example\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n')));
-    // a fenced [Unreleased] heading is an example, so it must not move the region's START either
-    check('...and a fence above the real heading that quotes "## [Unreleased]" does not move the start',
-      duplicateUnreleasedKinds('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- a real duplicate\n').join() === 'Fixed: line 8 and line 12' &&
-      bareLetterLines('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D',
-      JSON.stringify(duplicateUnreleasedKinds('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- a real duplicate\n')));
-    // a fence of one character inside a fence of another does not re-anchor it (Markdown keeps it inside)
-    check('...and a "~~~md" line inside a backtick fence does not re-anchor it',
-      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a tilde fence looks like this:\n\n~~~md\n\nexample\n\n~~~\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n').join() === 'Fixed: line 3 and line 19',
-      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a tilde fence looks like this:\n\n~~~md\n\nexample\n\n~~~\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n')));
+    // an ordinary line that merely starts with backticks is prose, not a fence (CommonMark wants three or more)
+    check('...while a line of two backticks, or a bullet quoting a fence, is prose, not a fence',
+      unreleasedFences(un(['- the `` inline code `` shape', '', '- the ` ``` ` quoted in a bullet'])).length === 0,
+      JSON.stringify(unreleasedFences(un(['- the `` inline code `` shape', '', '- the ` ``` ` quoted in a bullet']))));
   }
 
   // A "####" heading with no name: no rule that reads headings by name can report it (there is no name to report), so
@@ -244,8 +197,6 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
       unreleasedNamelessHeadings(un('#### Fixed')).length === 0 && unreleasedKinds(un('#### Fixed')).join() === 'Fixed' &&
       unreleasedKinds(un('####X')).length === 0 && unreleasedNamelessHeadings(un('####X')).length === 0,
       `kinds ${JSON.stringify(unreleasedKinds(un('####X')))} / nameless ${JSON.stringify(unreleasedNamelessHeadings(un('####X')))}`);
-    check('...and one in a fenced example is not reported (it is shown, not written in the section)',
-      unreleasedNamelessHeadings('## [Unreleased]\n\n```\n####\n```\n\n### 0.4.0\n').length === 0);
     check('CHANGELOG.md: [Unreleased] carries no "####" heading with no name',
       unreleasedNamelessHeadings(text).length === 0, unreleasedNamelessHeadings(text).join(' | '));
   }
