@@ -12392,6 +12392,44 @@ async function wyrmfireChecks(browser, site, check) {
         got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));
       await c.close();
     }
+    // an unrelated toast replacing one in the chain does not drop the rest: the chain waits for the newer toast to
+    // be gone and then goes on. Every chain toast still shows, in order, and never two at once (the recorder sees
+    // the box's one text at a time). Desktop, so the chain is the switch and the keys (no turn-sideways hint).
+    // The replacement is raised BY THE PAGE the moment the chain's first toast shows (a watcher in the page, not a
+    // wait-and-click from here): under load a round trip can outlast the first toast's 4 s, and the case must
+    // replace a toast that still has a successor, not the chain's last.
+    {
+      const UNRELATED = 'Disk 1 is in drive 0.';
+      const c = await browser.newContext({ serviceWorkers: 'block' });
+      const pg = await newPage(c);
+      await recordToasts(pg);
+      await pg.addInitScript(([sw, un]) => {
+        window.__raised = false;
+        window.__toasts = [];
+        setInterval(() => { const t = document.getElementById('toast'), x = t && !t.hidden ? t.textContent.trim() : ''; if (x && window.__toasts[window.__toasts.length - 1] !== x) window.__toasts.push(x); }, 40);
+        // one toast of the page's own, the moment the chain's first toast (the switch) shows. The watcher records
+        // that first toast itself (it can be replaced within the recorder's 40 ms sampling, and it is the watcher
+        // that saw it), then raises the unrelated one that replaces it.
+        const watch = setInterval(() => {
+          const t = document.getElementById('toast');
+          if (window.emu && !window.__raised && t && !t.hidden && t.textContent.includes(sw)) {
+            window.__raised = true; clearInterval(watch);
+            if (window.__toasts[window.__toasts.length - 1] !== sw) window.__toasts.push(sw);   // (the recorder's own 40 ms tick may have caught it first)
+            window.emu.feedback.toast(un);
+          }
+        }, 20);
+      }, [SWITCHED, UNRELATED]);
+      await pg.goto(`${base}?machine=coco3`);
+      await started(pg);
+      await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      // the wait returns false on timeout; the check's detail carries what WAS seen either way
+      await waitFor(pg, (n) => window.__toasts.length >= n, 3, 20000);
+      const seen = await pg.evaluate(() => ({ toasts: window.__toasts, raised: window.__raised }));
+      check('wyrmfire: an unrelated toast replacing one in the chain is shown itself, and the chain goes on after it: the switch, the unrelated one, the keys (none dropped, in order)',
+        seen.raised && seen.toasts.join(' | ') === `${SWITCHED} | ${UNRELATED} | ${KEYS}`, JSON.stringify(seen));
+      await c.close();
+    }
     // offline, nothing kept: the strip says so with Try again, and the menu stays on the MC-10
     const ctx = await browser.newContext({ serviceWorkers: 'block' });
     const page = await newPage(ctx);

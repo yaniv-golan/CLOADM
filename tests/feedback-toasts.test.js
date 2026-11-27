@@ -479,6 +479,88 @@ globalThis.matchMedia = () => ({ matches: false });
     box.kids.splice(box.kids.indexOf(alsoEl), 1);
   }
 
+  // ---- afterGone: a one-shot "call me when no toast is up" (wyrmfire's chain waits out a replacement) ----
+  {
+    const fb = fresh();
+    const got = [];
+    fb.afterGone(() => got.push('at once'));
+    check('afterGone: with no toast up it is called at once', got.join() === 'at once');
+    fb.toast('x'); advance(SHORT);
+    check('afterGone: it is one-shot (not called again when a toast later ends)', got.length === 1, got.join());
+
+    const fb2 = fresh();
+    const got2 = [];
+    fb2.toast('holding');
+    fb2.afterGone(() => got2.push('gone'));
+    check('afterGone: with a toast up it waits (not called while it is up)', got2.length === 0);
+    advance(SHORT);
+    check('afterGone: ... and is called when that toast ends (timeout, box empty)', got2.join() === 'gone' && fb2.current === null, got2.join());
+
+    const fb3 = fresh();
+    const got3 = [];
+    fb3.toast('chain A', { onEnd: (r) => { if (r === 'replaced') fb3.afterGone(() => { got3.push('chain B'); fb3.toast('chain B'); }); else got3.push('chain A end'); } });
+    check('afterGone: the chain toast is up first', fb3.current && fb3.current.text === 'chain A');
+    fb3.toast('unrelated');                                  // replaces chain A mid-chain (the bug's case)
+    check('afterGone: replaced: the box stays with the newer toast and the wait does not fire',
+      fb3.current && fb3.current.text === 'unrelated' && got3.length === 0, JSON.stringify(got3));
+    fb3.toast('another unrelated');                          // a second replacement of the replacement
+    check('afterGone: a replacement of the replacement still does not fire it',
+      fb3.current && fb3.current.text === 'another unrelated' && got3.length === 0, JSON.stringify(got3));
+    advance(SHORT);
+    check('afterGone: when the last of the replacements ends, the wait fires and the chain goes on (never two at once)',
+      got3.join() === 'chain B' && fb3.current && fb3.current.text === 'chain B', JSON.stringify(got3));
+    advance(SHORT);
+    check('afterGone: the chain\'s next toast ends on its own time, and nothing is left waiting',
+      fb3.current === null && got3.join() === 'chain B', JSON.stringify(got3));
+
+    // a view change while the chain waits: the toast it waits for may be cleared by the change, and one waiting
+    // for the page being entered may show. The wait fires only once the box is settled: after that, never before it.
+    const fb4 = fresh();
+    const got4 = [];
+    globalThis.location.hash = '';
+    fb4.toast('chain A', { view: 'emulator', onEnd: (r) => { if (r === 'replaced') fb4.afterGone(() => { got4.push('chain B'); fb4.toast('chain B'); }); } });
+    fb4.toast('unrelated', { view: 'library' });             // waits for the Library page (does not take the box)
+    fb4.toast('now on the emulator', { view: 'emulator' });  // replaces chain A
+    globalThis.location.hash = '#library'; fb4.viewChanged();  // clears 'now on the emulator', shows the waiting one
+    check('afterGone: a view change that swaps the toast the chain waits for does not fire it early (a toast is up)',
+      got4.length === 0 && fb4.current && fb4.current.text === 'unrelated', JSON.stringify([got4, fb4.current && fb4.current.text]));
+    advance(SHORT);
+    check('afterGone: ... and it fires when that toast ends', got4.join() === 'chain B' && fb4.current && fb4.current.text === 'chain B', JSON.stringify(got4));
+  }
+
+  // ---- the two holes the merge review found: a replaced WAITING toast's onEnd, and a waiter that throws ----
+  {
+    // a toast waiting for another page, replaced there by a newer one, ends 'replaced' OUTSIDE end() (toast()'s
+    // waiting-map path). A waiter registered from that onEnd must WAIT (the newer toast is about to take the
+    // waiting slot; the box it sees is empty), not fire at once
+    const fb = fresh(), got = [];
+    globalThis.location.hash = '';
+    fb.toast('chain A', { view: 'library', onEnd: (r) => { if (r === 'replaced') fb.afterGone(() => { got.push('chain B'); fb.toast('chain B', { view: 'emulator' }); }); } });
+    fb.toast('newer for the library', { view: 'library' });          // replaces chain A in the waiting map
+    check('afterGone: a waiter registered from a replaced WAITING toast\'s onEnd does not fire at once (the newer one is about to show)',
+      got.length === 0 && fb.current === null, JSON.stringify(got));
+    globalThis.location.hash = '#library'; fb.viewChanged();          // the newer waiting toast shows
+    check('afterGone: ... and not while the newer toast it waits out is up', got.length === 0 && fb.current && fb.current.text === 'newer for the library', JSON.stringify([got, fb.current && fb.current.text]));
+    advance(SHORT);
+    check('afterGone: ... and fires when that toast ends: the chain goes on (its next waits for its own page)',
+      got.join() === 'chain B' && fb.current === null, JSON.stringify(got));
+    globalThis.location.hash = ''; fb.viewChanged();                  // back on the emulator: the chain's next shows
+    check('afterGone: ... and shows on its own page', fb.current && fb.current.text === 'chain B', JSON.stringify(fb.current && fb.current.text));
+    advance(SHORT);
+  }
+  {
+    // a waiter that throws does not stop the ones behind it: both get their turn, in order
+    const fb = fresh(), got = [];
+    let threw = false;
+    fb.toast('holding');
+    fb.afterGone(() => { threw = true; throw new Error('first waiter is broken'); });
+    fb.afterGone(() => got.push('second waiter ran'));
+    advance(SHORT);
+    check('afterGone: a waiter that throws is caught (logged, not fatal), and the drain goes on', threw, JSON.stringify(got));
+    check('afterGone: ... the waiter behind it still ran, in order', got.join() === 'second waiter ran', JSON.stringify(got));
+    check('afterGone: ... and the box is not left held (the second waiter\'s toast may show)', fb.current === null || fb.current.text === 'second waiter ran', JSON.stringify(fb.current && fb.current.text));
+  }
+
   // ---- the user's next action and leaving ----
   {
     const fb = fresh(), log = [];

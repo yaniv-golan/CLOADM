@@ -97,6 +97,37 @@ export function createFeedback() {
   const waiting = new Map();          // view -> toast raised while the user was elsewhere
   let att = null;
   box.tabIndex = -1;                  // the focus's place when a toast replaces a focused one with another action
+  // afterGone(fn) waiters: called once, in order, when no toast is up. A chain whose toast was replaced waits out
+  // the newer toast here (wyrmfire's inTurn), so the chain is neither dropped nor shows two at once.
+  let goneWaits = [];
+  // the reason of the end() under way, null between ends. A waiter registered from a replaced toast's own onEnd
+  // sees cur === null (end() has already dropped it) with the newer toast not yet in the box (show() puts it there
+  // when end() returns): from there it must WAIT, not fire at once, or the chain would replace the replacement.
+  let ending = null;
+  // true while viewChanged settles the box (the toast of the page left ends, then one waiting for the page entered
+  // may show): an end() inside it must not fire the waiters into a box that is about to be filled again
+  let settling = false;
+
+  // fire the waits whose moment has come. One at a time, re-checking the box: a waiter that shows a toast (a
+  // chain's next) makes the ones behind it wait for THAT toast to end, in the order they were registered.
+  function drainWaits() {
+    if (settling) return;
+    while (goneWaits.length && !cur) {
+      const fn = goneWaits.shift();
+      // one waiter that throws does not stop the rest: the ones behind it still get their turn (a chain's toast is
+      // not the only thing waiting on the box)
+      try { fn(); } catch (e) { console.error('toast wait failed', e); }
+    }
+  }
+  // afterGone(fn): call fn once when no toast is up (at once if none is). If a toast is up, fn is called when the
+  // box next settles empty: when the toast up ends without being replaced (a replacement leaves the newer one up,
+  // so the wait goes on), or after a view change has shown whatever was waiting for the page entered. Not called
+  // again after that; the caller keeps nothing.
+  function afterGone(fn) {
+    if (typeof fn !== 'function') throw new TypeError('afterGone: fn is a function');
+    if (!cur && ending !== 'replaced') { fn(); return; }
+    goneWaits.push(fn);
+  }
 
   // (a toast replaced by a newer one leaves the box up and its text to the newer one: no frame without a toast, no
   // focus dropped, one announcement)
@@ -117,7 +148,11 @@ export function createFeedback() {
     unplace();
     dropClass(box, 'compact');   // (a form left on measured the NEXT toast's first frame)
     dropClass(box, 'overscreen'); dropClass(box, 'clamped');
-    if (t.onEnd) t.onEnd(reason);
+    ending = reason;
+    try { if (t.onEnd) t.onEnd(reason); }
+    finally { ending = null; }
+    // a toast replaced leaves the newer one up (the waiters' moment has not come); any other end empties the box
+    if (reason !== 'replaced') drainWaits();
   }
   function arm() {
     clearTimeout(cur.timer);
@@ -665,7 +700,9 @@ export function createFeedback() {
     if (!action) t.text = t.text.replace(INLINE, '');
     if (view !== currentView()) {
       const old = waiting.get(view);
-      if (old && old.onEnd) old.onEnd('replaced');
+      // the reason of end() under way, as end() carries it: a waiter registered from this onEnd must WAIT (the
+      // newer toast is about to take the waiting slot), not fire at once on a box it sees empty
+      if (old && old.onEnd) { ending = 'replaced'; try { old.onEnd('replaced'); } finally { ending = null; } }
       waiting.set(view, t);
       return t;
     }
@@ -707,12 +744,22 @@ export function createFeedback() {
   // raised for the page now shown appears
   function viewChanged() {
     const v = currentView();
-    if (cur && cur.view !== v) end('cleared');
-    const w = waiting.get(v);
-    if (w) {
-      waiting.delete(v);
-      if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
-    }
+    // A view change settles the box in two steps: the toast of the page left ends ('cleared'), and then one waiting
+    // for the page entered may show. Between those an end() would fire the waiters into a box that is about to be
+    // filled again (a chain's next, orphaned the moment the waiting toast showed), so no end() drains while this
+    // runs; the waiters see the box as it has settled, and fire only if it is empty.
+    settling = true;
+    try {
+      if (cur && cur.view !== v) end('cleared');
+      const w = waiting.get(v);
+      if (w) {
+        waiting.delete(v);
+        if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
+      }
+    } finally { settling = false; }
+    // a view change may empty the box (cleared, nothing waiting) or fill it (the page entered had one waiting);
+    // the waiters fire only in the first case, after the box has settled
+    drainWaits();
     renderAttention();
   }
 
@@ -739,7 +786,7 @@ export function createFeedback() {
   $('attentionClose').onclick = () => resolve();
 
   return {
-    toast, attention, resolve, viewChanged,
+    toast, attention, resolve, viewChanged, afterGone,
     clear: () => end('cleared'),
     // place the toast now from the page as it is, not at the next frame: a reader that measures what the toast covers
     // (js/ui/ask.js: is any Stop reachable?) calls it first, so it never judges a placement one page change behind
