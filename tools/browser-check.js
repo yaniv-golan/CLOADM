@@ -24867,9 +24867,16 @@ async function postcardChecks(browser, base, site, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-share.png'), fullPage: true });
   // Save picture: liza-postcard.png, the postcard replayed on a link card (js/video/card.js)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
-  const png = fs.readFileSync(await dl.path());
-  const wantPng = Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES))));
-  check('postcard: Save picture downloads liza-postcard.png, the postcard replayed (1200 x 630), byte for byte', dl.suggestedFilename() === 'liza-postcard.png' && png.equals(wantPng), `${dl.suggestedFilename()} ${png.length}`);
+  // The picture, not the file's bytes: a PNG's deflate stream belongs to its encoder, not to its image. Chromium's
+  // CompressionStream and Node's zlib give different IDAT bytes for the same rows (4125 and 4142 bytes for this
+  // card's 378,630), both correct; decodeIndexedPng turns both into the same colours. The name and the 1200 x 630
+  // size are asserted as before.
+  const png = decodeIndexedPng(fs.readFileSync(await dl.path()));
+  const wantPng = decodeIndexedPng(Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES)))));
+  check('postcard: Save picture downloads liza-postcard.png, the postcard replayed (1200 x 630), pixel for pixel',
+    dl.suggestedFilename() === 'liza-postcard.png' && png.width === 1200 && png.height === 630
+      && png.width === wantPng.width && png.height === wantPng.height && JSON.stringify(png.rgb) === JSON.stringify(wantPng.rgb),
+    `${dl.suggestedFilename()} ${png.width}x${png.height} / ${wantPng.width}x${wantPng.height}`);
   // Copy postcard link: the short link, sealed kind 3, through the Worker
   await page.click('#btnShareCopy');
   const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
