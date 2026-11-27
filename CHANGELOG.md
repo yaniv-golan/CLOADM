@@ -8,6 +8,15 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Changed
+
+- **For contributors: the changelog guard refuses a fenced code block under [Unreleased] and names a "####" heading
+  with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real
+  structure to every rule that keeps the section honest, so the section may not carry a fence at all -- describe
+  the shape in prose or link to the docs (`tests/changelog.test.js` fails naming every fence line). A "####" or "###"
+  heading written with nothing after it (what a keystroke or a merge leaves) is reported by line instead of passing
+  unmentioned -- and `####   ` no longer reads as a kind called " ". (`tests/changelog-guard.js`)
+
 #### Fixed
 
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the

@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -50,6 +50,12 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     oddSubsections(INVENTED, [{ version: '2.0', kinds: ['Upgrading'] }]).length === 0 &&
     oddSubsections(INVENTED, [{ version: '2.1', kinds: ['Upgrading'] }]).length === 1,
     oddSubsections(INVENTED, [{ version: '2.1', kinds: ['Upgrading'] }]).join());
+  // a "####" heading with no name files nothing under any kind, so no list of names can reach it: reported by line,
+  // and it is no longer counted as a subsection called " " (which the name check could only ever reject as an odd name)
+  check('...and a "####" heading with no name in a release is reported by line (it is not a kind called " ")',
+    oddSubsections('### 2.0\n\n####\n\n- x\n\n#### Added\n\n- y\n').join() === '2.0: line 3 of the section, "####", has no section name' &&
+    subsectionKinds('### 2.0\n\n####   \n\n- x\n').length === 0,
+    JSON.stringify(oddSubsections('### 2.0\n\n####\n\n- x\n\n#### Added\n\n- y\n')));
   // [Unreleased] carries the headings of the release being prepared. It may be empty (nothing written yet), but a
   // heading there must be one of the same names -- "Next version:" above a "#### Upgrading" would hide new work in a
   // section no release reads.
@@ -95,7 +101,7 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
 
   // A kind written twice under [Unreleased]: a new entry goes in the subsection of its kind, and two "#### Fixed"
   // blocks read as two releases' worth of one kind in a section not released at all. The message names the kind and
-  // both line numbers, so a reader can go straight to the second heading.
+  // every line it is a heading on, so a reader with three or more goes straight to each of them.
   check('CHANGELOG.md: [Unreleased] carries each "#### Kind" heading once',
     duplicateUnreleasedKinds(text).length === 0, duplicateUnreleasedKinds(text).join(' | '));
   {
@@ -103,7 +109,7 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     const DUP = ['# Changelog', '', '## [Unreleased]', '', '#### Added', '', '- a', '',
       '#### Fixed', '', '- b', '', '#### Fixed', '', '- c', '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
     const found = duplicateUnreleasedKinds(DUP);
-    check('...and two "#### Fixed" under [Unreleased] are reported by kind and both line numbers',
+    check('...and two "#### Fixed" under [Unreleased] are reported by kind, with EVERY line it is a heading on',
       found.length === 1 && found[0] === 'Fixed: line 9 and line 13', JSON.stringify(found));
     // each kind once is what the section wants, in whatever order
     check('...and each kind once, in any order, is not reported',
@@ -124,6 +130,75 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     // a "#### " heading with trailing spaces is the same heading as without (as subsectionKinds reads it)
     check('...and "#### Fixed " with trailing spaces is counted as "Fixed"',
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n#### Fixed \n\n### 0.4.0\n').length === 1);
+  }
+
+  // A fenced code block ("```" or "~~~") under [Unreleased] is an error, not an example to skip: a fenced example
+  // quoting a "#### Fixed" twice or a release heading would read as real structure to every rule that keeps the
+  // section honest. So the guard reads no fences at all -- the section may not carry one, and the docs or prose
+  // describe the shape instead.
+  {
+    const un = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
+    check('CHANGELOG.md: [Unreleased] carries no fenced code block (```) or tilde fence (~~~)',
+      unreleasedFences(text).length === 0, unreleasedFences(text).map((x) => `line ${x.line}: ${x.text}`).join(' | '));
+    // both fence characters, both reported by line; an info string ("```md") is a fence line too
+    const FENCED = un(['- an entry', '', '```md', '#### Fixed twice inside is a fence the guard reports', '```', '', '~~~', '~~~']);
+    const found = unreleasedFences(FENCED);
+    check('...and a fenced code block under [Unreleased] is reported naming every fence line (``` and ~~~)',
+      found.length === 4 && found.map((x) => x.line).join() === '7,9,11,12' && found[0].text === '```md',
+      JSON.stringify(found));
+    // the closing line of a fence is a fence line too: one fence, two reports, so a reader sees where it ends
+    check('...and a fence written with an indent of up to three spaces, or on a CRLF file, is a fence',
+      unreleasedFences('## [Unreleased]\r\n\r\n   ```\r\n- x\r\n   ```\r\n\r\n### 0.4.0\r\n').map((x) => x.line).join() === '3,5',
+      JSON.stringify(unreleasedFences('## [Unreleased]\r\n\r\n   ```\r\n- x\r\n   ```\r\n\r\n### 0.4.0\r\n')));
+    // a fence in a RELEASED section is that section's history, frozen against its tag: not this rule's
+    const releasedFence = '## [Unreleased]\n\n#### Changed\n\n- a\n\n### 0.4.0\n\n```\n#### Fixed twice\n```\n';
+    check('...and a fence inside a RELEASED section is not this rule\'s (the tag comparison holds it)',
+      unreleasedFences(releasedFence).length === 0, JSON.stringify(unreleasedFences(releasedFence)));
+    // a fence is an error on its own line, and what it quotes is read as the structure a reader would mistake it
+    // for: a duplicate around a fence is caught, and the fence is reported too -- neither can hide the other
+    check('...and a duplicate "#### Fixed" around a fence is still caught',
+      duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```'])).join() === 'Fixed: line 5 and line 11',
+      JSON.stringify(duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```']))));
+    // a fence under the real [Unreleased] that quotes a release heading is itself reported (the section may not
+    // carry one), and the quoted heading is structure to the region rule, which ends only at a version heading --
+    // so the file is red on the fence line, never silent
+    check('...and a fenced "### 0.4.0" under the real heading is a fence line the guard reports (never silent)',
+      unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n').map((x) => x.line).join() === '3',
+      JSON.stringify(unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n')));
+    // a duplicated "## [Unreleased]" heading (merge debris) is not a release heading: the region runs on through
+    // it, so a real duplicate and a stray letter below it are still reported
+    check('...and a duplicated "## [Unreleased]" heading does not hide what is below it',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').join() === 'Fixed: line 3 and line 9' &&
+      bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D');
+    // an ordinary line that merely starts with backticks is prose, not a fence (CommonMark wants three or more)
+    check('...while a line of two backticks, or a bullet quoting a fence, is prose, not a fence',
+      unreleasedFences(un(['- the `` inline code `` shape', '', '- the ` ``` ` quoted in a bullet'])).length === 0,
+      JSON.stringify(unreleasedFences(un(['- the `` inline code `` shape', '', '- the ` ``` ` quoted in a bullet']))));
+  }
+
+  // A "####" heading with no name: no rule that reads headings by name can report it (there is no name to report), so
+  // it used to pass unmentioned, and with spaces after it ("####   ") it counted as a kind called " " -- which fits no
+  // heading list and tells a reader nothing. It is now reported by line, by its own check.
+  {
+    const un = (h) => `## [Unreleased]\n\n${h}\n\n- a\n\n### 0.4.0\n`;
+    check('...and a "#### " heading with no name is reported by line, not read as a kind',
+      unreleasedNamelessHeadings(un('#### ')).join() === 'line 3: "#### " has no name' &&
+      unreleasedKinds(un('#### ')).length === 0,
+      JSON.stringify(unreleasedNamelessHeadings(un('#### '))));
+    check('...and "####" alone, and "####   " (which used to read as the kind " "), are reported the same way',
+      unreleasedNamelessHeadings(un('####')).join() === 'line 3: "####" has no name' &&
+      unreleasedNamelessHeadings(un('####   ')).join() === 'line 3: "####   " has no name' &&
+      unreleasedKinds(un('####   ')).length === 0,
+      `${JSON.stringify(unreleasedNamelessHeadings(un('####')))} / ${JSON.stringify(unreleasedNamelessHeadings(un('####   ')))} / kinds ${JSON.stringify(unreleasedKinds(un('####   ')))}`);
+    check('...and a nameless LEVEL-3 heading is reported the same way (and is not a level-3 name)',
+      unreleasedNamelessHeadings(un('###  ')).join() === 'line 3: "###  " has no name' && unreleasedLevel3(un('###  ')).length === 0,
+      `${JSON.stringify(unreleasedNamelessHeadings(un('###  ')))} / H3 ${JSON.stringify(unreleasedLevel3(un('###  ')))}`);
+    check('...and a named heading is not reported (the check is not vacuous), and "####X" is prose, not a heading',
+      unreleasedNamelessHeadings(un('#### Fixed')).length === 0 && unreleasedKinds(un('#### Fixed')).join() === 'Fixed' &&
+      unreleasedKinds(un('####X')).length === 0 && unreleasedNamelessHeadings(un('####X')).length === 0,
+      `kinds ${JSON.stringify(unreleasedKinds(un('####X')))} / nameless ${JSON.stringify(unreleasedNamelessHeadings(un('####X')))}`);
+    check('CHANGELOG.md: [Unreleased] carries no "####" heading with no name',
+      unreleasedNamelessHeadings(text).length === 0, unreleasedNamelessHeadings(text).join(' | '));
   }
 }
 
