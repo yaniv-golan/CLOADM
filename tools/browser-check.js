@@ -5679,35 +5679,36 @@ async function phoneChecks(browser, base, check) {
   // The screen's height is measured from the panel's own box (--tk-below, js/ui/touch-keys.js): a class change that
   // resizes the panel must update that length in the same task, or the screen keeps the height of the layout that was
   // there before and the page stands taller than the window until the next frame. A wait cannot see that frame -- by
-  // the time a check reads, the layout has caught up -- so the class change and the read are done in ONE task here,
-  // with no frame between them: the invariant is proved at the instant that broke it, which is what took the
-  // "upright, the page does not scroll" check out of the run's intermittent failures. (Measured before the fix:
-  // scrollHeight 677 in a 659 px window from the Show keys click until the next frame, 659 after.)
-  await page.tap('#chipPower');
-  await page.tap('#btnHideKeys');
-  await waitFor(page, () => document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-hidden'));
+  // the time a check reads, the layout has caught up -- so BOTH transitions (Hide keys, Show keys) and the reads
+  // after each happen in ONE page task here, with no await and no second evaluate between a click and its read. A task
+  // boundary is the one thing that lets the ResizeObservers run: measured, with the click and the read split across two
+  // evaluates on a build with the fix reverted, the layout had caught up and the check passed.
+  // (Measured before the fix: scrollHeight 677 in a 659 px window from the Show keys click until the next frame.)
+  await page.tap('#chipPower');                     // (Hide keys is in the Power sheet; the keys are up here)
+  await waitFor(page, () => document.getElementById('sheetPower').open && !document.getElementById('touchKeys').hidden);
   const sameTask = await page.evaluate(() => {
     const doc = document.documentElement, below = () => parseFloat(getComputedStyle(doc).getPropertyValue('--tk-below'));
-    // what the length must be for the layout showing now, measured from the boxes it is derived from (the chip row's
-    // foot, or the panel's, past the screen): the same sum js/ui/touch-keys.js's fit() makes. Reading boxes forces
-    // layout, which delivers the pending ResizeObserver callback -- so this settles the state the click starts from,
-    // and it must be read BEFORE the click.
+    // what the length must be for the layout showing now: the same sum js/ui/touch-keys.js's fit() makes (the chip
+    // row's foot, or the panel's, past the screen)
     const want = () => {
       const m = document.querySelector('.layout > main > .monitor').getBoundingClientRect();
       const chips = document.getElementById('chipRow'), box = document.getElementById('touchKeys');
       const last = chips.checkVisibility() ? chips : box.hidden ? null : box;
       return last ? Math.round(last.getBoundingClientRect().bottom - m.bottom) : 56;
     };
-    const wantHidden = want(), gotHidden = below();
-    document.getElementById('btnShowKeys').click();     // (the keys come back; nothing has drawn since the hide)
-    // READ FIRST, AND WITHOUT ASKING FOR LAYOUT: getComputedStyle on a custom property forces none. Calling want()
-    // here would force layout and deliver the observer, which runs fit() and repairs the very staleness this is for.
-    const got = below();
-    const wantShown = want();
-    return { shown: !document.getElementById('touchKeys').hidden, gotHidden, wantHidden, got, wantShown, sh: doc.scrollHeight, h: innerHeight };
+    // (the boxes the first transition starts from: measured with the keys up, before anything changes)
+    const wantUp0 = want(), gotUp0 = below();
+    document.getElementById('btnHideKeys').click();
+    const gotDown = below();                         // the FIRST read after the click: no task boundary since it
+    const wantDown = want(), shDown = doc.scrollHeight;
+    document.getElementById('btnShowKeys').click();
+    const gotUp = below();                           // ditto: the first read after the click
+    const wantUp = want(), shUp = doc.scrollHeight;
+    return { up: !document.getElementById('touchKeys').hidden, wantUp0, gotUp0, gotDown, wantDown, shDown, gotUp, wantUp, shUp, h: innerHeight };
   });
-  check('phone: the panel\'s height is measured again in the task that changes it, so the screen never keeps the height of the layout before (Show keys, read with no frame between)',
-    sameTask.shown && sameTask.gotHidden === sameTask.wantHidden && sameTask.got === sameTask.wantShown && sameTask.sh <= sameTask.h, JSON.stringify(sameTask));
+  check('phone: the panel\'s height is measured again in the task that changes it, so the screen never keeps the height of the layout before (Hide keys, then Show keys, each read with no frame between)',
+    sameTask.up && sameTask.gotUp0 === sameTask.wantUp0 && sameTask.gotDown === sameTask.wantDown && sameTask.gotUp === sameTask.wantUp
+      && sameTask.shDown <= sameTask.h && sameTask.shUp <= sameTask.h, JSON.stringify(sameTask));
   await waitFor(page, () => !document.getElementById('touchKeys').hidden && document.body.classList.contains('touch-keys'));
   // the page does not scroll: the header, the screen, the panel and the chips fit the window
   const fits = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, h: innerHeight }));
