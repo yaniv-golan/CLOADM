@@ -10,10 +10,10 @@ READY   LDS     <BASESP         ; (above it: the FOR and GOSUB frames CONT needs
 * MAIN: one typed line: a numbered line goes into the program, anything else runs at once
 MAIN    LDS     <BASESP
         CLR     <JMPFLG
-        LDD     #$FFFF
-        STD     <CURLIN
         JSR     LINEIN
         BCS     MAIN            ; BREAK: the line is dropped
+MAINLN  LDD     #$FFFF          ; (EDIT's line comes in here)
+        STD     <CURLIN
         JSR     CRUNCH          ; LINBUF -> CRNBUF; B = its length with the 0
         LDX     #CRNBUF-1
         STX     <TXTPTR

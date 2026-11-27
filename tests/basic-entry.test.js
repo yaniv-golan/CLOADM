@@ -37,7 +37,7 @@ check('the ROM as built: the table costs no byte (a routine starts at $A000)', b
 // A mutant's build (tests only) moves the table when the code before it grows or shrinks: still at $A000, after an
 // instruction that nothing runs on from, with the bytes between left $FF; or, where no such place fits, has none
 for (const [name, edit] of [
-  ['3 bytes more before it', (f, t) => (f === 'screen.inc' ? t.replace('CHROUT  PSHS    D,X\n', 'CHROUT  PSHS    D,X\n        NOP\n        NOP\n        NOP\n') : t)],
+  ['2 bytes fewer before it', (f, t) => (f === 'screen.inc' ? t.replace('        JSR     TXTSCR\n        LDA     ,S\n', '        JSR     TXTSCR\n') : t)],
   ['4 bytes fewer before it', (f, t) => (f === 'screen.inc' ? t.replace('        CMPA    #8\n        BEQ     CHRBS\n', '') : t)],
 ]) {
   const m = buildBasic({ edit });
@@ -50,8 +50,9 @@ for (const [name, edit] of [
 }
 
 {
-  // 220 bytes more before it (of the 226 free): no place below $A000 leaves room for the table and the code after it
-  const m = buildBasic({ edit: (f, t) => (f === 'd64basic.asm' ? t.replace('        INCLUDE "screen.inc"', '        RMB     220\n        INCLUDE "screen.inc"') : t) });
+  // all but 5 of the free bytes taken before it: no place below $A000 leaves room for the table and the code after it
+  const grow = 0xBFF0 - symbols.get('ROMEND') - 5;
+  const m = buildBasic({ edit: (f, t) => (f === 'd64basic.asm' ? t.replace('        INCLUDE "screen.inc"', `        RMB     ${grow}\n        INCLUDE "screen.inc"`) : t) });
   check('a mutant\'s build with no room for it has no table', m.gap === null && !m.symbols.has('VECTBL'), `gap ${m.gap}`);
 }
 

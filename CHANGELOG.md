@@ -216,6 +216,12 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   on and off, byte write, byte read and bit read; `$FF` where no routine of ours does the job) and the word table at
   `$A000-$A00D` (`$A000` the keyboard poll). The code starts at `$802A`, leaving 226 bytes free
   (`tests/basic-entry.test.js` calls each stub from machine code).
+  `EDIT` works, as the bb10 record `stmt-edit` shows it on the original (it gave `?FC ERROR`): `EDIT n` prints the
+  line, then its number again for editing; ENTER shows the rest and stores the line, X goes to the end and inserts,
+  L shows the line and starts again, a count and space moves on, H deletes the rest and inserts, nD deletes n
+  characters, and a missing line or no number is `?UL ERROR`; in a program it ends the program with no `OK`. Ours
+  matches the record exactly (`tests/basic-edit.test.js`). The other edit commands wait for the bb11 probes
+  (`stmt-edit2`, `stmt-edit3`). The ROM is 206 bytes larger (16,329 with the published entry points; 20 bytes are left below the vectors).
 
 ### 0.4.0
 

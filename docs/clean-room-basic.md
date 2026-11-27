@@ -250,7 +250,8 @@ These are hard rules for everyone who works on this ROM.
   `$8006-$8029` and `$A000-$A00D`, 50: never counted free; section 3) and free (only the gap between `ROMEND` and
   `$BFF0`). Before this pass 16,102 occupied, the code ending at `$BFD8`, 24 free; after it 16,100, `$BFD6`, 26 free
   (with `$8000-$80FF` then all reserved). With only the published entry points kept: 16,123 occupied (the 21 bytes of
-  the seven jumps and `$A000`'s word included), the code ending at `$BF0E`, 226 free. Its routines run from a
+  the seven jumps and `$A000`'s word included), the code ending at `$BF0E`, 226 free; with `EDIT`, 16,329, `$BFDC`,
+  20 free. Its routines run from a
   label to the next or to their module's end, a label that emits no bytes counting (`tests/basic-size.test.js`; it
   once gave `play.inc`'s last label, `PLD5`, `tokens.inc`'s 611 bytes). The pass changed no cycle on any path, errors
   included, nor the cycle of any write to the screen or the PIAs (every black-box case's writes, stamped with their
@@ -266,6 +267,12 @@ These are hard rules for everyone who works on this ROM.
   `FOUT`, `PRINT USING`'s `LBLE`) have no same-size cycle to give back before the call on every path into it. `CPYXU`
   moved beside its four `fpconv.inc` callers saves 4 bytes gross and needs a byte of padding at each; a `JSR` and
   `RTS` made a `JMP` is 9 cycles faster and leaves the callee a different stack.
+* **`EDIT`** ([BB] bb10 `stmt-edit`, section 11 row 70; `edit.inc`, a module of its own after `$A000`, so the
+  routine at `$A000` that the table of published calls goes before stays there) took 206 bytes: 16,329, the code
+  ending at `$BFDC`, 20 bytes below the vectors. The line is spelt out by `LSTLIN` itself, its output sent into the line buffer
+  by pointing the two-byte call `ZCHROUT` at a store for that one call, so no `LIST` code was added or slowed; the
+  count lives in B, which `KEYWT` keeps; ENTER hands the line to the main loop where a typed line goes (`MAINLN`, which
+  now sets `CURLIN` to `$FFFF` after the line is typed instead of before: nothing reads it during the wait).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -380,6 +387,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `getput.inc` | `GET`, `PUT` and their actions |
 | `sound.inc` | the tone loop (a cycle-exact square wave, its length counted in cycles), `SOUND`, `AUDIO`, `JOYSTK` (section 7 there) |
 | `play.inc` | `PLAY`: its commands, the note table and the length arithmetic; `PLAY`'s defaults, set by `CLRVAR` |
+| `edit.inc` | `EDIT` [BB bb10 stmt-edit]; after `$A000`, so code added to it never moves the routine at `$A000` (section 3) |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so
 programs crunch and list correctly, and give `?FC ERROR` (to be decided, open question 6) until P2 implements them.
@@ -452,7 +460,7 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   to a mantissa from 1/2 to 1 with a `- 1/2` after the series cancels near 1. A model of that kind (t = 1 - sqrt 2 /
   (m + sqrt 1/2), t times a four-term series in t^2, then - 1/2, + the exponent, x ln 2) fits all 13 but `LOG(.9)`
   with a plain fit of its series, so it is close; it would need 20 bytes of its own coefficients, which the ROM has
-  not got (16,115 with `EDIT`), so it is left. bb10 `num-print-big` also shows that `^` is `EXP(y LOG x)` even for a
+  not got (20 free with `EDIT`), so it is left. bb10 `num-print-big` also shows that `^` is `EXP(y LOG x)` even for a
   whole y: the original's 2^66 is 195,0,0,0,44 and 2^126 255,0,0,0,44, which ours' `EXP` gives from 66 and 126
   times the original's `LOG(2)` (128,49,114,23,249, ours ...248), while 2^60 stays exact; ours multiplies whole
   powers exactly. Both wait for the `LOG` model.
@@ -566,6 +574,8 @@ All of them run with no ROM, on our ROM assembled at test time.
   `$A000` to `CHROUT`) that fail it.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
+* **`tests/basic-edit.test.js`:** `EDIT`: the bb10 record `stmt-edit` replayed, ours identical to it, with a mutant of
+  each rule (row 70) that must not be; and our own limit (an insertion into a full line takes nothing).
 * **Mutants:** each suite is run against deliberately broken builds (a wrong rounding mode, a precedence swap, an
   off-by-one in `MID$`, a missing scroll) that must fail it; the list is kept in the report of each milestone.
 * **The regression hashes** (`tests/regress.test.js`) stay unchanged: nothing in the emulator changes.
@@ -925,6 +935,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 67 | `$0097-$0098` is 1,118 at the first prompt, and still after a few lines; a key is not taken 1,118 passes later (a debounce of that length makes our typed lines about 7,000 cycles later than the original's: the sound records' starts), so ours keeps its debounce at 300 passes and reads `$0097-$0098` as the cursor's delay, the specification's 1,118 passes (less 55, our scan being slower); the cursor's blink half-cycle is 13 pictures of 2 fields, as ours | [BB] bb10 `scr-prompt-idle` (2026-11-27: the transcript and 100 pictures); bb2, bb10 the sound records' starts; [OWNER-SPEC] the delay's 1,118 passes |
 | 68 | The interpreter's costs (section 2, the original's cost model): a digit of a number by the number so far and the digit's bits, the same in a constant, `VAL` and `READ`; a 0 about 925-1000 cycles; a product by its right operand's bytes and bits, not its left one's; `INT` 23 cycles a place it drops; `AND` alike for small and large operands; `MOTOR ON` waits about 25.4 fields with `TIMER` counting, and again when the motor already runs; `MOTOR OFF` of a motor that is off takes nothing | [BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` |
 | 69 | The published entry points: a jump at `$8006`, `$8009`, `$800C`, `$800F`, `$8012` (keyboard, cursor blink, screen, printer, joysticks), `$8015`-`$8027` (the cassette: relay on, off, prepare to write, write a byte, prepare to read, read a byte, read a bit), a word at `$A000`, `$A004`, `$A006`, `$A008`, `$A00C`; nothing published at `$8000-$8005` or after `$8027`; `$8B2D`, `$8C37` and the RAM hooks at `$015E-$01AF` (section 3) | [DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pp. 4-5 and PDF p. 7, read from the page images (the text layer has OCR errors) and checked cell by cell by the maintainer's side (2026-11-27) |
+| 70 | `EDIT n` prints the line as `LIST` does, then the line's number and a space again, and takes keys: ENTER shows the rest of the line and stores it as a typed line is stored (no `OK` after it, in direct mode or in a program, which ends there); X shows the rest and inserts what is typed; L shows the rest and starts the line again (a third copy); a count of digits and space moves that many characters on, showing them; H deletes the rest and inserts; nD deletes n characters, showing nothing for them (`2D` on `PRINT 7` leaves `INT 7`). `EDIT 99` with no line 99, and `EDIT` with no number, are `?UL ERROR`. The other keys and commands, BREAK, the left arrow in insertion and a full line are ours [OWN] until bb11's `stmt-edit2` and `stmt-edit3` answer them (ours: a key that is no command does nothing; in insertion only a printable key goes in; a line of 250 characters with its number takes no more) | [BB] bb10 `stmt-edit` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -1149,7 +1160,7 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | Update or scan first | whether a key already down when the wait starts is accepted before the first update |
 | Cold-start values | `PEEK(143)` right after power-on, and `PEEK(151)*256+PEEK(152)` after the reset button (1,118 at the first prompt after power-on: bb10) |
 | The debounce | what the original's delay at `$0097-$0098` times (ours: the cursor's delay); a `POKE` of it and the blink's period, or the keys' pace, after it |
-| Where else updates run | whether any other wait (a cassette prompt, `EDIT`, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait |
+| Where else updates run | whether any other wait (a cassette prompt, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait and `EDIT`'s, which is the same `KEYWT` |
 
 **Entry points (input for P3, not built).** Where ROM-call compatibility is in scope, the specification names these
 addresses as interfaces, not as places in the original's code. Register, condition-code and stack effects, and the

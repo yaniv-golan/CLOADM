@@ -1,4 +1,4 @@
-# bb-only: EDIT on a stored line (docs/clean-room-basic.md section 4, the line editor): ours gives ?FC ERROR. The
+# bb-only: EDIT on a stored line (docs/clean-room-basic.md section 4, the line editor). The
 # keys are bounded: each EDIT is given a few edit-mode keys from the manual's list and ENTER, and LIST shows what
 # was stored. EDIT 10 then ENTER alone (the line kept as it was?); X (to the end, inserting) with :PRINT 2; L (the
 # line listed); 6, space, H (delete the rest, inserting) with 7; 2D (delete two characters); then EDIT of a line

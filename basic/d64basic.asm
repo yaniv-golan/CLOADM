@@ -347,6 +347,7 @@ ZMOVMF   RMB     3
         INCLUDE "fpconv.inc"
         INCLUDE "sound.inc"
         INCLUDE "play.inc"
+        INCLUDE "edit.inc"
         INCLUDE "tokens.inc"
 ROMEND  RMB     0
 
