@@ -12354,6 +12354,26 @@ async function wyrmfireChecks(browser, site, check) {
         got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));
       await c.close();
     }
+    // an unrelated toast replacing one in the chain does not drop the rest: the chain waits for the newer toast to
+    // be gone and then goes on. Every chain toast still shows, in order, and never two at once (the recorder sees
+    // the box's one text at a time). Desktop, so the chain is the switch and the keys (no turn-sideways hint).
+    {
+      const UNRELATED = 'Disk 1 is in drive 0.';
+      const c = await browser.newContext({ serviceWorkers: 'block' });
+      const pg = await newPage(c);
+      await recordToasts(pg);
+      await pg.goto(`${base}?machine=coco3`);
+      await started(pg);
+      await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      // the chain's first toast (the switch) is up: replace it mid-chain with an unrelated one
+      await waitFor(pg, () => window.__toasts.length >= 1 && document.getElementById('toast').textContent.includes(SWITCHED));
+      await pg.evaluate((t) => window.emu.feedback.toast(t), UNRELATED);
+      const seen = await waitFor(pg, (n) => window.__toasts.length >= n, 3, 20000) && await pg.evaluate(() => window.__toasts);
+      check('wyrmfire: an unrelated toast replacing one in the chain is shown itself, and the chain goes on after it: the switch, the unrelated one, the keys (none dropped, in order)',
+        seen.join(' | ') === `${SWITCHED} | ${UNRELATED} | ${KEYS}`, JSON.stringify(seen));
+      await c.close();
+    }
     // offline, nothing kept: the strip says so with Try again, and the menu stays on the MC-10
     const ctx = await browser.newContext({ serviceWorkers: 'block' });
     const page = await newPage(ctx);

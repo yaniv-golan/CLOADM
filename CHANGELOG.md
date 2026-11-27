@@ -128,6 +128,10 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **A toast interrupting WYRMFIRE's start no longer silences what it had left to say.** WYRMFIRE's start says what
+  happened in turn (that it switched machines, the keys to play, on a phone the turn-sideways hint); a toast raised by
+  something else replacing one of them dropped the rest. The chain now waits for the newer toast to be gone and then
+  carries on: every line is still said, in order, and never two at once.
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
   this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
   Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border

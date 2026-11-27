@@ -271,12 +271,17 @@ export function setupWyrmfire(page, { confirmSwitch }) {
     playing();
   }
   // the texts in order, each when the one before has gone, however it went (a toast replaces the one showing, so they are
-  // chained; a tap that clears one does not lose the rest)
+  // chained; a tap that clears one does not lose the rest). One replaced by an unrelated toast is not dropped either:
+  // the rest of the chain waits for that newer toast to be gone (feedback.afterGone) and then goes on, so every text is
+  // still said, in order, and never two at once
   function inTurn(texts) {
     const [text, ...rest] = texts.filter(Boolean);
     if (!text) return;
     if (text === WYRM_TEXT.sideways) { try { localStorage.setItem('wyrmfire.sideways', '1'); } catch (e) { /* storage off */ } }
-    page.toast(text, { onEnd: () => inTurn(rest) });
+    page.toast(text, { onEnd: (reason) => {
+      if (reason === 'replaced') { if (rest.length) page.feedback.afterGone(() => inTurn(rest)); }
+      else inTurn(rest);
+    } });
   }
   // "Turn sideways for a bigger view.": once, on a phone held upright -> whether to say it (it is marked said as it is raised)
   function sideways() {
