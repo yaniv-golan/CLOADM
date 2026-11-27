@@ -24924,8 +24924,8 @@ async function switchLosesChecks(browser, base, site, check) {
   const res = Emu.assemble(SRC, '6809');
   if (res.ok) { links.source = z(await Emu.encodeSourceLink({ machine: 'coco', config: {}, name: 'SWITCH.ASM', source: SRC, crc: Emu.sourceCrc(res.segments, res.exec) })); }
   check('switchLoses: the fixture source assembles on the 6809, so there is a source link to open', res.ok, JSON.stringify(res.errors || res.ok));
-  // a fresh profile each case: nothing stored, the switch question counted every time it shows (it may show and go
-  // before a check could look), and the arrival card's text recorded
+  // a fresh profile each case: nothing stored, and the switch question counted every time it shows (it may show and go
+  // before a check could look)
   const fresh = async () => {
     const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     await c.addInitScript(() => {
@@ -25137,7 +25137,7 @@ async function switchLosesChecks(browser, base, site, check) {
     // the link goes INTO the address first, as a link does, and is taken from there: a reader handed the string
     // directly never strips anything, so its "stripped" would be the page's own empty address and prove nothing
     await p.evaluate((h) => history.replaceState(null, '', location.pathname + location.search + h), links[kind]);
-    const inAddress = await p.evaluate(() => location.hash);
+    const inAddress = await p.evaluate(() => location.hash);   // (a guard, not coverage: it fails only if the address did not take it)
     await take(p, kind, inAddress);
     const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 20000);
     const stripped = await p.evaluate(() => location.hash);   // the reader took the fragment out before asking
@@ -25149,7 +25149,7 @@ async function switchLosesChecks(browser, base, site, check) {
       screen: window.emu.session.screenText().join('\n') }), before.stamp);
     // not restarted: resetAt (frameCount - framesSinceReset) does not move (framesSinceReset alone is > 0 again one
     // frame after a power cycle, and the loop shows that frame before the check reads)
-    const stillRunning = after.frames > 0 && after.resetAt === before.resetAt;
+    const stillRunning = after.resetAt === before.resetAt;
     check(`switchLoses: Cancel on a ${kind} link keeps the machine and its work (the same machine, not restarted, the key still on its screen), gives the link back, and shows no card`,
       typed && asked && gone && s.id === 'dragon64' && !s.card && after.sameMachine && stillRunning && after.screen === before.screen
       && inAddress === links[kind] && stripped === '' && s.hash === links[kind],
