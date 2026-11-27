@@ -120,6 +120,31 @@ function unreleasedLevel3(text) {
   return out;
 }
 
+// A "#### Kind" heading written twice under [Unreleased]. A new entry goes in the subsection of its kind, and two of
+// one kind (two "#### Fixed" blocks, with the entries for one kind split between them or, worse, the same heading left
+// by a merge) reads as two releases' worth of one kind in a section that has not been released at all. The check is
+// kept to [Unreleased], up to the first release heading: a released section is frozen against its tag, so a duplicate
+// there is already a difference the tag comparison reports, and its history is not rewritten by this rule.
+// -> ['Fixed: line 9 and line 14', ...], one entry per kind written more than once.
+function duplicateUnreleasedKinds(text) {
+  const lines = text.split('\n');
+  const at = new Map();                          // kind -> every line number it is a heading on
+  let inUn = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^## \[Unreleased\]/i.test(line)) { inUn = true; continue; }
+    if (inUn && UNRELEASED_BOUNDARY.test(line)) break;
+    if (!inUn) continue;
+    const m = /^#### (.+?)\s*$/.exec(line);
+    if (m) at.set(m[1], [...(at.get(m[1]) || []), i + 1]);
+  }
+  const out = [];
+  for (const [kind, ns] of at) {
+    if (ns.length > 1) out.push(`${kind}: ${ns.map((n) => `line ${n}`).join(' and ')}`);
+  }
+  return out;
+}
+
 // ---- what a merge can leave in the file: conflict markers and a stray one-letter line ----
 // A conflict marker left unresolved is never intended: "<<" "==" ">>" at the start of a line, the shape git writes
 // (the seven-character forms, with or without a label). It is checked ANYWHERE in the file, because a marker can
@@ -243,4 +268,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
