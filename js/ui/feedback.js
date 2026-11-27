@@ -83,7 +83,7 @@ export function decide(I) {
   // canvas, so without this a toast on a phone short enough for the pad (WYRMFIRE, 375x548) sat on the pad's own row and
   // took the → key's tap (measured: #touchPad [data-key="→"] at y 461-509 under a toast at 478-540).
   const off = offText.concat(I.keyRects || []);
-  const keysHit = (a) => (I.keyRects || []).some((k) => hitsRect(a, k));
+  const keysHit = (a) => (I.keyRects || []).some((k) => hits(a, k));
   tries.push([r.left, area.top + (phone ? 8 : 16), true]);
   const at = tries.find(([x, y, avoidScreen]) => free(rect(x, y), avoidScreen ? off.concat(screen) : off.concat(pic)));
   if (at) {
