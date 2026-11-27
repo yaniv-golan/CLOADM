@@ -100,10 +100,18 @@ export function createFeedback() {
   // afterGone(fn) waiters: called once, in order, when no toast is up. A chain whose toast was replaced waits out
   // the newer toast here (wyrmfire's inTurn), so the chain is neither dropped nor shows two at once.
   let goneWaits = [];
+  // the reason of the end() under way, null between ends. A waiter registered from a replaced toast's own onEnd
+  // sees cur === null (end() has already dropped it) with the newer toast not yet in the box (show() puts it there
+  // when end() returns): from there it must WAIT, not fire at once, or the chain would replace the replacement.
+  let ending = null;
+  // true while viewChanged settles the box (the toast of the page left ends, then one waiting for the page entered
+  // may show): an end() inside it must not fire the waiters into a box that is about to be filled again
+  let settling = false;
 
   // fire the waits whose moment has come. One at a time, re-checking the box: a waiter that shows a toast (a
   // chain's next) makes the ones behind it wait for THAT toast to end, in the order they were registered.
   function drainWaits() {
+    if (settling) return;
     while (goneWaits.length && !cur) {
       const fn = goneWaits.shift();
       fn();
@@ -115,7 +123,7 @@ export function createFeedback() {
   // again after that; the caller keeps nothing.
   function afterGone(fn) {
     if (typeof fn !== 'function') throw new TypeError('afterGone: fn is a function');
-    if (!cur) { fn(); return; }
+    if (!cur && ending !== 'replaced') { fn(); return; }
     goneWaits.push(fn);
   }
 
@@ -138,7 +146,9 @@ export function createFeedback() {
     unplace();
     dropClass(box, 'compact');   // (a form left on measured the NEXT toast's first frame)
     dropClass(box, 'overscreen'); dropClass(box, 'clamped');
-    if (t.onEnd) t.onEnd(reason);
+    ending = reason;
+    try { if (t.onEnd) t.onEnd(reason); }
+    finally { ending = null; }
     // a toast replaced leaves the newer one up (the waiters' moment has not come); any other end empties the box
     if (reason !== 'replaced') drainWaits();
   }
@@ -717,12 +727,18 @@ export function createFeedback() {
   // raised for the page now shown appears
   function viewChanged() {
     const v = currentView();
+    // A view change settles the box in two steps: the toast of the page left ends ('cleared'), and then one waiting
+    // for the page entered may show. Between those an end() would fire the waiters into a box that is about to be
+    // filled again (a chain's next, orphaned the moment the waiting toast showed), so no end() drains while this
+    // runs; the waiters see the box as it has settled, and fire only if it is empty.
+    settling = true;
     if (cur && cur.view !== v) end('cleared');
     const w = waiting.get(v);
     if (w) {
       waiting.delete(v);
       if (Date.now() - w.raised <= WAIT) show(w); else if (w.onEnd) w.onEnd('dropped');
     }
+    settling = false;
     // a view change may empty the box (cleared, nothing waiting) or fill it (the page entered had one waiting);
     // the waiters fire only in the first case, after the box has settled
     drainWaits();
