@@ -24717,7 +24717,6 @@ async function basicShareChecks(browser, base, site, check) {
 // as a postcard (the Share screen's mode, its picture the postcard replayed, its short link sealed as kind 3 through the
 // Worker), the BYE note, and the recipient's card: Replay, a key skipping to the end, "Your turn". Also a phone's
 // "Share postcard…" and toast, a trimmed chat's note, and the refusals.
-// A LIZA postcard (js/postcard.js)
 async function postcardChecks(browser, base, site, check) {
   const { pathToFileURL } = require('url');
   const Emu = require('../tests/load')();
@@ -24981,9 +24980,10 @@ async function switchLosesChecks(browser, base, site, check) {
       await closeCtx(c);
     }
     // 2. the person's input on the page first: the question asks first, names the model, and Switch opens the link.
-    //    Each asks exactly ONCE (a second question would be the same one stacked behind the first: asked.length === 1),
-    //    holds the focus on its Switch while it is open (so the person answers it, rather than typing into the machine),
-    //    and only its Switch opens the link: nothing shows before the answer.
+    //    Each asks exactly once, shows nothing before the answer, and holds the focus on its Switch, so Enter answers
+    //    the question rather than typing into the machine. (asked.length counts each time the box comes to be shown: the
+    //    counter sees a question shown again after going away, not one written over an already-open box - case 5 tells
+    //    those apart by what the box says.)
     {
       const { c, p } = await fresh();
       await p.goto(base); await linkIn(p);
@@ -24993,11 +24993,19 @@ async function switchLosesChecks(browser, base, site, check) {
       const s = await arrivedOrAsked(p);
       const q = asked && s.name === target && s.from === 'Dragon 64' && s.id === 'dragon64';
       // the focus is on the question's Switch, not on the machine: a key now answers the question, it does not reach the
-      // machine (finding 1: openPostcard/openSource took the focus to the screen while the question was still open)
-      const focused = s.focus === 'btnSwitch';
+      // machine (finding 1: openPostcard/openSource took the focus to the screen while the question was still open).
+      // confirmSwitch focuses its own button, so reading once the box is visible could catch the moment before a stray
+      // page.focus() runs: the focus is read again after a beat, and must still be on the button.
+      // (read once, then again after a beat: confirmSwitch focuses its own button, so a read taken the instant the box
+      // shows could catch the moment before a stray page.focus() runs, and the beat lets it)
+      const focusedOnce = s.focus === 'btnSwitch';
+      await p.waitForTimeout(250);
+      const focused = focusedOnce && await p.evaluate(() => document.activeElement && document.activeElement.id === 'btnSwitch');
       // nothing has switched yet, and no card has shown: the link waits for the answer
       const waited = s.id === 'dragon64' && !s.card;
-      if (asked) await p.click('#btnSwitch');
+      // Enter is the answer, because the focus is the question's: with the focus on the machine instead, Enter would be
+      // typed into it and the question would sit open behind the key (finding 1's harm, as a person meets it)
+      if (asked) await p.keyboard.press('Enter');
       const opened = asked && await waitFor(p, () => !document.getElementById('arrival').hidden, null, 20000);
       const after = await arrivedOrAsked(p);
       check(`switchLoses: with the person's input on the page, a ${kind} link asks once before switching, holds the focus on Switch, and Switch opens it`,
@@ -25106,20 +25114,42 @@ async function switchLosesChecks(browser, base, site, check) {
       typed && asked && said && clean && !s.card, JSON.stringify({ typed, asked, said, clean, s }));
     await closeCtx(c);
   }
-  // 6. Cancel: the machine stays, its work stays (the key typed is still its touch), and no card shows - the link's
-  //    payload is dropped, not opened behind the answer.
+  // 7. Cancel: the machine stays, ITS WORK stays, and no card shows - the link's payload is dropped, not opened behind
+  //    the answer. "Its work" is read from the machine itself, not from the touch counter (which only ever rises, so a
+  //    Cancel that power-cycled the machine would leave it looking untouched): the key typed is still on the screen, and
+  //    the machine is the same object, with the same program still in memory.
   {
     const { c, p } = await fresh();
     await p.goto(base); await linkIn(p);
     const typed = await visitorTyped(p);
+    // (the machine is stamped, not held: an object handed back to Node is a copy, so the stamp is what says "the same")
+    const before = await p.evaluate(() => { const m = window.emu.session.shownMachine; m.__probe = `m${Date.now()}${Math.random()}`;
+      return { stamp: m.__probe, frames: m.frameCount, screen: window.emu.session.screenText().join('\n') }; });
     await handIn(p, 'program', links.program);
     const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 20000);
     await p.click('#btnSwitchCancel');
     const gone = await waitFor(p, () => document.getElementById('switchConfirm').hidden, null, 10000);
     const s = await arrivedOrAsked(p);
-    const work = await p.evaluate(() => window.emu.session.touches() > 0);
-    check('switchLoses: Cancel keeps the machine and its work (the key typed still counts) and shows no card',
-      typed && asked && gone && s.id === 'dragon64' && !s.card && work, JSON.stringify({ typed, asked, gone, s, work }));
+    const after = await p.evaluate((was) => ({ sameMachine: window.emu.session.shownMachine.__probe === was,
+      stillRunning: window.emu.machine.frameCount > 0, screen: window.emu.session.screenText().join('\n') }), before.stamp);
+    check('switchLoses: Cancel keeps the machine and its work (the same machine, still running, the key typed still on its screen) and shows no card',
+      typed && asked && gone && s.id === 'dragon64' && !s.card && after.sameMachine && after.stillRunning && after.screen === before.screen,
+      JSON.stringify({ typed, asked, gone, s, sameMachine: after.sameMachine, stillRunning: after.stillRunning, screenSame: after.screen === before.screen, before: before.screen.slice(0, 60), after: after.screen.slice(0, 60) }));
+    await closeCtx(c);
+  }
+  // 8. a link for a machine this build does not have is said as a status, not thrown: the question's machine comes from
+  //    profiles[id].name, and without a guard that lookup throws a TypeError out of the opener (the opener's own check,
+  //    Session.checkedProgram, says it as a SessionError; the readers pre-check, but the opener is callable on its own,
+  //    as window.emu.arrival exposes it).
+  {
+    const { c, p } = await fresh();
+    await p.goto(base); await linkIn(p);
+    await waitFor(p, () => window.emu.session.welcomeOnScreen, null, 60000);
+    // (the call itself is caught here, so a throw is a red CHECK naming this case rather than a group that stops)
+    const threw = await p.evaluate(() => { try { window.emu.arrival.openProgram({ machine: 'no-such-machine', config: {}, text: '10 END\n' }, { kind: 'long' }); return null; } catch (e) { return String(e && e.message || e); } });
+    const said = await waitFor(p, () => /names a machine CLOADM doesn't have/.test(document.getElementById('toastText').textContent)
+      && document.activeElement && document.activeElement.id === 'screen', null, 10000);
+    check('switchLoses: a link for a machine this build lacks is said as a status, not thrown', !threw && said, JSON.stringify({ threw, toast: await p.textContent('#toastText') }));
     await closeCtx(c);
   }
   check('switchLoses: no page errors', !errors.length, errors.join(' | '));

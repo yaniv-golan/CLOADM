@@ -88,9 +88,14 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // answers Switch - and only it shows the card and gives the machine the focus: an unanswered question holds it.
   // The question is asked of the machine on screen NOW, not of the one the link was fetched for: a person who
   // switched meanwhile and typed on the new machine has work there too (Session.switchLoses asks about that one).
-  function openOrAsk(to, open) {
+  // the fragment a link arrived in, while its question waits: Cancel puts it back (the readers strip it before the
+  // question, and it is read once, at startup, so nothing re-reads it in this visit - a reload offers the link again,
+  // which is what the person had). Cleared when the question is answered either way.
+  let heldHash = null;
+  const relink = () => { if (heldHash) history.replaceState(null, '', location.pathname + location.search + heldHash); heldHash = null; };
+  function openOrAsk(to, open, onCancel = null) {
     if (!to || (!session.switchLoses(to.id, to.config) && $('switchConfirm').hidden)) { open(); return; }
-    confirmSwitch(to, open);
+    confirmSwitch(to, open, onCancel);
   }
   // What a link does once it may open, with its SessionError said as a status: the question's Switch runs it from the
   // machine panel's click, where a throw would be an uncaught page error. After it, the card and the focus, as a
@@ -108,14 +113,20 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // (prog/config from the link, merged over the saved config only when the link names any: Session.openSharedProgram).
   // A target equal to the machine in use would switch to nothing (Session.switchLoses is asked for it all the same:
   // it is the same question the menu asks).
+  // (null for a machine this build does not have: openOrAsk then opens directly, and the opener's own check -
+  // Session.checkedProgram - says it as a SessionError, which is what a person sees; without this, profiles[id].name
+  // would throw a TypeError out of the click)
   function programSwitch(prog) {
+    if (!Object.hasOwn(profiles, prog.machine)) return null;
     const config = Object.keys(prog.config).length ? Object.assign(session.savedConfig(prog.machine), prog.config) : session.savedConfig(prog.machine);
     return { name: profiles[prog.machine].name, id: prog.machine, config };
   }
   function postcardSwitch(pc) {
+    if (!Object.hasOwn(profiles, pc.machine)) return null;
     return { name: profiles[pc.machine].name, id: pc.machine, config: session.postcards.lizaConfig(pc.machine) };
   }
   function sourceSwitch(card) {
+    if (!Object.hasOwn(profiles, card.machine)) return null;
     const config = Object.keys(card.config).length ? Object.assign(session.savedConfig(card.machine), card.config) : session.savedConfig(card.machine);
     return { name: profiles[card.machine].name, id: card.machine, config };
   }
@@ -125,7 +136,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // the program, opened on a fresh machine of its model (Session.openSharedProgram: it records the arrival the card
   // shows); an error is said as a status. link: { kind: 'long' | 'short', id }
   function openProgram(prog, link = { kind: 'long' }) {
-    openOrAsk(programSwitch(prog), thenOpen(() => doProgram(prog, link)));
+    openOrAsk(programSwitch(prog), thenOpen(() => { heldHash = null; doProgram(prog, link); }), relink);
   }
   function doProgram(prog, link) {
     let r;
@@ -140,6 +151,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
     try { prog = await session.readProgramLink(hash); }
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!prog) return false;
+    heldHash = hash;
     history.replaceState(null, '', location.pathname + location.search);
     openProgram(prog, { kind: 'long' });
     return true;
@@ -153,7 +165,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
     catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
     // (the question is asked after the fetch, as a moment's is after its payload arrives: nothing may switch while
     // the person is answering, and a key typed during that fetch is seen - the case the brief names)
-    openOrAsk(postcardSwitch(pc), thenOpen(() => session.postcards.open(pc, link, bytes)));
+    openOrAsk(postcardSwitch(pc), thenOpen(() => { heldHash = null; session.postcards.open(pc, link, bytes); }), relink);
   }
   // a #z= fragment that holds a postcard: opened, the fragment removed -> true; false when it holds none
   async function takePostcardLink(hash) {
@@ -161,6 +173,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
     try { pc = await session.postcards.read(hash); }
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!pc) return false;
+    heldHash = hash;
     history.replaceState(null, '', location.pathname + location.search);
     await openPostcard(pc, { kind: 'long' });
     return true;
@@ -184,6 +197,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
     try { include = await page.assembler.includesFor(card.source); }
     catch (e) { page.status(e.message, true); if (!(e instanceof SessionError)) console.error(e); return; }
     openOrAsk(sourceSwitch(card), thenOpen(() => {
+      heldHash = null;
       session.sources.open(card, link, include);
       page.assembler.setSource(card.source, card.name);
       sourceCard = card;
@@ -194,6 +208,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
     try { card = await session.sources.read(hash); }
     catch (e) { if (!(e instanceof SessionError)) throw e; page.status(e.message, true); history.replaceState(null, '', location.pathname + location.search); return true; }
     if (!card) return false;
+    heldHash = hash;
     history.replaceState(null, '', location.pathname + location.search);
     await openSource(card, { kind: 'long' });
     return true;
@@ -216,8 +231,13 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   session.on((ev) => {
     if (ev === 'arrival') show();
     if (opening || !waiting) return;
-    // ROMs added while the program waits: it loads and is listed now, on a fresh machine of its model
-    if (ev === 'roms' && session.machineRoms(waiting.prog.machine).bootable) openProgram(waiting.prog, waiting.link);
+    // ROMs added while the program waits: it loads and is listed now, on a fresh machine of its model. The wait ends
+    // here, before the question (a declined switch must not leave it armed for the next ROMs to ask again; the old
+    // doProgram cleared it on entry, and the question now comes before any doProgram).
+    if (ev === 'roms' && session.machineRoms(waiting.prog.machine).bootable) {
+      const w = waiting; waiting = null;
+      openProgram(w.prog, w.link);
+    }
     // another model (the person switched away): it no longer waits there
     else if (ev === 'machine' && session.shownMachine.id !== waiting.prog.machine) waiting = null;
   });

@@ -104,7 +104,7 @@ const AREAS = [
   { paths: ['js/ui/share.js', 'js/share-text.js'], suites: ['share-roms', 'share-card', 'basic-share', 'share-text', 'program-tape', 'source-share'], groups: ['share', 'basicShare', 'postcard', 'programTape', 'sourceShare'] },
   // the arrival card: a shared moment's (the share group's arrival checks, and the visits a link starts and returns to)
   // and a shared BASIC program's (basicShare; the share screen's program mode is js/ui/share.js)
-  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share', 'liza-postcard', 'source-share'], groups: ['share', 'visit', 'returning', 'basicShare', 'postcard', 'sourceShare'] },
+  { paths: ['js/ui/arrival.js'], suites: ['shared-moment', 'basic-share', 'liza-postcard', 'source-share', 'switch-losses'], groups: ['share', 'visit', 'returning', 'basicShare', 'postcard', 'sourceShare', 'switchLoses'] },
   { paths: ['js/bugreport.js', 'js/ui/bug-report.js'], suites: ['bugreport'], groups: ['commands'] },
   { paths: ['js/media/gif.js', 'tools/capture-gif.js'], suites: ['gif', 'share-text'], groups: ['share'] },
   { paths: ['js/version.js', 'js/ui/version-stamp.js', 'tools/version.js'], suites: ['version'], groups: ['reading', 'settings'] },
