@@ -234,6 +234,15 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   2,416 against the original's 2,396 (at most 2,419.96). No
   recorded loop is faster than the original's.
 
+#### Changed
+
+- **For contributors: the long BASIC test suites are split by case group.** basic-cassette, basic-ram, basic-drawing,
+  basic-bb10, basic-timing, basic-bb10-num, basic-sound, basic-cursor, basic-lang and basic-gfx (38 to 128 s alone)
+  are now 43 files of at most about 30 s alone, each with the checks of its cases and the mutants that break them;
+  every check is kept (the same `ok` lines, compared before and after). None needs `tests/all.js`'s longer cap any
+  more, so `LONG_SUITES` keeps only regress and the two state suites: on a slow CI runner basic-bb10 was killed at
+  240 s.
+
 ### 0.4.1
 
 #### Added

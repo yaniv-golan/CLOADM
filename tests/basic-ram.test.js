@@ -9,15 +9,14 @@
 //  * the two real records replayed on ours: identical, apart from the lines whose values come from the
 //    interpreter's speed (TIMER after a run, the loop timings) and the printer (not built); bb8 ram-ptr25 ($25-26
 //    after each kind of string made, direct and in a program; a direct GOSUB whose INPUT reply overran the typed
-//    line) replayed whole: identical, with mutants of the rule it pins;
-//  * the input buffers' places from ram-pointers2 (2026-11-26), and its eight timing loops: each takes the
-//    original's count of fields or up to two more, never fewer.
-const fs = require('fs'), path = require('path');
-const { runCase } = require('./basic/harness.js');
-const { buildBasic } = require('../tools/build-basic.js');
-let n = 0, fail = 0;
-const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-const built = buildBasic(), sym = (s) => built.symbols.get(s);
+//    line) replayed whole: identical, with mutants of the rule it pins (tests/basic-ram-ptr25.test.js);
+//  * the input buffers' places from ram-pointers2 (2026-11-26); its eight timing loops, each the original's count of
+//    fields or up to two more, never fewer (tests/basic-ram-loops.test.js), with mutants of FIN's wait for a digit
+//    after the point (there) and for a 0 (tests/basic-ram-zero.test.js) that must each take a loop out of that;
+//  * bb8 cas-cloadm2's two PEEK loops, never faster than the original and at most 1% slower, with mutants of FIN's
+//    wait for a digit (tests/basic-ram-cloadm.test.js).
+// The shared helpers are in tests/basic/basic-ram-lib.js.
+const { check, tally, sym, run, lines, real, caseText } = require('./basic/basic-ram-lib.js');
 
 // ---- the fixed addresses ----
 const PINS = { TXTTAB: 0x19, VARTAB: 0x1B, ARYTAB: 0x1D, ARYEND: 0x1F, STRBOT: 0x21, FRETOP: 0x23, MEMTOP: 0x27,
@@ -26,8 +25,6 @@ const PINS = { TXTTAB: 0x19, VARTAB: 0x1B, ARYTAB: 0x1D, ARYEND: 0x1F, STRBOT: 0
 for (const [name, at] of Object.entries(PINS)) check(`${name} at $${at.toString(16).toUpperCase().padStart(4, '0')}`, sym(name) === at, sym(name) === undefined ? 'missing' : `$${sym(name).toString(16)}`);
 
 // ---- the variables through PEEK and POKE ----
-const run = (text) => runCase(built.rom, text);
-const lines = (r) => r.transcript;
 {
   const r = run('PRINT PEEK(113);PEEK(175);PEEK(329);PEEK(111);PEEK(25);PEEK(26)\nTRON:PRINT PEEK(175):TROFF:PRINT PEEK(175)\n');
   check('cold start: 113 is 85, TRON off (0), upper case (255), output to the screen (0), the program at $1E01', lines(r).includes(' 85  0  255  0  30  1'), JSON.stringify(lines(r)));
@@ -56,8 +53,6 @@ const lines = (r) => r.transcript;
 }
 
 // ---- the real records, replayed on ours ----
-const real = (file, name) => fs.readFileSync(path.join(__dirname, 'basic/bb', file), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).find((r) => r.case === name);
-const caseText = (name) => fs.readFileSync(path.join(__dirname, 'basic/cases', `${name}.bas`), 'utf8');
 // the lines whose values are the interpreter's speed, not the layout
 const speedOrBuffer = (l) => /^TI \d+ 112 \d+$/.test(l) || /^NORMAL \d+ FAST \d+ MAX \d+$/.test(l);
 for (const [file, name] of [['bb3-real.jsonl', 'ram-pointers'], ['bb6-real.jsonl', 'famous-pokes']]) {
@@ -71,23 +66,6 @@ for (const [file, name] of [['bb3-real.jsonl', 'ram-pointers'], ['bb6-real.jsonl
     if (a !== b && !(a && b && speedOrBuffer(a) && speedOrBuffer(b))) diff.push(`${i + 1}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
   }
   check(`${name}: ours matches the original's record line for line (speed lines aside)`, diff.length === 0, diff.slice(0, 3).join(' | '));
-}
-
-// ---- $25-26: bb8 ram-ptr25 replayed whole, on ours and on mutants of the rule ----
-{
-  const { compare } = require('../tools/basic-bb/compare.js');
-  const want = real('bb8-real.jsonl', 'ram-ptr25'), text = caseText('ram-ptr25');
-  const same = (rom) => { const r = runCase(rom, text); return compare(new Map([['c', want]]), new Map([['c', { ...r, case: 'ram-ptr25' }]])); };
-  const ours = same(built.rom);
-  check('ram-ptr25: ours identical to the original\'s record', ours.same === 1, ours.report.slice(0, 2).join(' | '));
-  for (const [what, file, from, to] of [
-    ['a copy does not move it', 'strings.inc', 'DSTX    LEAX    1,X\n        STX     <STRDST', 'DSTX    LEAX    1,X\n        NOP\n        NOP'],
-    ['a new string (CHR$\'s) leaves it a byte further on', 'strings.inc', '        ADDD    #1\n        STD     <STRDST', '        ADDD    #2\n        STD     <STRDST'],
-    ['RETURN goes on right after the line number', 'interp.inc', '        PSHS    U\n        LBRA    DS1', '        STX     <TXTPTR\n        JMP     ,U'],
-  ]) {
-    const rom = buildBasic({ edit: (f, t) => { if (f !== file) return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${what}`); return t.replace(from, to); } }).rom;
-    check(`ram-ptr25 mutant "${what}": no longer identical`, same(rom).same === 0);
-  }
 }
 
 // ---- the input buffers' places: ram-pointers2 on the original [BB 2026-11-26] ----
@@ -105,70 +83,6 @@ check('LINBUF at $02DD, CRNBUF at $02DC', sym('LINBUF') === 0x2DD && sym('CRNBUF
   check('a reply to INPUT at 733, as on the original', t.includes(' 733 DONE'), JSON.stringify(t.slice(-3)));
 }
 
-const REAL8 = { FOR: 113, ADD: 205, MUL: 224, DIV: 177, STR: 174, GOSUB: 83, IF: 516, MID: 137 };
-// ---- as fast as the original and never faster (loops time games): ram-pointers2 itself, the whole case as the
-// original ran it (what comes before its timing program counts: CLEAR 300 leaves the string loops more room, and a
-// GOSUB's time depends on how many lines come before its target), against the original's counts
-// (2026-11-26, docs/clean-room-basic.md section 2; each loop started just after a field begins): each of ours is
-// the original's count or up to two fields more ----
-{
-  const REAL = REAL8;
-  const r = run(caseText('ram-pointers2'));
-  const t = lines(r).join(' ');
-  check('ram-pointers2 runs to its end', r.status === 'ok', r.status);
-  for (const [name, real] of Object.entries(REAL)) {
-    const all = [...t.matchAll(new RegExp(`\\b${name} (\\d+)`, 'g'))], got = all.length ? +all[all.length - 1][1] : NaN; // (the last: the result lines, after the program's own text)
-    check(`${name}: the original's ${real} fields, or up to 2 more, never fewer (ram-pointers2)`, got >= real && got <= real + 2, `${got}`);
-  }
-}
-
-// ---- bb8 cas-cloadm2's two PEEK loops: never faster than the original, and at most 1% slower [BB 2026-11-26] ----
-// The case as typed, against the original's record. Loop A (`FOR I=0 TO 1022:P=PEEK(I AND 32767):IF P=112 OR
-// P=114 ...`, RUN after each CLOADM "MCX"): from the S a CLOADM shows on the top row (its search) to the screen the
-// next CLOADM clears, which holds the load, loop A's 1023 passes, a six-pass PEEK loop and lines typed. Loop B (`S=0:FOR
-// I=0 TO 599:S=S+PEEK(28928+I AND 32767):NEXT`): from BIGMC's last block (its last top-row flag) to the case's end,
-// which holds loop B's 600 passes, NEW, three lines and RUN (a CLOADM and a SKIPF whose motor runs match the
-// original's). The typist is paced alike on both, so these spans differ by what the machine runs; without FIN's
-// wait for each digit (FPNX10: the original's time for a digit, by the number so far and the digit's bits, bb10
-// time-literals) ours took 326 fields less in each of A's spans and 186 less in B's.
-{
-  const want = real('bb8-real.jsonl', 'cas-cloadm2'), text = caseText('cas-cloadm2');
-  const spans = (r) => {
-    const s = r.flags.filter((f) => f.row === 's').map((f) => f.frame), c = r.clears.map((x) => x.frame);
-    return { A1: c[1] - s[0], A2: c[2] - s[1], B: r.frames - r.flags[r.flags.length - 1].frame };
-  };
-  const w = spans(want);
-  const judge = (rom) => { const r = runCase(rom, text); return r.status === 'ok' && r.clears && r.clears.length === 3 ? spans(r) : null; };
-  const within = (g) => g && Object.keys(w).every((k) => g[k] >= w[k] && g[k] <= w[k] * 1.01);
-  const g = judge(built.rom);
-  check('cas-cloadm2: loops A and B take the original\'s time or up to 1% more (fields)', within(g), JSON.stringify({ ours: g, original: w }));
-  // (a mutant: one or more replacements in fpconv.inc, from, to, ...)
-  const mutant = (...ft) => buildBasic({ edit: (f, t) => {
-    if (f !== 'fpconv.inc') return t;
-    for (let i = 0; i < ft.length; i += 2) { if (!t.includes(ft[i])) throw new Error(`mutant source not found: ${ft[i]}`); t = t.replace(ft[i], ft[i + 1]); }
-    return t;
-  } }).rom;
-  for (const [what, ...ft] of [
-    ['a digit waits a tenth less', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*9/10\nFPW1'],
-    ['a digit waits a tenth more', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*11/10\nFPW1'],
-    // (B 2420 against at most 2419.96: thin, as the change is worth two fields of loop B; tests/basic-timing.test.js
-    // checks the loop itself against bb12 time-loopb)
-    ['the conversion to an integer waits for places under 16 bits, 17 cycles each (before bb12)', 'CMPB    #17 ', 'CMPB    #16 ', 'SUBA    #17 ', 'SUBA    #16 ', 'PSHS    D\n        PULS    D', 'PSHS    B\n        PULS    B'],
-  ]) {
-    const m = judge(mutant(...ft));
-    check(`cas-cloadm2 mutant "${what}": outside the original's time .. +1%`, !within(m), JSON.stringify(m));
-  }
-  // how long a 0 and a digit after the point wait is pinned by ram-pointers2's loops too: 1000 (IF), 2.5 (ADD, MUL)
-  for (const [what, from, to] of [
-    ['a 0 waits a tenth more', 'LDB     #FIZERO', 'LDB     #FIZERO*11/10'],
-    ['a 0 waits a tenth less', 'LDB     #FIZERO', 'LDB     #FIZERO*9/10'],
-    ['a digit after the point waits as one before it', 'SUBB    #FIDP', 'SUBB    #0'],
-  ]) {
-    const t = lines(runCase(mutant(from, to), caseText('ram-pointers2'))).join(' ');
-    const out = Object.entries(REAL8).filter(([k, v]) => { const all = [...t.matchAll(new RegExp(`\\b${k} (\\d+)`, 'g'))]; return !(all.length && +all[all.length - 1][1] >= v && +all[all.length - 1][1] <= v + 2); }).map(([k]) => k);
-    check(`ram-pointers2 mutant "${what}": a loop outside the original's count .. +2`, out.length > 0, out.join(','));
-  }
-}
-
-console.log(`\n${n - fail}/${n} passed`);
-process.exitCode = fail ? 1 : 0;
+const total = tally();
+console.log(`\n${total.n - total.fail}/${total.n} passed`);
+process.exitCode = total.fail ? 1 : 0;

@@ -1,70 +1,17 @@
 // Run: node tests/basic-sound.test.js
 //
-// The clean-room BASIC's sound and joysticks (docs/clean-room-basic-p2.md sections 6 and 7; decisions 3 and 4): SOUND,
-// PLAY (every command), AUDIO and JOYSTK. BASIC is typed into a Dragon 64 running the image assembled from basic/ at
-// test time (no other ROM). The sound is measured from a write tap on the PIAs (the harness's #wav: every DAC write
-// and every change to whether the DAC is heard, with its CPU cycle) and checked against what the document specifies,
-// computed here from its formulas and the ROM's equates (the constants fitted to the black-box measures, section 7),
-// not from the 6809 code: every note's period to the cycle (the note table rounded on its octave's grid) and within
-// a step of that grid of equal temperament, lengths in fields (PLAYW / (L x T), dots, at most 255; SOUND 4 fields a unit) and TIMER
-// counting through them, a note of 0 fields still three periods, the levels 31 - V and 31 + V and the default's,
-// where the next sound starts from (the DAC left where the last one ended, sound off), SOUND's period and levels, the
-// multiplexer and sound switch after AUDIO, SOUND, PLAY, an error and JOYSTK, BREAK not stopping PLAY, JOYSTK against
-// the joystick values set in the machine, =var; and X var$; (nested), and the ?FC, ?SN and ?TM errors.
-const { buildBasic } = require('../tools/build-basic.js');
-const { Basic } = require('./basic/harness.js');
-
-let fail = 0, n = 0;
-const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-
-const { rom, symbols } = buildBasic();
-const EQ = (k) => { if (!symbols.has(k)) throw new Error(`no equate ${k}`); return symbols.get(k); };
-const CLOCK = 14218000 / 16;                    // the Dragon 64's CPU clock [HW: sam.js, PAL]
-const FIELD = 312 * 57;                         // cycles a field (312 lines of 57 cycles) [HW]
-const NOTEA = EQ('NOTEA') / 100, NOTEP = EQ('NOTEP'), PRND = EQ('PRND'), PLAYW = EQ('PLAYW');
-const GRID = (o) => (o <= 2 ? [EQ('NGR1'), EQ('NAD1')] : [EQ('NGR3'), EQ('NAD3')]);
-const VMID = EQ('VMID') >> 2, PVDEF = EQ('PVDEF'), SNDH = EQ('SNDH') >> 2, SNDL = EQ('SNDL') >> 2;
-const SNDU = EQ('SNDU'), SNDP0 = EQ('SNDP0'), SNDPK = EQ('SNDPK');
-// the field interrupt, entry to RTI, in cycles: what it lengthens the period it falls in by. The original's octave 1
-// C to G medians are 104 cycles longer than their periods [BB bb2 snd-play-pitch o1]; ours pads its handler to match
-const IRQC = 104;
-
-function boot() {
-  const b = new Basic(rom);
-  if (!b.waitOk({ limit: 600, stable: 3 })) throw new Error('no OK at boot');
-  return b;
-}
-function typeAll(b, lines) {
-  for (const l of lines) {
-    if (b.type(l + '\n', 40000) !== 'done') throw new Error(`not typed: ${l}`);
-    if (/^\d/.test(l)) b.run(3); else if (!b.waitOk({ limit: 40000 })) throw new Error(`no OK after: ${l}`);
-  }
-}
-const last = (b) => b.screen().slice(-2)[0];
-// type a line with the sound recorded: its measures, and the events (for the shortest period within a tone)
-function wav(b, line) { b.wavStart(); const ev = b.wav.events; typeAll(b, [line]); const m = b.wavStop(); m.events = ev; return m; }
-// the shortest time between rising crossings within each tone: the period itself, with no field interrupt in it
-function cleanPeriods(m) {
-  return m.tones.map((t) => {
-    const ev = m.events.filter((e) => e.on && e.dac && e.t >= t.start && e.t <= t.start + t.length);
-    const mid = (t.low + t.high) / 2, up = [];
-    for (let i = 1; i < ev.length; i++) if (ev[i - 1].v < mid && ev[i].v >= mid) up.push(ev[i].t);
-    return Math.min(...up.slice(1).map((x, i) => x - up[i]));
-  });
-}
-const st = (b) => ({ on: b.m.pia1.b.c2(), mux: (b.m.pia0.b.c2() ? 2 : 0) | (b.m.pia0.a.c2() ? 1 : 0), dac: b.m.pia1.a.outValue() >> 2 });
-
-// the period of semitone s (0, octave 1's C, to 59, octave 5's B) as section 6 gives it: octave 1's note as the
-// assembler rounds it (4 x the period, NOTEP x 2^((9-k)/12) / 4), halved for each octave up, PRND added, over 4,
-// rounded down to the octave's grid, plus its NAD
-function period(s) {
-  const o = Math.floor(s / 12) + 1, k = s % 12, R = Math.round(2 ** ((9 - k) / 12) * 65536);
-  const x = Math.floor((Math.floor(NOTEP * 2 * R / 65536) + 1) / 2) >> (o - 1), y = (x + PRND) >> 2, [g, a] = GRID(o);
-  return y - (y % g) + a;
-}
-// equal temperament from octave 3's A at NOTEA Hz for the 894,886 Hz clock the original's pitches are worked out for
-const etPeriod = (s) => 894886 / (NOTEA * 2 ** ((s - 33) / 12));
-const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+// The clean-room BASIC's sound (docs/clean-room-basic-p2.md sections 6 and 7; decisions 3 and 4): PLAY (every
+// command). BASIC is typed into a Dragon 64 running the image assembled from basic/ at test time (no other ROM). The
+// sound is measured from a write tap on the PIAs (the harness's #wav: every DAC write and every change to whether the
+// DAC is heard, with its CPU cycle) and checked against what the document specifies, computed here from its formulas
+// and the ROM's equates (the constants fitted to the black-box measures, section 7), not from the 6809 code: every
+// note's period to the cycle (the note table rounded on its octave's grid) and within a step of that grid of equal
+// temperament, lengths in fields (PLAYW / (L x T), dots, at most 255) and TIMER counting through them, a note of 0
+// fields still three periods, the levels 31 - V and 31 + V and the default's, where the next sound starts from (the
+// DAC left where the last one ended, sound off), =var; and X var$; (nested). SOUND, AUDIO and the errors are in
+// tests/basic-sound-audio.test.js, JOYSTK in tests/basic-sound-joystk.test.js; the shared code is
+// tests/basic/basic-sound-lib.js.
+const { check, tally, EQ, FIELD, PLAYW, GRID, VMID, PVDEF, SNDH, SNDL, SNDU, SNDP0, SNDPK, IRQC, boot, typeAll, last, wav, cleanPeriods, st, period, etPeriod, NOTES } = require('./basic/basic-sound-lib.js');
 
 // ---- the fitted equates against the real ROM's black-box measures (tests/basic/bb/bb2-real.jsonl, measures only) ----
 {
@@ -226,110 +173,6 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   check('X recursing without end: ?OM ERROR', last(b) === '?OM ERROR', last(b));
 }
 
-// ---- SOUND ----
-// The sound as a whole: the measures split a tone where two periods in a row differ, which a field interrupt can do
-// to the first periods of a tone by where in the field it starts (an odd period counted into the median); so tones
-// that follow each other with no gap are one sound here, its period the shortest clean one in it. -> for each t,
-// [period ok and length ok, detail, full scale] (the expected period and length from this build's equates)
-function soundRuns(b) {
-  return [1, 50, 100, 200, 254, 255].map((t) => {
-    const m = wav(b, `SOUND ${t},3`), P = SNDP0 + SNDPK * (256 - t), c = 3 * SNDU, ts = m.tones;
-    const joined = ts.length > 0 && ts.every((x, i) => i === 0 || x.start - (ts[i - 1].start + ts[i - 1].length) < 2 * P);
-    const len = ts.length ? ts[ts.length - 1].start + ts[ts.length - 1].length - ts[0].start : 0;
-    const per = Math.min(...cleanPeriods(m).filter((x) => Number.isFinite(x)));
-    const full = ts.length > 0 && Math.min(...ts.map((x) => x.low)) === SNDL && Math.max(...ts.map((x) => x.high)) === SNDH;
-    return { t, P, c, ok: joined && per === P && len > (c - 1) * FIELD - P && len < c * FIELD + 2 * P,
-      detail: `${per} ${(len / FIELD).toFixed(2)} (${ts.length} tone${ts.length === 1 ? '' : 's'})`, full };
-  });
-}
-{
-  const b = boot();
-  for (const r of soundRuns(b)) {
-    check(`SOUND ${r.t},3: period ${r.P} cycles, ${r.c} fields`, r.ok, r.detail);
-    check(`SOUND ${r.t},3: full scale (${SNDL}-${SNDH})`, r.full && SNDL === 0 && SNDH === 63);
-  }
-  check('after SOUND: the DAC low, sound off', st(b).dac === SNDL && !st(b).on, JSON.stringify(st(b)));
-  for (const d of [1, 7, 20]) {
-    const m = wav(b, `SOUND 150,${d}`), c = d * SNDU;
-    check(`SOUND 150,${d}: ${c} fields`, m.tones.length === 1 && m.tones[0].length > (c - 1) * FIELD - 2220 && m.tones[0].length < c * FIELD + 4440, `${m.tones[0] && (m.tones[0].length / FIELD).toFixed(2)}`);
-  }
-}
-
-// ---- AUDIO, the sound switch, BREAK ----
-{
-  const b = boot();
-  let s = st(b);
-  check('cold start: sound off, the multiplexer on the DAC, the DAC at 0', !s.on && s.mux === 0 && s.dac === 0);
-  typeAll(b, ['AUDIO ON']); s = st(b);
-  check('AUDIO ON: sound on, the multiplexer on the cassette (CA2 high, CB2 low)', s.on && s.mux === 1);
-  typeAll(b, ['AUDIO OFF']); s = st(b);
-  check('AUDIO OFF: sound off, the multiplexer left on the cassette', !s.on && s.mux === 1);
-  typeAll(b, ['AUDIO ON']);
-  const m = wav(b, 'SOUND 100,1');
-  s = st(b);
-  check('SOUND after AUDIO ON: the DAC heard, then sound off and the multiplexer on the DAC', m.tones.length === 1 && !s.on && s.mux === 0);
-  typeAll(b, ['AUDIO ON:X=JOYSTK(0)']); s = st(b);
-  check('JOYSTK(0): the multiplexer back to the DAC, the sound switch as it was', s.on && s.mux === 0);
-  typeAll(b, ['PLAY "Z"']); s = st(b);
-  check('an error in PLAY: ?FC ERROR, sound off', last(b) === '?FC ERROR' && !s.on && s.mux === 0, `${last(b)} ${JSON.stringify(s)}`);
-  check('the field interrupt still on (PIA 0 CB1 enabled)', (b.m.pia0.b.cr & 1) === 1);
-  for (const [line, err] of [['AUDIO', 'SN'], ['AUDIO 1', 'SN']]) { typeAll(b, [line]); check(`${line}: ?${err} ERROR`, last(b) === `?${err} ERROR`, last(b)); }
-  // BREAK held during a PLAY does not stop it
-  b.wavStart();
-  b.type('PLAY "T8L4CDE"\n');
-  b.run(20);
-  b.m.setKey('BREAK', true); b.run(60); b.m.setKey('BREAK', false);
-  b.waitOk({ limit: 3000 });
-  const w = b.wavStop();
-  check('BREAK held during PLAY: every note plays', w.tones.length === 3 && !b.screen().includes('BREAK'), `${w.tones.length} tones, ${b.screen().slice(-3).join('|')}`);
-}
-
-// ---- JOYSTK ----
-{
-  const b = boot();
-  let bad = null;
-  for (let v = 0; v < 64 && !bad; v++) {
-    const want = [0, 1, 2, 3].map((a) => (v + 16 * a) & 63);
-    b.m.joy[0][0] = want[0]; b.m.joy[0][1] = want[1]; b.m.joy[1][0] = want[2]; b.m.joy[1][1] = want[3];
-    typeAll(b, ['PRINT JOYSTK(0);JOYSTK(1);JOYSTK(2);JOYSTK(3)']);
-    const got = last(b).trim().split(/\s+/).map(Number);
-    if (got.join() !== want.join()) bad = `set ${want.join()}, read ${got.join()}`;
-  }
-  check('JOYSTK(0)-(3): every axis at every value 0-63, read back exactly', !bad, bad || '');
-  b.m.joy[0][1] = 7; b.m.joy[1][1] = 9;
-  typeAll(b, ['PRINT JOYSTK(1);JOYSTK(3)']);
-  check('JOYSTK(1) and (3) without JOYSTK(0): what JOYSTK(0) last read', last(b).trim().split(/\s+/).join() === [(63 + 16) & 63, (63 + 48) & 63].join(), last(b));
-  typeAll(b, ['PRINT JOYSTK(0);JOYSTK(1);JOYSTK(3)']);
-  check('after JOYSTK(0): the new values', last(b).trim().split(/\s+/).slice(1).join() === '7,9', last(b));
-  typeAll(b, ['SOUND 100,1']);
-  const m = wav(b, 'X=JOYSTK(0)');
-  check('JOYSTK(0) after SOUND is not heard (sound off after SOUND), 6 DAC steps an axis, sound still off after', m.heard === 0 && m.writes === 24 && !m.end.enabled && m.end.mux === 0, `${m.writes} writes, ${m.heard} heard`);
-  for (const line of ['PRINT JOYSTK(4)', 'PRINT JOYSTK(-1)']) { typeAll(b, [line]); check(`${line}: ?FC ERROR`, last(b) === '?FC ERROR', last(b)); }
-}
-
-// ---- errors ----
-{
-  const b = boot();
-  const cases = [['SOUND 0,1', 'FC'], ['SOUND 1,0', 'FC'], ['SOUND 256,1', 'FC'], ['SOUND 1', 'SN'], ['PLAY "O0"', 'FC'], ['PLAY "O6"', 'FC'], ['PLAY "O5O+"', 'FC'],
-    ['PLAY "O1O-"', 'FC'], ['PLAY "L0"', 'FC'], ['PLAY "L256"', 'FC'], ['PLAY "T0"', 'FC'], ['PLAY "V32"', 'FC'], ['PLAY "N0"', 'FC'], ['PLAY "N13"', 'FC'],
-    ['PLAY "P0"', 'FC'], ['PLAY "Z"', 'FC'], ['PLAY "L"', 'FC'], ['PLAY "XA"', 'FC'], ['PLAY "O=Q"', 'FC'],
-    ['PLAY "O=Q;"', 'FC'], ['PLAY 5', 'TM'], ['PLAY "XN;"', 'TM'], ['PLAY "O=A$;"', 'TM']];
-  for (const [line, err] of cases) { typeAll(b, [line]); check(`${line}: ?${err} ERROR`, last(b) === `?${err} ERROR`, last(b)); }
-  typeAll(b, ['10 PLAY "CDE":PLAY "V40"', '20 PRINT "NOT"']);
-  typeAll(b, ['RUN']);
-  check('an error in a program: ?FC ERROR IN 10', last(b) === '?FC ERROR IN 10', last(b));
-}
-
-// ---- mutants of SOUND (built from edited source): the check above must catch a period 4 cycles long and a sound a
-// unit long, each turning at least one SOUND check red ----
-for (const [name, from, to] of [['a period 4 cycles long', 'ADDD    #SNDP0', 'ADDD    #SNDP0+4'], ['a sound a unit long', 'LDA     #SNDU', 'LDA     #SNDU+1']]) {
-  let used = false;
-  const mrom = buildBasic({ edit: (f, text) => { if (f !== 'sound.inc') return text; if (!text.includes(from)) throw new Error(`mutant ${name}: no ${from}`); used = true; return text.replace(from, to); } }).rom;
-  const mb = new Basic(mrom);
-  if (!mb.waitOk({ limit: 600, stable: 3 })) throw new Error('mutant: no OK at boot');
-  const bad = soundRuns(mb).filter((r) => !r.ok);
-  check(`mutant "${name}" fails the SOUND checks`, used && bad.length > 0, bad.map((r) => `${r.t}: ${r.detail}`).join('; '));
-}
-
-console.log(`\n${n - fail}/${n} passed`);
-process.exitCode = fail ? 1 : 0;
+const total = tally();
+console.log(`\n${total.n - total.fail}/${total.n} passed`);
+process.exitCode = total.fail ? 1 : 0;

@@ -113,7 +113,7 @@ These are hard rules for everyone who works on this ROM.
     That made 15,572 bytes, the code ending at `$BDC6`.
   * **The original's speed on eight loops** ([BB] `ram-pointers2`, 2026-11-26: its timing program, each loop started
     just after a field begins, counted in fields of 17,784 cycles). No result changed here either. Ours takes the
-    original's count on each, and `tests/basic-ram.test.js` checks every one: the original's count or up to two
+    original's count on each, and `tests/basic-ram-loops.test.js` checks every one: the original's count or up to two
     fields more, never fewer.
 
     | Loop | Passes | The original | Ours before | Ours now |
@@ -204,9 +204,10 @@ These are hard rules for everyone who works on this ROM.
     below 256 (bb2 `snd-timer`'s 500 empty passes take 29 fields on the original against `ram-pointers2`'s 2000 in 113:
     its early passes cost more; with `SHFTR`'s shorter way ours had them cheaper, 28).
 
-    Every timed loop, before (this pass) and now, against the original, in fields (`tests/basic-timing.test.js` checks
-    the probes: the original's count or up to 8% more, never fewer; `tests/basic-ram.test.js` the eight loops, up to
-    two more, and `cas-cloadm2`'s spans, up to 1% more):
+    Every timed loop, before (this pass) and now, against the original, in fields (`tests/basic-timing.test.js` and the
+    `tests/basic-timing-*.test.js` beside it, a file a probe or two, check the probes: the original's count or up to 8%
+    more, never fewer; `tests/basic-ram-loops.test.js` the eight loops, up to two more, and
+    `tests/basic-ram-cloadm.test.js` `cas-cloadm2`'s spans, up to 1% more):
 
     | Loop | The original | Ours before | Ours now |
     |---|---|---|---|
@@ -571,20 +572,22 @@ All of them run with no ROM, on our ROM assembled at test time.
   to an `RTS` trap address, and reads the result; thousands of operations per run, plus a hand-checked edge table
   (zero, signs, largest and smallest numbers, overflow, exact halves). Each expected value in the edge table is
   worked out by hand from the format description, not computed by the model.
-* **`tests/basic-lang.test.js`:** the language cases. Each case is a file in `tests/basic/cases/`: a BASIC program or a
+* **`tests/basic-lang.test.js`** (with `tests/basic-lang-num.test.js`, which takes the cases whose names start
+  `fn-`, `num-`, `print-`, `str-` and `using-`): the language cases. Each case is a file in `tests/basic/cases/`: a BASIC program or a
   sequence of direct commands, and its expected transcript in `tests/basic/expected/`. The runner types the case into
   a Dragon 64 running our ROM through the keyboard (the typist, so the keyboard scan is exercised too), runs to the
   `OK` prompt, and compares the transcript. Every expected file carries its source on its first line (`# [UM p.45]`,
   `# [BB 2026-12-01]`); a case whose output comes from our own reading of the manual is marked so and is replaced by
   the black-box result when one arrives.
-* **`tests/basic-cassette.test.js`:** the cassette statements typed in through the keyboard with the emulated deck as
+* **`tests/basic-cassette.test.js`** and the `tests/basic-cassette-*.test.js` beside it (tapes, motor, and the data
+  files in five parts): the cassette statements typed in through the keyboard with the emulated deck as
   the tape (section 12). What our ROM writes is decoded from the deck's recording by the repository's own tape code
   (`samplesToCas`, `formats.parseCas`), and the expected header and data bytes are written out by hand from the
   program typed; tapes built by `buildCas` from known bytes are loaded with `CLOAD` and `CLOADM`; the error paths
   (`?IO ERROR` on a bad checksum, `?FM ERROR`, `?DS ERROR`; BREAK not ending a search) and name search and `SKIPF`.
 * **`tests/basic-pause.test.js`:** the keyboard checks between statements: SHIFT-@ pauses a running program until
   another key, @ alone does not, BREAK stops it (`BREAK IN n`); with mutants of the ROM that must fail it.
-* **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
+* **`tests/basic-cursor.test.js`** (its mutants in `tests/basic-cursor-mutants.test.js`): the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
   every byte, the RAM it reads (address, countdown, the byte under it, the cursor's delay at `$0097-$0098`), the keyboard, the delay
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
 * **`tests/basic-entry.test.js`:** the published entry points ([section 3](#3-memory-map)): the jumps at
@@ -890,7 +893,7 @@ All answered by the project owner and kept here with the decision, except where 
    boot is not padded. Records' frames are counted from power-on, so timings of two ROMs are lined up from the first
    prompt: `run.js` writes each case's `start` (the frame at which the clean start's `OK` held, after its `CLS`), and a record made
    before it had the field is lined up from its first flag. `compare.js` compares no frame counts (only spans within
-   a case: tape motor runs, sound lengths), and the timing tests (`tests/basic-ram.test.js`) measure spans between a
+   a case: tape motor runs, sound lengths), and the timing tests (`tests/basic-ram-cloadm.test.js`) measure spans between a
    case's own flags and clears, so the boot's length shows in neither.
 
 ## 11. Provenance log

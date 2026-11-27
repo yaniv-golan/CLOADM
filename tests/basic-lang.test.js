@@ -8,44 +8,12 @@
 // are for the black-box run alone (the probes, and the P2 graphics and sound cases, gfx-* and snd-*, whose statements
 // our ROM does not have yet: tools/basic-bb/run.js --ours runs them to the end) and are only linted here. Every case
 // passes the lint (tools/basic-bb/lint.js), so the same files can be run on the real ROM.
-const fs = require('fs'), path = require('path');
-const { buildBasic } = require('../tools/build-basic.js');
-const { runCase } = require('./basic/harness.js');
-const { lintCase } = require('../tools/basic-bb/lint.js');
+// This part runs every case but the numbers-and-strings ones (fn-, num-, print-, str- and using-), which are
+// tests/basic-lang-num.test.js's; names given on the command line run only those of its cases. The runner:
+// tests/basic/basic-lang-lib.js.
+const { runCases, inNum, tally } = require('./basic/basic-lang-lib.js');
 
-let fail = 0, n = 0;
-const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
-
-// tests/basic/own: cases for our suite alone, never run on the real ROM (EXEC and USR, which the lint refuses)
-const CASES = path.join(__dirname, 'basic/cases'), OWN = path.join(__dirname, 'basic/own'), EXPECTED = path.join(__dirname, 'basic/expected');
-const only = process.argv.slice(2);
-const { rom } = buildBasic();
-let bbOnly = 0;
-const files = [...fs.readdirSync(CASES).map((f) => [CASES, f]), ...fs.readdirSync(OWN).map((f) => [OWN, f])].filter(([, f]) => f.endsWith('.bas'));
-for (const [dir, f] of files.sort((a, b) => a[1].localeCompare(b[1]))) {
-  const name = f.replace(/\.bas$/, '');
-  if (only.length && !only.includes(name)) continue;
-  const text = fs.readFileSync(path.join(dir, f), 'utf8');
-  if (dir === CASES) {
-    const problems = lintCase(text);
-    check(`${name}: passes the black-box lint`, !problems.length, problems.join('; '));
-  }
-  if (/^# bb-only\b/m.test(text)) { bbOnly++; continue; }
-  const expFile = path.join(EXPECTED, `${name}.txt`);
-  if (!fs.existsSync(expFile)) { check(`${name}: has an expected transcript`, false, expFile); continue; }
-  const raw = fs.readFileSync(expFile, 'utf8').replace(/\n$/, '').split('\n');
-  const source = raw.filter((l) => l.startsWith('#'));
-  const expected = raw.filter((l) => !l.startsWith('#'));
-  check(`${name}: the expected transcript says where it comes from`, source.some((l) => /\[(UM|BB|OWN|HW|MBF)/.test(l)));
-  const r = runCase(rom, text, { guard: dir === CASES });
-  check(`${name}: runs to the end`, r.status === 'ok', `${r.status}${r.at ? ` at ${r.at}` : ''}`);
-  check(`${name}: nothing flagged`, !r.flags.length, JSON.stringify(r.flags));
-  let at = -1;
-  for (let i = 0; i < Math.max(expected.length, r.transcript.length); i++) if (expected[i] !== r.transcript[i]) { at = i; break; }
-  check(`${name}: transcript as expected (${expected.length} lines)`, at < 0,
-    at < 0 ? '' : `line ${at + 1}: expected ${JSON.stringify(expected[at])}, got ${JSON.stringify(r.transcript[at])}`);
-}
-for (const name of only) check(`case ${name} exists`, files.some(([, f]) => f === `${name}.bas`));
-console.log(`(${bbOnly} black-box-only cases linted)`);
-console.log(`\n${n - fail}/${n} passed`);
-process.exitCode = fail ? 1 : 0;
+runCases((name) => !inNum(name));
+const total = tally();
+console.log(`\n${total.n - total.fail}/${total.n} passed`);
+process.exitCode = total.fail ? 1 : 0;

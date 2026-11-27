@@ -4,7 +4,7 @@
 // colours, the semigraphics characters of SET, RESET and POINT; and the drawing statements: LINE (Bresenham's
 // algorithm as section 5 states it), CIRCLE (the 64-chord polygon), PAINT (a plain breadth-first 4-connected fill,
 // not the scan-line algorithm), DRAW (an interpreter of section 6's commands) and GET / PUT (pixel by pixel).
-// tests/basic-gfx.test.js and tests/basic-drawing.test.js compare the machine's RAM with it byte for byte.
+// tests/basic-gfx*.test.js and tests/basic-drawing*.test.js compare the machine's RAM with it byte for byte.
 // The rules marked [BB] were inferred from the original's black-box pictures (tests/basic/bb/bb2-real.jsonl, the case
 // and picture named), each matched pixel for pixel by this model before the 6809 code was changed to them.
 

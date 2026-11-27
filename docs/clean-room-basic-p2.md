@@ -548,7 +548,7 @@ error (text or graphics) is in the same cases.
 
 All run with no ROM but ours, on the image assembled at test time; unlike black-box cases they may read any RAM.
 
-* **`tests/basic-gfx.test.js`:** BASIC programs run on our ROM; the expected page bytes come from
+* **`tests/basic-gfx.test.js`** (PMODE 0-2's `PSET` runs in `tests/basic-gfx-pset.test.js`): BASIC programs run on our ROM; the expected page bytes come from
   `tests/basic/gfxmodel.js`, a JavaScript reference rasteriser written from the algorithm descriptions in section 5
   (Bresenham, the 64-chord circle with the same sine table, the `DRAW` interpreter of section 6), not from our 6809
   code. Each picture is compared byte for byte with the page in RAM. Cases: every mode's pixel layout (a point at
@@ -563,8 +563,8 @@ All run with no ROM but ours, on the image assembled at test time; unlike black-
   it still lists and runs; `PCOPY` and `PCLS`.
 * **`GET`/`PUT`:** round trips at byte and pixel alignment, each action against the bitwise operation done in
   JavaScript on the page bytes before and after.
-* **As implemented, `tests/basic-drawing.test.js`** (the drawing statements; `node tests/basic-drawing.test.js
-  [part...]`): `LINE` (every octant both ways, lengths 0 and 1, `B`, `BF` with the corners either way, `PRESET`,
+* **As implemented, `tests/basic-drawing.test.js`** (the drawing statements, with `tests/basic-drawing-line`,
+  `-circle`, `-paint`, `-getput` and `-getput12.test.js`): `LINE` (every octant both ways, lengths 0 and 1, `B`, `BF` with the corners either way, `PRESET`,
   `-(x,y)`, random lines) in PMODE 0-4 and both colour sets, and the last point after; `CIRCLE` (radii 0-255, ratios
   0-4, every kind of arc, colours, circles across every edge) in four modes, the last point kept; `PAINT` on ten
   hand-built shapes put straight into the page (the list above, a diagonal gap that must not leak, a start on the
