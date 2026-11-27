@@ -188,7 +188,7 @@ const trial = (id, press) => {
     let snaps = 0, restores = 0;
     const target = {
       get machine() { return basic; }, show: () => {}, screenText: () => s.screenText(),
-      readByte: (a) => s.readByte(a), pokeBytes: (a, b) => s.pokeBytes(a, b),
+      readByte: (a) => s.readByte(a), pokeBytes: (a, b) => s.pokeBytes(a, b, basic),
       typeText: (t) => s.typeText(t), pressBreak: () => s.pressBreak(),
       snapshot: () => { snaps++; return basic.snapshot(); }, restore: (x) => { restores++; basic.restore(x); },
     };

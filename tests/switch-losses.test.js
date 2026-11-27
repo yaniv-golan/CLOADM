@@ -211,6 +211,18 @@ const cart = new Uint8Array(8192).fill(0x12); cart[0] = 0x20; cart[1] = 0xFE;   
       firmware: new Uint8Array(require('fs').readFileSync(path.join(__dirname, '../examples/chat.bin'))), brief: '', tools: false });
     check('switchLoses: the BASIC session\'s typing counts while the chat is on screen', x.personMachine !== x.shownMachine && x.touches() === 0 && x.switchLoses('coco') === true,
       `${x.personMachine !== x.shownMachine} ${x.touches()}`);
+    // The other machine, not the person's: the chat on screen, and only the CHAT's own machine typed into. The machine
+    // shown is the one whose loss the switch would be, so `this.touches() > 0` is what sees it - the person's machine
+    // beside it was never touched, so the second term (this.touches(this.personMachine)) is 0 and only the first term
+    // can answer true. Removing that term from Session.switchLoses turns this red.
+    const y = new Emu.Session({ store: Emu.memoryStore(), media: new MemoryMediaStore() });
+    y.switchMachine('dragon64');
+    y.startChat({ backend: new Emu.ClaudeBackend({ fetch: async () => null, apiKey: 'sk-ant-test' }), channel: new Emu.MemoryChannel(),
+      firmware: new Uint8Array(require('fs').readFileSync(path.join(__dirname, '../examples/chat.bin'))), brief: '', tools: false });
+    y.typeText('hello');   // (a key on the chat, which is the machine on screen: the chat's own machine is touched)
+    check('switchLoses: the chat\'s own machine typed into counts, with the person\'s beside it untouched',
+      y.personMachine !== y.shownMachine && y.touches() > 0 && y.touches(y.personMachine) === 0 && y.switchLoses('coco') === true,
+      `chat ${y.personMachine !== y.shownMachine}, shown-touches ${y.touches()}, person-touches ${y.touches(y.personMachine)}`);
   }
 
   console.log(fail ? `${fail} failed` : 'all passed');

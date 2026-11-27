@@ -13,6 +13,7 @@ import { openChosenStore, availableChoices } from '../host/media-store-open.js';
 import { loadFolder } from '../host/folder-handle.js';
 import { MemoryMediaStore } from '../host/media-store-memory.js';
 import { $, createPage, viewOpen, ESC, markUndrawn } from './page.js';
+import { MENU, fitMenu, moreBelow } from './menu.js';
 import { setupScreen } from './screen.js';
 import { setupTouchKeys } from './touch-keys.js';
 import { setupMachinePanel } from './machine-panel.js';
@@ -152,7 +153,7 @@ setupNeedsBasic(page, romSockets);
 let library = null;
 // the arrival card (a shared moment, or a shared BASIC program, which it opens): before the snapshots, which hand it a
 // program's short link
-const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal() });
+const arrival = setupArrival(page, { openShare: () => share.open(), startOver, reportUrl: (id) => linkStore.reportUrl(id), openRoms: () => romSockets.reveal(), confirmSwitch: machinePanel.confirmSwitch });
 const snapshots = setupSnapshotPanel(page, { confirmSwitch: machinePanel.confirmSwitch, openRoms: () => romSockets.reveal(), startOver: (program) => startOver(program), openProgram: arrival.openProgram, openPostcard: arrival.openPostcard, openSource: arrival.openSource });
 window.emu.arrival = arrival;   // (the browser check: a program arriving while the focus is elsewhere)
 const disks = setupDrives(page, { openRoms: () => romSockets.reveal({ to: 'disk' }) });
@@ -244,14 +245,31 @@ $('fileCart').onchange = async (e) => {
   media.loadProgram(f.name, bytes);
   drawer.cartridge(f.name);
 };
-// phone: the header's other links behind Menu
-$('btnMenu').onclick = () => {
-  const open = $('appbar').classList.toggle('menu-open');
-  $('btnMenu').setAttribute('aria-expanded', String(open));
-  // a disclosure: it opens with the focus on its first item (Esc gives it back to Menu), so Tab goes down the list
-  // (the folded links are inert until drawn: markUndrawn now, not on the class change's mutation, so the focus can land)
-  if (open) { markUndrawn(); const first = [...document.querySelectorAll('.appbar nav > :is(a, button)')].find((e) => e.checkVisibility()); if (first) first.focus(); }
-};
+// phone: the header's other links behind Menu (js/ui/menu.js: its rows and their order)
+{
+  const nav = $('appbar').querySelector('nav');
+  const rows = () => [...nav.children].filter((e) => e.matches('a, button') && e.id !== 'btnMore');
+  // its height: the window below the bar, less 8 px, its bottom edge above a row's text, never through it
+  const fit = () => {
+    if (!$('appbar').classList.contains('menu-open') || !nav.checkVisibility()) { nav.style.maxHeight = ''; return; }
+    fitMenu(nav, rows(), innerHeight - nav.getBoundingClientRect().top - 8);
+  };
+  nav.addEventListener('scroll', () => moreBelow(nav), { passive: true });
+  addEventListener('resize', fit);
+  $('btnMenu').onclick = () => {
+    const open = $('appbar').classList.toggle('menu-open');
+    $('btnMenu').setAttribute('aria-expanded', String(open));
+    // a disclosure: it opens at its first row with the focus there (Esc gives it back to Menu), so Tab goes down the list
+    // (the folded links are inert until drawn: markUndrawn now, not on the class change's mutation, so the focus can land)
+    if (open) {
+      markUndrawn();
+      nav.scrollTop = 0;
+      fit();
+      const first = rows().find((e) => e.checkVisibility());
+      if (first) first.focus({ preventScroll: true });
+    } else fit();
+  };
+}
 // Open only where it shows: .menu-open matters only while Menu and the links behind it are on the page (the phone and
 // short-landscape layouts); the touch keys' "Machine menu" sets it at any width, and a class left over there must not
 // take the screen's Esc, which is the machine's BREAK
@@ -302,10 +320,14 @@ $('btnMenu').onclick = () => {
   const close = () => { $('appbar').classList.remove('menu-open'); $('btnMenu').setAttribute('aria-expanded', 'false'); };
   item.onclick = () => { close(); pill.click(); };
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
-  // a phone's snapshots, under Share: take one now (into the first empty quick-save slot, else the oldest), or the slots
-  // list to restore one from (js/ui/slots-panel.js)
+  // Menu's snapshots (their own group, after Settings…: js/ui/menu.js): take one now (into the first empty quick-save
+  // slot, else the oldest), or the slots list to restore one from (js/ui/slots-panel.js)
+  // (Take snapshot ends on the screen, the snapshot taken, as the slot's own Take does: js/ui/slots-panel.js saveTo;
+  // Restore snapshot… gives the focus back to the Menu it came from when its list closes: the app bar's, or held
+  // sideways the panel's)
+  const menuOf = () => ($('btnMenu').checkVisibility() ? $('btnMenu') : $('tkMenu'));
   $('navSnapTake').onclick = () => { close(); slots.take(); };
-  $('navSnapRestore').onclick = () => { close(); slots.reveal($('btnMenu')); };
+  $('navSnapRestore').onclick = () => { close(); slots.reveal(menuOf()); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
   // "settings" is most often after the picture: its look, its size, the colours)
@@ -322,13 +344,19 @@ $('btnMenu').onclick = () => {
   // Where the less-used links go (moved, not reordered by the stylesheet, so the focus goes down them in the order they
   // are drawn). On a desktop (wider than 700 px, not held sideways, without the touch keys) Debugger, Commands…, Help,
   // GitHub and Install CLOADM… are More ▾'s list, in that order (Install CLOADM… only while the page can be installed:
-  // js/ui/install.js hides it once it is). Elsewhere they are Menu's, as before: on a phone Install CLOADM… after Share… and its two
-  // snapshot rows.
+  // js/ui/install.js hides it once it is). Elsewhere they are Menu's: all of Menu's rows in js/ui/menu.js's order, a
+  // rule between its groups (the rows the app bar has itself, Open…, Ask Claude… and the machine, are not among them).
   const narrow = matchMedia('(max-width: 700px)'), sideways = matchMedia('(orientation: landscape) and (max-height: 500px)');
   const nav = $('appbar').querySelector('nav'), more = $('btnMore'), list = $('moreMenu');
   const MORE = ['navDebugger', 'navCommands', 'navHelp', 'navGithub', 'navInstall'];
   const desktop = () => !narrow.matches && !sideways.matches && !document.body.classList.contains('touch-keys') && !document.body.classList.contains('touch-hidden');
   const openMore = (on) => { list.hidden = !on; more.setAttribute('aria-expanded', String(on)); };
+  // Menu's rows in order, a rule before each group but the first
+  const seps = MENU.slice(1).map(() => { const r = document.createElement('span'); r.className = 'tkmenu-sep'; r.setAttribute('role', 'separator'); return r; });
+  const menuOrder = () => MENU.forEach((g, i) => {
+    if (i) nav.insertBefore(seps[i - 1], more);
+    for (const r of g) if (r.nav) nav.insertBefore($(r.nav), more);
+  });
   let wasDesktop = null;
   const place = () => {
     const d = desktop();
@@ -336,8 +364,8 @@ $('btnMenu').onclick = () => {
     wasDesktop = d;
     openMore(false);
     more.hidden = !d;
-    for (const id of MORE) (d ? list.append($(id)) : nav.insertBefore($(id), more));
-    if (!d && narrow.matches) $('navSnapRestore').after($('navInstall'));
+    if (d) for (const id of MORE) list.append($(id));
+    else menuOrder();
   };
   narrow.addEventListener('change', () => { wasDesktop = null; place(); });
   sideways.addEventListener('change', place);

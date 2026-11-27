@@ -86,7 +86,7 @@ for (const [id, family, ext, who] of [['dragon64', 'dragon', 'CAS', 'Dragon'], [
   for (let i = 0; i + 16 <= rom.length && at < 0; i++) { const w = rom.subarray(i, i + 16); if (w.every((b) => b !== 0) && new Set(w).size > 3) at = i; }
   const start = (s.readByte(0x19) << 8) | s.readByte(0x1A);
   // the REM's text starts after the link (2), the line number (2) and the REM token (1)
-  s.pokeBytes(start + 5 + 2, Array.from(rom.subarray(at, at + 16)));
+  s.pokeBytes(start + 5 + 2, Array.from(rom.subarray(at, at + 16)), s.shownMachine);
   check('(the program still reads as a program, with the ROM run in it)', !!s.basicProgramBytes());
   const e = throws(() => s.programTape('X'));
   const ew = throws(() => s.programTape('X', { wav: true }));

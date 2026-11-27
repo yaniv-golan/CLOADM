@@ -169,7 +169,7 @@ const arrive = async (link, { shared = true } = {}) => {
     for (const [what, act] of [
       ['the first key', (b) => b.personInput()],
       ['typed text', (b) => b.typeText('A')],
-      ['a POKE (a memory change by a tool)', (b) => b.pokeBytes(0x3000, Uint8Array.of(1))],
+      ['a POKE (a memory change by a tool)', (b) => b.pokeBytes(0x3000, Uint8Array.of(1), b.shownMachine)],
       // (a DECB binary of FILL: one segment at $7000, exec $7000)
       ['a load', (b) => b.load('fill.bin', Uint8Array.from([0, 0, FILL[0].data.length, 0x70, 0, ...FILL[0].data, 0xFF, 0, 0, 0x70, 0]))],
       ['another snapshot', async (b) => b.openSnapshot(await b.readSnapshotLink(new URL(link).hash))],

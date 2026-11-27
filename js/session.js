@@ -957,9 +957,11 @@ export class Session {
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
-  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
-  // or their BASIC session beside the chat (touches: a key, a typed line, a load, an assembled program run, a POKE, a
-  // disk or tape going in; a BASIC program typed or a game played is one), or the switch would take something out
+  // Would switching the machine on screen to model id (config) lose something of the person's? Their input or Claude's
+  // actions on their behalf reached it or their BASIC session beside the chat (touches: a key, a typed line, a load, an
+  // assembled program run, a POKE, a disk or tape going in, and the chat's in-page tools - type_text, poke,
+  // assemble_and_load, press_break - which act on the machine as the person's own keys do; a BASIC program typed or a
+  // game played is one), or the switch would take something out
   // (takenOut). A page just opened, on its welcome menu or a fresh BASIC, holds neither: a link's moment opens on its own
   // machine without the switch question (js/ui/snapshot-panel.js).
   switchLoses(id, config = this.savedConfig(id)) {
@@ -1105,7 +1107,11 @@ export class Session {
   // the images in the store a drive can take: [{ name (without the prefix), size }]
   async driveWireImages() {
     this.drivewire.store = this.media;
-    return (await this.media.list(DW_PREFIX)).map((e) => ({ name: e.name.slice(DW_PREFIX.length), size: e.size }));
+    // a refused listing names the folder it was reading, not a label the caller made up: a backend's own
+    // "drivewire/: ..." is the same name and is stripped, so the reader sees it once
+    let listed;
+    try { listed = await this.media.list(DW_PREFIX); } catch (e) { throw this.library.mediaError(e, 'the DriveWire images', DW_PREFIX); }
+    return listed.map((e) => ({ name: e.name.slice(DW_PREFIX.length), size: e.size }));
   }
   // put an image (a .dsk of 256-byte sectors) into the store
   async importDriveWireImage(name, bytes) {
@@ -1246,13 +1252,18 @@ export class Session {
     if (!Session.NITROS9_MACHINES.includes(m.id)) throw new SessionError(`NitrOS-9 boots here on the CoCo 3, not the ${m.profile.name}. Switch to the CoCo 3 first.`);
     if (!name) throw new SessionError(`No NitrOS-9 image: add your NitrOS-9 disk image (download nos96809l2v030300coco3.zip, or nos96309l2v030300coco3.zip for the HD6309, from ${NITROS9_IMAGES_URL}, unzip it, and use the file ending in _becker.dsk for DriveWire, or _40d_1.dsk for the floppy drive).`);
     const where = store ? [store] : ['drivewire', 'disk'];
-    let bytes = null, found = null, failure = null;
+    let bytes = null, found = null, failure = null, failedAt = null;
     for (const st of where) {
-      try { bytes = await this.media.read((st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name); found = st; break; } catch (e) {
-        if (!e || e.code !== 'not-found') failure = failure || e;   // a real storage error, not an absent image: say so
+      const path = (st === 'disk' ? DISK_PREFIX : DW_PREFIX) + name;
+      try { bytes = await this.media.read(path); found = st; break; } catch (e) {
+        // A real storage error, not an absent image: say so. The error and the path it failed at are taken
+        // TOGETHER, from the first attempt that had a reportable one, so the backend's own "<path>: ..." can be
+        // stripped and the reader is never given the image's name twice. A falsy throw carries nothing to report
+        // and cannot set the path, so the pair can never come from different attempts.
+        if (e && e.code !== 'not-found' && !failure) { failure = e; failedAt = path; }
       }
     }
-    if (!found) throw failure ? this.library.mediaError(failure, name) : new SessionError(`There is no image called ${name} in your library.`);
+    if (!found) throw failure ? this.library.mediaError(failure, name, failedAt) : new SessionError(`There is no image called ${name} in your library.`);
     const r = inspectOs9Disk(bytes);
     if (r.reason) throw new SessionError(`${name}: ${r.reason}`);
     const floppy = r.boot === 'floppy';
@@ -1780,6 +1791,13 @@ export class Session {
     if (this.bootOk && this.bootOk.m === m && this.bootOk.resetAt === resetAt) return { state: 'ok' };
     if (this.screenText(m, { main: true }).some((l) => l.trim() === 'OK')) { this.bootOk = { m, resetAt }; return { state: 'ok' }; }
     if (m.framesSinceReset < seconds * m.fps) return { state: 'booting' };
+    // (This window is checked BEFORE m.restored on purpose, and it is benign that a restore of a point taken less
+    // than `seconds` into its boot answers 'booting' rather than 'restored' for the rest of that window: the
+    // boot-help box shows only on 'failed' or a takeover, never on 'booting', and the only way the answer can
+    // become 'failed' after the window is for m.restored to be cleared - which happens only in a real reset, and
+    // every Session reset path emits 'reset'/'firmware', both of which restart boot-help's watcher. Verified end
+    // to end with a full boot-help simulation across restore, ageing and inject sequences: the box never stuck up
+    // and never wrongly stayed hidden.)
     // The watchdog is for a power-on. A moment opened from a snapshot was not one: the program it holds may have
     // taken the screen from BASIC (a game, a program that took over Reset) or never printed OK at all, and coming
     // back to it is not a boot that failed (m.restored: set by Machine.restore, cleared by every reset).
@@ -2297,26 +2315,28 @@ export class Session {
   async listSlots() {
     const out = [];
     for (let n = 1; n <= SNAPSHOT_SLOTS; n++) {
-      const st = await this.media.stat(slotName(n));
+      const stored = slotName(n);
+      let st;
+      try { st = await this.media.stat(stored); } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
       if (!st) { out.push({ n, empty: true }); continue; }
       try {
-        const snap = await decodeSnapshot(await this.media.read(slotName(n)));
+        const snap = await decodeSnapshot(await this.media.read(stored));
         out.push({ n, machine: snap.machine, name: snap.name || profiles[snap.machine].name, taken: snap.taken, size: st.size });
       } catch (e) { out.push({ n, error: e.message, size: st.size }); }
     }
     return out;
   }
   async saveSlot(n) {
-    slotName(n);
+    const stored = slotName(n);       // refuses an invalid n here, before the try; the same name is used below
     // the snapshot is made from the machine and the slot written in one operation: a move waits for both, and the
     // write can never go to a store the session has left behind
     try {
       return await this.library.libraryOp(async () => {
         const { bytes, saved } = await this.snapshotFile();
-        await this.media.write(slotName(n), bytes);
+        await this.media.write(stored, bytes);
         return `Took snapshot ${n}${saved ? ` of ${saved}` : ''}`;
       });
-    } catch (e) { throw this.library.mediaError(e, `snapshot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `snapshot ${n}`, stored); }
   }
   // a slot's snapshot (then snapshotSwitch / openSnapshot as for a file)
   async readSlot(n) {
@@ -2329,18 +2349,18 @@ export class Session {
   }
   // what a slot holds, as stored (null when empty), and putting that back: the Undo of a save
   async slotBytes(n) {
-    slotName(n);
-    try { return (await this.media.stat(slotName(n))) ? await this.media.read(slotName(n)) : null; } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
+    const stored = slotName(n);
+    try { return (await this.media.stat(stored)) ? await this.media.read(stored) : null; } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
   }
   async restoreSlot(n, bytes) {
-    slotName(n);
+    const stored = slotName(n);
     this.library.checkNotMoving();
     try {
       return await this.library.libraryOp(async () => {
-        if (bytes) await this.media.write(slotName(n), bytes);
-        else if (await this.media.stat(slotName(n))) await this.media.remove(slotName(n));
+        if (bytes) await this.media.write(stored, bytes);
+        else if (await this.media.stat(stored)) await this.media.remove(stored);
       });
-    } catch (e) { throw this.library.mediaError(e, `slot ${n}`); }
+    } catch (e) { throw this.library.mediaError(e, `slot ${n}`, stored); }
   }
 
   // a file that is a ROM image rather than a program, tape or cartridge (known contents or usual name)
@@ -2936,7 +2956,11 @@ export class Session {
   // An address the map says would not land (writeKind: ROM, I/O, absent RAM, an undecoded range) is not written at
   // all. Machine.poke itself may write the cell beneath (the CoCo 3's loaders patch vectors under the ROM), but a
   // tool that says "not-ram" must not also have changed memory the CPU cannot see and a later map switch would reveal.
-  pokeBytes(addr, bytes, m = this.shownMachine) {
+  // m is required on purpose. With the chat full screen the machine on screen is the chat's, and a tool's bytes
+  // landing there would overwrite the chat firmware - js/claude/chat.js's target passes its own machine, and every
+  // other caller names one - so a forgotten machine throws rather than defaulting to the machine on screen.
+  pokeBytes(addr, bytes, m) {
+    if (m == null) throw new SessionError('pokeBytes needs the machine to write to: pass it explicitly.');
     if (bytes.length) this.touch(m);
     let landed = 0;
     [...bytes].forEach((b, i) => {
@@ -2949,7 +2973,10 @@ export class Session {
   // Write an assembled program into m's memory without starting it (assemble_and_load): no reset and no frames
   // run, so RAM the caller did not target is untouched. (Machine.injectAndRun resets a ROM-less machine, which
   // boots the stub and wipes RAM; that is "run", not "load".) The symbols reach the debugger of the machine in use.
-  injectAssembled(res, m = this.shownMachine) {
+  // m is required for the same reason as pokeBytes's: with the chat full screen the machine on screen is the
+  // chat's, and writing an assembled program there would overwrite the chat firmware.
+  injectAssembled(res, m) {
+    if (m == null) throw new SessionError('injectAssembled needs the machine to write to: pass it explicitly.');
     // pokeBytes leaves a byte the map says would not land (ROM, I/O, absent RAM) unwritten, and counts the rest
     let landed = 0;
     for (const seg of res.segments) landed += this.pokeBytes(seg.addr, seg.data, m);

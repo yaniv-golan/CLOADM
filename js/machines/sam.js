@@ -185,26 +185,50 @@ class SamMachine extends Machine {
   }
 
   // ---------------- I/O wiring ----------------
-  // PIA1 port B's input pins as MAME 0.264 wires them on every Dragon and CoCo 1/2 (coco.cpp coco_state::pia1_pb_r,
-  // used by coco12.cpp and dragon.cpp): bit 2 is the RAM size sense, high with 16K-32K of RAM or, with 32K or
-  // more, following PIA0 PB6 (a pin set as an input counts as high: PIA0 port B's three-state value is $FF,
-  // tspb_handler); bit 0 is the RS-232 port's received data (rxd_r): on the CoCo the bit-banger's (a serial printer
-  // by default, which holds it low), on the Dragon 64, 200, 200-E and Tano (profile rs232) the 6551's port (idle high with
-  // nothing connected); the Dragon 32 has no port, and MAME's Alpha has the 6551 but no port (dgnalpha.cpp, so
-  // m_rs232 is null), so 0; the other pins read 0
+  // PIA1 port B's input pins (MAME 0.264 coco.cpp coco_state::pia1_pb_r, used by coco12.cpp and dragon.cpp): bit 2 is
+  // the RAM size sense, high with 16K-32K of RAM or, with 32K or more, following PIA0 PB6 (a pin set as an input counts
+  // as high: PIA0 port B's three-state value is $FF, tspb_handler); the other pins but bit 0 read 0. Bit 0:
+  // * on the CoCo, the bit-banger's RS-232 received data (MAME rxd_r; a serial printer by default, which holds it low);
+  // * on every Dragon, the parallel printer's BUSY, high while the printer cannot take a character and low when it
+  //   can (Smeed and Sommerville, "Inside the Dragon" (1983), section 8.4.2 "Printer control", pp. 206-207; Dragon
+  //   Data, "Dragon 32 Information for Machine Code Users" (March 1983), p. 4, PIO 1 B side (FF22) bit 0, "Printer
+  //   busy input"). On the Dragon 64 it is the printer's alone: the schematic (Dragon Data CD 41505 "CPU 64K (PAL)",
+  //   issue 3, 3-8-83) wires PIA1 PB0 (IC8 pin 10) only to the printer connector's BUSY (PL2 pin 20), pulled up
+  //   by resistor R15 (10k), on sheet 1, and the RS-232 receivers only to the 6551's RXD and CTS (IC11 pins 12 and 9),
+  //   on sheet 3.
+  //   With nothing plugged in, R15 holds BUSY high. That CLOADM's parallel printer is always attached and always
+  //   ready, so the bit reads 0, is CLOADM's choice: the emulated machine always has a printer to print to.
+  //   With config.mameCompat, MAME's value instead: it reads its RS-232 port's RXD there on the Dragon 64, 200, 200-E,
+  //   Tano and 64 Plus (profile rs232; idle high with nothing connected), which the generic pia1_pb_r inherits from the
+  //   CoCo, and 0 on the Dragon 32 and the Alpha, which have no such port in MAME (docs/verification.md, "Deviations
+  //   from MAME").
   pb1Input() {
     const k = this.config.ram, p0 = this.pia0;
-    const serial = this.profile.lineage !== 'dragon' ? () => this.bitBanger.rxd(this.ioTime())
-      : this.profile.rs232 ? () => this.acia.port.rxd(this.ioTime()) : () => 0;
-    return () => ((k >= 16 && k < 32) || (k >= 32 && (p0.b.outValue() & 0x40)) ? 0x04 : 0x00) | serial();
+    const pb0 = this.profile.lineage !== 'dragon' ? () => this.bitBanger.rxd(this.ioTime())
+      : this.config.mameCompat && this.profile.rs232 ? () => this.acia.port.rxd(this.ioTime()) : () => 0;
+    return () => ((k >= 16 && k < 32) || (k >= 32 && (p0.b.outValue() & 0x40)) ? 0x04 : 0x00) | pb0();
   }
   wireIO() {
     const dragon = this.profile.lineage === 'dragon';
     wireCocoPias(this, { pb1Input: this.pb1Input(), hires: this.config.hires });
     if (dragon) {
-      // Dragon parallel printer: PIA1 PA1 is the strobe; each PIA1 port A output with it high prints PIA0's port B
-      // (MAME dragon.cpp pia1_pa_changed)
-      this.pia1.a.onOutput = (v) => { if (v & 0x02) this.printed.push(this.pia0.b.outValue()); };
+      // Dragon parallel printer: the data lines are PIA0 port B, the strobe is PIA1 PA1 through an inverting buffer.
+      // A character is sent by taking the strobe line from HI to LO and back, which is PA1 pulsed high and low ("Inside
+      // the Dragon", section 8.4.2, p. 207; the Dragon 64 schematic CD 41505 sheet 1: PA1, IC8 pin 3, through IC3's
+      // 74LS02 gate wired as an inverter to PL2 pin 1, STROBE). The printer takes the byte once per pulse, at its
+      // leading edge: PA1 rising, driven as an output. DAC writes to the rest of port A, with PA1 held either way,
+      // print nothing, and so does PA1 let go to its pull-up (a reset, or the DDR making it an input): nothing drives a
+      // character then, and a printout would start with a stray byte at every reset.
+      // strobeHigh is PA1's pin as the last port A output left it (from the PIA's registers again in loadState).
+      // With config.mameCompat, MAME's rule instead: every port A output with PA1 high prints, including the reset's
+      // (MAME dragon.cpp dragon_state::pia1_pa_changed; docs/verification.md, "Deviations from MAME").
+      this.strobeHigh = true;
+      this.pia1.a.onOutput = this.config.mameCompat ? (v) => { if (v & 0x02) this.printed.push(this.pia0.b.outValue()); }
+        : (v) => {
+          const high = (v & 0x02) !== 0;
+          if (high && !this.strobeHigh && (this.pia1.a.ddr & 0x02)) this.printed.push(this.pia0.b.outValue());
+          this.strobeHigh = high;
+        };
     } else {
       // CoCo bit-banger serial port: TXD is PIA1 PA1 (MAME coco.cpp update_prinout); a serial printer by default
       this.bitBanger = new SerialPort(this.tickHz, (b) => this.printed.push(b));
@@ -700,6 +724,7 @@ class SamMachine extends Machine {
   loadState(s) {
     super.loadState(s);
     this.sam.loadState(s.sam); this.pia0.loadState(s.pia0); this.pia1.loadState(s.pia1);
+    if (this.profile.lineage === 'dragon') this.strobeHigh = (this.pia1.a.outValue() & 0x02) !== 0;   // the printer's strobe, as the PIA left it
     if (!this.acia !== !s.acia) throw new Error('snapshot: the serial chip does not match this machine');
     if (this.acia) this.acia.loadState(s.acia);
     // a mid-line beam record is part of the state (lines are drawn as the beam passes them)
@@ -726,8 +751,9 @@ class SamMachine extends Machine {
     // BEFORE the DDR makes PA1 an output, as a printer routine leaves the line between characters. Made an output with
     // 0 there, the line dropped to space and the 600-baud printer read the drop as a start bit and printed a NUL at
     // every start (MAME 0.264 too: tools/mame-diff/sam/printer-stubinit.asm, run.js coco --printer --stub-init). A
-    // Dragon's port A is its parallel printer's: the stub sets it up as before, which prints nothing past the byte
-    // every reset prints (tools/mame-diff/sam/spec.js printer, atReset).
+    // Dragon's port A is its parallel printer's: the stub's setup leaves PA1 low and never pulses it, so it prints
+    // nothing (under config.mameCompat, nothing past the byte every reset prints: tools/mame-diff/sam/spec.js printer,
+    // atReset).
     const coco = this.profile.lineage === 'coco', pa = coco ? 0x82 : 0x80;
     if (coco) { w(0xFF21, 0x34); w(0xFF20, pa); }
     w(0xFF21, 0x00); w(0xFF20, 0xFE); w(0xFF21, 0x34);   // motor off
