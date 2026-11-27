@@ -10,8 +10,8 @@
 //    program is started on it with injectAndRun;
 //  * a program of our own that prints "OK" through the bit-banger, as BASIC's printer routine does (start bit, eight
 //    data bits least significant first, stop bit, 600 baud), started on the stub, prints exactly "OK";
-//  * the Dragons, whose port A is the parallel printer's, print what they printed before: the one byte every reset
-//    prints (MAME's too: tools/mame-diff/sam/spec.js printer, atReset), and nothing from the stub.
+//  * the Dragons, whose port A is the parallel printer's, print nothing: power-on raises no strobe, and the stub never
+//    pulses it (under config.mameCompat, MAME's reset byte: tools/mame-diff/sam/spec.js printer, atReset);
 //  * the MC-10 and the Alice: their stub wrote port 2's DDR before its data register, so P20 (the serial printer's
 //    line) dropped to space and they printed a $FF at power-on and at every injectAndRun (MAME printed nothing:
 //    tools/mame-diff/mc10/printer-stubinit.asm, run.js mc10 --printer --stub-init). They print nothing at power-on,
@@ -80,7 +80,7 @@ for (const id of dragons) {
   const m = Emu.createMachine(id, {});
   m.reset(true);
   frames(m, 60);
-  check(`${id}: the Dragon stub prints only the byte a reset prints`, Array.from(m.printed).join() === '255', JSON.stringify(Array.from(m.printed)));
+  check(`${id}: the Dragon stub prints nothing`, Array.from(m.printed).join() === '', JSON.stringify(Array.from(m.printed)));
 }
 
 // "OK" on the MC-10's P20 at 600 baud (the SEND/BITT routine of tools/mame-diff/mc10/printer.asm, in RAM at $5000);

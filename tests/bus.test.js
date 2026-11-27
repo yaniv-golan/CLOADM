@@ -117,8 +117,9 @@ for (const id of ['coco', 'dragon64']) {
   check(`${id}: floating bus: LDA ,X reads the next opcode ($F6), LDB $FF70 the byte at $FFFF ($27)`, m.cpu.a === 0xF6 && m.cpu.b === 0x27, `A=${m.cpu.a.toString(16)} B=${m.cpu.b.toString(16)}`);
 }
 // PIA1 port B's input pins (MAME coco.cpp pia1_pb_r, on every Dragon and CoCo): bit 2 senses the RAM size (64K:
-// follows PIA0 PB6), bit 0 is the RS-232 port's received data (idle high on the Dragon 64's 6551 port; the Dragon
-// 32 and the Alpha have no port; the CoCo's carries a printer that holds it low), the rest read 0
+// follows PIA0 PB6), the rest read 0 but bit 0: on the CoCo the RS-232 port's received data (its printer holds it
+// low); on every Dragon the parallel printer's BUSY, 0 with CLOADM's printer always ready (tests/dragon-printer.test.js;
+// with mameCompat, MAME's RS-232 RXD on the Dragon 64 family, idle high)
 {
   const pb = (id, pb6) => {
     const m = Emu.createMachine(id);
@@ -129,20 +130,19 @@ for (const id of ['coco', 'dragon64']) {
   };
   check('CoCo 1/2: PIA1 port B inputs read $04 with PIA0 PB6 high, $00 low', pb('coco', true) === 0x04 && pb('coco', false) === 0x00 && pb('cd6809', true) === 0x04);
   check('CoCo 3: the same wiring', pb('coco3', true) === 0x04 && pb('coco3', false) === 0x00);
-  check('Dragon 64: the same, with serial in idle high ($05 / $01)', pb('dragon64', true) === 0x05 && pb('dragon64', false) === 0x01);
-  check('Dragon 32: the same, no serial port ($04 / $00)', pb('dragon32', true) === 0x04 && pb('dragon32', false) === 0x00);
-  check('Dragon 200, 200-E and Tano: serial in idle high like the Dragon 64', pb('dragon200', true) === 0x05 && pb('tanodr64', false) === 0x01
-    && pb('dragon200e', true) === 0x05 && pb('dragon200e', false) === 0x01);
-  // MAME's Alpha has a 6551 but no RS-232 port (dgnalpha.cpp: no rs232 device, so m_rs232 is null)
-  check('Dragon Alpha: a 6551 but no serial port ($04 / $00)', pb('dgnalpha', true) === 0x04 && pb('dgnalpha', false) === 0x00);
-  // bit 0 is the port's RXD itself: a terminal's start bit reads 0
-  const m = Emu.createMachine('dragon64');
+  check('Dragon 64: the same, the printer ready ($04 / $00)', pb('dragon64', true) === 0x04 && pb('dragon64', false) === 0x00);
+  check('Dragon 32: the same ($04 / $00)', pb('dragon32', true) === 0x04 && pb('dragon32', false) === 0x00);
+  check('Dragon 200, 200-E and Tano: the same as the Dragon 64', pb('dragon200', true) === 0x04 && pb('tanodr64', false) === 0x00
+    && pb('dragon200e', true) === 0x04 && pb('dragon200e', false) === 0x00);
+  check('Dragon Alpha: the same ($04 / $00)', pb('dgnalpha', true) === 0x04 && pb('dgnalpha', false) === 0x00);
+  // with mameCompat, MAME's bit 0 on the Dragon 64 family: its RS-232 port's RXD, and a terminal's start bit reads 0
+  const m = Emu.createMachine('dragon64', { mameCompat: true });
   m.reset(true);
   m.acia.attachSerial('terminal', { baud: 1200 });
   m.write(0xFF23, 0x00); m.write(0xFF22, 0x00); m.write(0xFF23, 0x04);
   const idle = m.read(0xFF22) & 1;
   m.acia.port.send([0x00], m.ioTime());
-  check('Dragon 64: PB0 follows the serial port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
+  check('Dragon 64, mameCompat: PB0 follows the serial port (idle 1, a start bit 0)', idle === 1 && (m.read(0xFF22) & 1) === 0);
 }
 
 console.log(fail ? `${fail} FAILED` : 'all passed');

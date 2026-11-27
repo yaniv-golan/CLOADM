@@ -1619,9 +1619,33 @@ names it.
   printout byte for byte; both must also be exactly what the firmware sent. Current results: dragon32, dragon64,
   dragon200, dragon200e (3,566,429 instructions identical, HALT at 3,059), tanodr64 **300 bytes identical**; coco, coco2b, coco3 and the clones mx1600, lzcolor64, cd6809 **305 identical**; mc10 **306 identical**; every
   trace identical to HALT.
-  * The Dragon prints whenever PIA1 port A is written with PA1 (the strobe) high (MAME `dragon.cpp`), including at
+  * MAME's Dragon prints whenever PIA1 port A is written with PA1 (the strobe) high (`dragon.cpp`), including at
     reset: the PIA's port A becomes inputs, pulled high (`6821pia.cpp` device_reset), so a reset prints PIA0 port B,
-    $FF. The Printer box's text leaves such bytes out; the saved file has them.
+    $FF. The comparison runs under `config.mameCompat`, which keeps that rule; the product takes one byte per strobe
+    pulse (below, and "Deviations from MAME"). The Printer box's text leaves such bytes out; the saved file has them.
+  * The Dragons' printer port without `mameCompat` (`tests/dragon-printer.test.js`, every Dragon profile, firmware
+    written there): MAME has no BUSY and a level-triggered strobe, so the oracle is the documentation (section 4.6).
+    Smeed and Sommerville, "Inside the Dragon" (1983), section 8.4.2 "Printer control", pp. 206-207: PIA1 PB0 is
+    "printer busy", "HI when the printer cannot accept a character for printing and goes LO when the printer is not
+    busy"; a character is sent by taking the strobe line "from HI to LO and then back to HI again", and "the strobe
+    line is actually buffered through an inverting buffer", so PA1 is pulsed high, then low. Dragon Data's "Dragon 32
+    Information for Machine Code Users" (March 1983), p. 4, lists PIO 1 B side (FF22) bit 0 as "Printer busy input"
+    and A side (FF20) bit 1 as "Printer strobe". The Dragon 64 schematic (Dragon Data CD 41505, "CPU 64K (PAL)",
+    issue 3, 3-8-83) shows the wiring: sheet 1, PIA1 (IC8) PB0, pin 10, to the printer connector PL2 pin 20 (BUSY),
+    pulled up by resistor R15 (10k), and PA1, pin 3, through a 74LS02 gate wired as an inverter (IC3) to PL2 pin 1 (STROBE);
+    sheet 3, the RS-232 receivers (IC3 348, IC7 4049) to the 6551's RXD and CTS (IC11 pins 12 and 9) only. So PB0 is
+    the printer's BUSY on the Dragon 64 too, not shared with RS-232 RXD as MAME reads it. With nothing plugged in,
+    resistor R15 holds BUSY high; CLOADM's printer being always attached and ready, so that PB0 reads 0, is CLOADM's
+    choice: the emulated machine always has a printer to print to. The firmware waits for BUSY low, sends one byte with one strobe pulse while a DAC
+    tone plays inside the pulse (PA1 held high) and after it (PA1 held low), and changes the data lines inside the
+    pulse: exactly one byte, the one on the lines at the pulse's leading edge (the documents give the pulse, not the
+    edge; the leading edge is CLOADM's choice, XRoar's too: `printer.c` printer_strobe). PA1 let go to its pull-up (a
+    reset, or a DDR write making it an input) raises the line with no character on the data lines, and prints
+    nothing: also CLOADM's choice, so that a printout does not start with a stray byte at every reset. Snapshots taken inside the
+    pulse and just before it continue identically. The 6551 on the Dragon 64, 200, 200-E, Tano and 64 Plus still
+    receives over its port, and PB0 no longer follows the line. Mutants that turned it red: MAME's level rule (23
+    failures), PB0 as RS-232 RXD (the firmware hangs on BUSY), PB0 always busy, the falling edge (prints $5A), the
+    strobe's level not restored from a snapshot, restored inverted, and a rise to the pull-up printing.
   * The serial printers sample each bit at its middle, 1.5 to 9.5 bit times after the start edge, as MAME's
     `diserial.cpp` does (`js/machines/serial.js`). Making the line an output while it holds 0 is a start bit:
     the firmware sets the output register before the DDR.
@@ -1631,7 +1655,7 @@ names it.
     first byte (306 bytes identical, the extra one a $00), so every program started on the stub had a printout
     beginning with $00. The stub now puts mark in the output register first: **305 bytes identical**, nothing
     before the first byte sent, trace identical to HALT (3,211,861 instructions). `tests/stub-printer.test.js`
-    checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints only the reset's byte.
+    checks the printed bytes of every CoCo-lineage stub, and that the Dragons' stub prints nothing.
   * `run.js mc10 --printer --stub-init` (and `alice`) runs `mc10/printer-stubinit.asm`, ports set up as the MC-10 and
     Alice stub sets them up (`js/machines/mc10.js` stubInit, port 2's data register before its DDR): **306 bytes
     identical**, nothing before the first byte, trace identical to HALT (3,584,013 instructions compared).
@@ -1788,6 +1812,16 @@ names it.
   the 0.2 ms differs.
 
 MAME artefacts reproduced only under `config.mameCompat` (the comparisons turn it on; the product does not):
+
+* The Dragons' parallel printer (`js/machines/sam.js`, wireIO and pb1Input). MAME 0.264 prints PIA0 port B on every
+  PIA1 port A output with PA1 high (`dragon.cpp` dragon_state::pia1_pa_changed), so DAC writes with the strobe high
+  print too, and a reset prints $FF; and it reads PIA1 PB0 as its RS-232 port's RXD on the Dragon 64 family (the
+  CoCo's `coco.cpp` pia1_pb_r, inherited; idle high), 0 on the Dragon 32 and the Alpha. The hardware takes one byte per
+  strobe pulse and has PB0 as the printer's BUSY, wired to nothing else on the Dragon 64 ("Inside the Dragon" section
+  8.4.2; Dragon Data's "Information for Machine Code Users", p. 4; the Dragon 64 schematic CD 41505, sheets 1 and 3:
+  the printer port bullet under the printer comparison above). Without `mameCompat` CLOADM does what the hardware
+  does, its printer always attached and ready (PB0 = 0, CLOADM's choice; with nothing plugged in, resistor R15 holds
+  BUSY high).
 
 * SP0256 sample rate (`js/chips/sp0256.js`, `SAMPLE_CLOCKS`; `js/machines/ssc.js`, `spGrid`): the hardware makes one
   sample every 312 clocks of its 3.12 MHz crystal, 10 kHz (GI's "SP0250 Applications Manual", June 1982, pin 20

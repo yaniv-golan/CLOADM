@@ -77,6 +77,18 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
   layout, so there is no such frame.
 
+#### Fixed
+
+- **The Dragons' parallel printer: BUSY, and one byte per strobe.** On the Dragon 64, 200, 200-E, Tano and 64 Plus,
+  PIA1 PB0 followed the 6551's RS-232 line, idle high, so a program waiting for the printer's BUSY to go low hung there.
+  PB0 is the printer's BUSY on every Dragon (the Dragon 64 schematic wires it to the printer port alone; "Inside the
+  Dragon", section 8.4.2), and CLOADM's printer is always attached and ready, so it reads 0. And every write to PIA1 port A with the
+  strobe (PA1) high printed a byte, so sound and cassette output written with that bit set came out on the printer; a
+  byte is now taken once per strobe pulse, as PA1 rises, and a reset no longer prints a stray $FF. The 6551 receives as
+  before.
+  MAME 0.264 does neither, so its rules stay under `config.mameCompat` for the lockstep comparisons
+  (`docs/verification.md`, "Deviations from MAME").
+
 ### 0.4.0
 
 #### Added

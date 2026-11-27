@@ -74,7 +74,7 @@
     "n": 2,
     "empty": false,
     "machine": "dragon64",
-    "size": 1355127
+    "size": 1355120
    },
    {
     "n": 3,
@@ -108,8 +108,8 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 1355127,
-    "sha": "1a89d6e2a3152158c46349c469f1358889aef1bca5137d9cfcb41934f5b74732"
+    "size": 1355120,
+    "sha": "0f7d057af0e78a9628e6fa2d0cfe226017c666a0897401e79823a5fc7d3cdd39"
    },
    {
     "name": "recent/28F5B87C.bin",
@@ -170,8 +170,8 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 1355127,
-    "sha": "1a89d6e2a3152158c46349c469f1358889aef1bca5137d9cfcb41934f5b74732"
+    "size": 1355120,
+    "sha": "0f7d057af0e78a9628e6fa2d0cfe226017c666a0897401e79823a5fc7d3cdd39"
    },
    {
     "name": "recent/28F5B87C.bin",
@@ -223,12 +223,12 @@
    },
    {
     "name": "library/snapshots/slot-2.cloadm",
-    "size": 1355127
+    "size": 1355120
    }
   ],
   "remount": "work.vdk in drive 0",
   "movedDisk": "3a37e8bd1e71f5dc4d9469f5062f8aa60f27d7e6cd26757218cafbbe1ff342d0"
  },
- "machine": "2917fda8e401018606fab6b2e0d71a7b4b6b4fd042253f866fcdaef6cbba5d65",
- "snapshotFile": "c14c184bb73e058f9dba79c9c27bf51d8519be090d7e24c18f5d118bf41491a0"
+ "machine": "8dc19543fe71890f6237e8370394dda422953f4ba0c29466f5791685bce2d204",
+ "snapshotFile": "0b00b1bebd7559d7f911fb46b098bf1ce708c3114ed178857212c1110594fe57"
 }
