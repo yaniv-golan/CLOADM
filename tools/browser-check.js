@@ -25155,7 +25155,10 @@ async function sourceShareChecks(browser, base, site, check) {
   await page.click('#btnAsmRun');
   await waitFor(page, () => window.emu.session.readByte(0x5FF) === 0x41, null, 10000);
   await page.click('#btnAsmShare');
-  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  // the class alone is stale: the first Share… of this group put source-mode on #share and closing the screen leaves it
+  // there (openSource draws and opens only after capture()'s awaits, so this second share has not reached it yet). Wait
+  // for the view to open too, or the picture read is still the first share's 256x192 listing.
+  await waitFor(page, () => location.hash === '#share' && document.getElementById('share').classList.contains('source-mode'), null, 10000);
   check('sourceShare: run first: the picture is its screen (the machine\'s frame)', await page.evaluate(() => document.getElementById('sharePicture').width) === 320);
 
   // the recipient: the short link
