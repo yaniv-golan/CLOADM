@@ -217,8 +217,10 @@ const LONG_SUITE_TIMEOUT_MS = envT || 600000;
 // 129 s alone). basic-cassette, its data-file mutants then run only through the section each breaks, was 77 s; with
 // the MOTOR ON wait's checks and mutant and the BASIC's digit wait (its programs run longer) it was killed at 240 s
 // in CI part 2/3 (run 1056, 2026-11-27), 136 s alone locally, so it takes the longer cap too.
+// basic-timing (every bb10 timing probe loop on ours, with its mutants) was killed at 240 s in CI part 2/3 (run
+// 1094, 2026-11-27), and basic-bb10-num took 224 s in the same part: both are long by design, not hung.
 const LONG_SUITES = new Set(['regress.test.js', 'state-fdc.test.js', 'state-carts.test.js', 'basic-drawing.test.js',
-  'basic-cassette.test.js']);
+  'basic-cassette.test.js', 'basic-timing.test.js', 'basic-bb10-num.test.js']);
 const TIMEOUT_MS = (f) => (LONG_SUITES.has(f) ? LONG_SUITE_TIMEOUT_MS : SUITE_TIMEOUT_MS);
 
 // Every suite process still running, so a signal can take the whole set down. A suite is spawned detached (its

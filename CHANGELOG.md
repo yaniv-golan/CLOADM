@@ -208,6 +208,9 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   of `ram-pointers2`, `cas-cloadm2`'s spans and `snd-timer`'s typed loop now takes the original's count of fields or more, at most 7.4% more
   (`RND(.5)`; most within 3%), where 36 of those 71 loops were faster before; `tests/basic-timing.test.js` checks the probes, with
   mutants of the model. The ROM is 171 bytes larger (16,102 with the numbers and cassette changes).
+  A size pass that changes no instruction's timing takes 2 bytes (16,100; every screen and PIA write lands on the same
+  cycle in all 104 black-box cases), and `tools/basic-size.js` now ends a routine at the next label or its module's end
+  and prints the ROM's occupied, reserved (`$8000-$80FF`) and free bytes (`tests/basic-size.test.js`).
 
 ### 0.4.0
 
