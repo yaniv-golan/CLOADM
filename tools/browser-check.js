@@ -25730,7 +25730,9 @@ async function menuStructureChecks(browser, base, check) {
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
-  // the snapshots from the panel's Menu sideways: the focus back on the panel's Menu (not lost with the hidden app bar's)
+  // the snapshots from the panel's Menu sideways: Take snapshot ends on the screen once the snapshot is taken (its toast
+  // up), as the slot's own Take does; Restore snapshot…, its list closed, gives the focus back to the panel's Menu (not
+  // to the hidden app bar's, which would lose it)
   {
     const { ctx, page, errors } = await open({ width: 659, height: 393 }, '?machine=dragon64');
     const back = [];
@@ -25738,12 +25740,13 @@ async function menuStructureChecks(browser, base, check) {
       await page.tap('#tkMenu'); await until(page, () => !document.getElementById('tkMenuSheet').hidden);
       await page.evaluate((it) => document.querySelector(`#tkMenuSheet [data-item="${it}"]`).scrollIntoView({ block: 'nearest' }), it);
       await page.tap(`#tkMenuSheet [data-item="${it}"]`);
+      if (it === 'snapTake') await until(page, () => /^Snapshot \d taken/.test(document.getElementById('toastText').textContent), null, 8000);
       if (it === 'snapRestore') { await until(page, () => document.getElementById('sheetPrograms').open); await page.keyboard.press('Escape'); await until(page, () => !document.getElementById('sheetPrograms').open); }
       await painted(page);
       back.push([it, await page.evaluate(() => document.activeElement.id)]);
       await page.evaluate(() => window.emu.feedback.clear());
     }
-    check('menu structure (659x393): Take snapshot and Restore snapshot… from the panel\'s Menu give the focus back to it', back.every((b) => b[1] === 'tkMenu'), JSON.stringify(back));
+    check('menu structure (659x393): Take snapshot ends on the screen, the snapshot taken; Restore snapshot… gives the focus back to the panel\'s Menu', back[0][1] === 'screen' && back[1][1] === 'tkMenu', JSON.stringify(back));
     check('menu structure (snapshots sideways): no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }

@@ -150,8 +150,8 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   reach at 659x393) whenever the ports' or Power's state was written, even unchanged; it is refitted only when a row
   comes or goes, and a refit keeps the scroll.
 - **Held sideways with the keys hidden, Menu is the same list too:** the ports and Power, with their state (there are no
-  chips), and Share… once, as a row (the bar's own Share showed beside it). Take snapshot and Restore snapshot… from the
-  panel's Menu give the focus back to it.
+  chips), and Share… once, as a row (the bar's own Share showed beside it). Restore snapshot… from the panel's Menu gives
+  the focus back to it when its list closes.
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
   this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
   Held sideways, the "Tap for sound" chip lies inside the monitor's lower bezel, clear of the screen's green focus border

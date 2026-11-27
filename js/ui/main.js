@@ -322,9 +322,11 @@ $('fileCart').onchange = async (e) => {
   $('navShare').onclick = () => { close(); $('btnShare').click(); };
   // Menu's snapshots (their own group, after Settings…: js/ui/menu.js): take one now (into the first empty quick-save
   // slot, else the oldest), or the slots list to restore one from (js/ui/slots-panel.js)
-  // (the focus goes back to the Menu it came from: the app bar's, or held sideways the panel's)
+  // (Take snapshot ends on the screen, the snapshot taken, as the slot's own Take does: js/ui/slots-panel.js saveTo;
+  // Restore snapshot… gives the focus back to the Menu it came from when its list closes: the app bar's, or held
+  // sideways the panel's)
   const menuOf = () => ($('btnMenu').checkVisibility() ? $('btnMenu') : $('tkMenu'));
-  $('navSnapTake').onclick = () => { const from = menuOf(); close(); slots.take(); from.focus(); };
+  $('navSnapTake').onclick = () => { close(); slots.take(); };
   $('navSnapRestore').onclick = () => { close(); slots.reveal(menuOf()); };
   // Settings…: with the touch keys, the Settings sheet on the tab last used (js/ui/phone-sheets.js); elsewhere the
   // drawer's tabs, far below the screen in a narrow window, brought into view on Display (a person looking for
