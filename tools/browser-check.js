@@ -24713,40 +24713,6 @@ async function basicShareChecks(browser, base, site, check) {
   await ctx.close(); await ctx2.close();
 }
 
-// A PNG's PICTURE, decoded: { width, height, palette, pixels } as palette indices, or the error. The bytes of a PNG do
-// not belong to its picture: two encoders may lay out their deflate blocks and matches differently and still make the same
-// image, and they do -- Chromium's CompressionStream gives a 4125-byte IDAT where Node's zlib gives 4142 for the same
-// 378,630 bytes of rows (measured 2026-11-27; the zlib header, IHDR and PLTE are identical). A check about the
-// picture compares this, not the file. The rows are filter 1-4 as the encoder wrote them (js/media/png.js uses Up); the
-// palette is checked against the PLTE, so a different but equivalent palette is not a different picture.
-function decodePngPicture(bytes) {
-  try {
-    const h = require('../js/media/png.js').readPngHeader(bytes);
-    if (h.colourType !== 3 || h.interlace !== 0) return { error: `not an indexed, non-interlaced picture (type ${h.colourType}, interlace ${h.interlace})` };
-    const raw = zlib.inflateSync(Buffer.concat(h.idat));
-    const stride = h.depth === 8 ? h.width : (h.width * h.depth + 7) >> 3;
-    if (raw.length !== (stride + 1) * h.height) return { error: `the rows are ${raw.length} bytes, not ${(stride + 1) * h.height}` };
-    const pixels = new Uint8Array(h.width * h.height), line = new Uint8Array(stride), prev = new Uint8Array(stride);
-    for (let y = 0; y < h.height; y++) {
-      const o = y * (stride + 1), f = raw[o];
-      for (let i = 0; i < stride; i++) {
-        const x = raw[o + 1 + i];
-        line[i] = f === 0 ? x : f === 1 ? (x + (i >= h.depth / 8 ? line[i - 1] : 0)) & 0xFF : f === 2 ? (x + prev[i]) & 0xFF
-          : f === 3 ? (x + (((i >= h.depth / 8 ? line[i - 1] : 0) + prev[i]) >> 1)) & 0xFF
-          : (x + paeth(i >= h.depth / 8 ? line[i - 1] : 0, prev[i], prev[i >= h.depth / 8 ? i - 1 : 0])) & 0xFF;
-      }
-      for (let x = 0; x < h.width; x++) pixels[y * h.width + x] = h.depth === 8 ? line[x] : (line[x >> 1] >> (x & 1 ? 0 : 4)) & 0xF;
-      prev.set(line);
-    }
-    return { width: h.width, height: h.height, depth: h.depth, palette: h.palette, pixels };
-  } catch (e) { return { error: e.message }; }
-}
-const paeth = (a, b, c) => { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
-  return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; };
-// two decoded pictures the same size with the same palette and every index equal
-const samePicture = (a, b) => !a.error && !b.error && a.width === b.width && a.height === b.height && a.depth === b.depth
-  && JSON.stringify(a.palette) === JSON.stringify(b.palette) && a.pixels.length === b.pixels.length && a.pixels.every((v, i) => v === b.pixels[i]);
-
 // LIZA postcards (js/postcard.js, js/ui/share.js's postcard mode, js/ui/arrival.js): a chat typed to LIZA on the page, sent
 // as a postcard (the Share screen's mode, its picture the postcard replayed, its short link sealed as kind 3 through the
 // Worker), the BYE note, and the recipient's card: Replay, a key skipping to the end, "Your turn". Also a phone's
@@ -24823,13 +24789,16 @@ async function postcardChecks(browser, base, site, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-share.png'), fullPage: true });
   // Save picture: liza-postcard.png, the postcard replayed on a link card (js/video/card.js)
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
-  const png = decodePngPicture(fs.readFileSync(await dl.path()));
-  const wantPng = decodePngPicture(Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES)))));
-  // (the PICTURE, not the file's bytes: two encoders may lay out their deflate differently and still make the same
-  // image -- see decodePngPicture. The name and the 1200 x 630 size are asserted as before.)
+  // The picture, not the file's bytes: a PNG's deflate stream belongs to its encoder, not to its image. Chromium's
+  // CompressionStream and Node's zlib give different IDAT bytes for the same rows (4125 and 4142 bytes for this
+  // card's 378,630), both correct; decodeIndexedPng turns both into the same colours. The name and the 1200 x 630
+  // size are asserted as before.
+  const png = decodeIndexedPng(fs.readFileSync(await dl.path()));
+  const wantPng = decodeIndexedPng(Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES)))));
   check('postcard: Save picture downloads liza-postcard.png, the postcard replayed (1200 x 630), pixel for pixel',
-    dl.suggestedFilename() === 'liza-postcard.png' && png.width === 1200 && png.height === 630 && samePicture(png, wantPng),
-    `${dl.suggestedFilename()} ${png.error || `${png.width}x${png.height}`} / ${wantPng.error || `${wantPng.width}x${wantPng.height}`}`);
+    dl.suggestedFilename() === 'liza-postcard.png' && png.width === 1200 && png.height === 630
+      && png.width === wantPng.width && png.height === wantPng.height && JSON.stringify(png.rgb) === JSON.stringify(wantPng.rgb),
+    `${dl.suggestedFilename()} ${png.width}x${png.height} / ${wantPng.width}x${wantPng.height}`);
   // Copy postcard link: the short link, sealed kind 3, through the Worker
   await page.click('#btnShareCopy');
   const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
