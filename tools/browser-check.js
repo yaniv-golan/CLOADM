@@ -24826,6 +24826,10 @@ async function switchLosesChecks(browser, base, site, check) {
 
 // A LIZA postcard (js/postcard.js)
 async function postcardChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
   const local = site.replace(/\/$/, '');
   const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
   const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
