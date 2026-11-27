@@ -18,6 +18,14 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   never gets the key. The SDK is a vendored, unchanged copy of `@kapai/sdk` 0.1.0 in `js/vendor/kapai/`; nothing connects to
   Kapai until Claude is first opened.
 
+### Changed
+
+- **No API key is needed for Claude, so the key-required screens are gone.** The side panel no longer asks for a key before its
+  example questions ("Once Claude is connected:", "I have an API key", "I use Claude →"), and the phone chat no longer folds into
+  "No API key yet · Add key…": "Use my own key…" opens the key form, in both views. What Claude reads is now described as going to
+  Kapai, or to Anthropic with your own key (README, Help, FAQ, /roms, the front page and the panel); your key itself still goes
+  only to Anthropic.
+
 ### 0.3.1
 
 #### Fixed
