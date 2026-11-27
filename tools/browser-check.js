@@ -9658,7 +9658,8 @@ async function displayChecks(browser, base, check) {
     m.write(0xFF22, 0xF8);
     for (const a of [0xFFC0, 0xFFC3, 0xFFC5]) m.write(a, 0);   // SAM V0 = 0, V1 = 1, V2 = 1: V 6
     m.write(0xFFC9, 0);                                         // SAM F1 = 1: the display at $0400
-    m.write(0xFFDD, 0);                                         // SAM M1 = 1: 64K RAM (the stub leaves it at 4K)
+    m.write(0xFFDD, 0);                                         // SAM M1 = 1: 64K RAM (the stub already sets M for the
+                                                                // fitted RAM; set here so the case does not depend on it)
   });
   await picture(); await redrawn(page);
   const art = () => page.evaluate(() => window.emu.machine.vdg.artifact);
