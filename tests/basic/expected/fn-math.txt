@@ -1,4 +1,4 @@
-# [UM] the numeric functions, [BB bb1, bb2] for all but one value: TAN(1), ours 1.55740773, the real's 1.55740772 (SIN and COS are our own series)
+# [UM] the numeric functions, [BB bb1, bb2] for every value (TAN(1) the real's 1.55740772 since SIN, COS and TAN work in turns as the real's, [BB bb10 fn-last-bit])
 OK
 PRINT SQR(2);SQR(16);SQR(.25);SQ
 R(1E10)
@@ -12,7 +12,7 @@ OK
 PRINT SIN(1);COS(1);TAN(1);ATN(1
 )*4
  .841470985  .540302306  1.55740
-773  3.14159266
+772  3.14159266
 OK
 PRINT 2^10;2^.5;10^-2;(-2)^3;9^.
 5

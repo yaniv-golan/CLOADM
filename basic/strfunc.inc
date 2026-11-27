@@ -120,7 +120,8 @@ STZ2    JMP     STRCPY
 
 * VAL(s$): the number at the start of the string (0 if there is none), read in place with a 0 put after it for
 * the while. An error in the number (?OV ERROR) leaves that 0 there: after 40 X=VAL("1E99") the line lists as
-* 40 X=VAL("1E99 [BB bb1 review-fixes]
+* 40 X=VAL("1E99 [BB bb1 review-fixes]. A string that starts with & (after spaces) is read as &H and &O are in an
+* expression: VAL("&HFFFF") is 65535, VAL("&H10000") ?OV ERROR, VAL("&O8") 8, VAL("-&H10") 0 [BB bb10 num-val-hex]
 VAL     JSR     STRFN
         LDU     <TXTPTR
         PSHS    U
@@ -131,8 +132,12 @@ VAL     JSR     STRFN
         PSHS    X,A
         CLR     ,X
         JSR     <ZCHRGET
-        JSR     FIN
-        PULS    A,X
+        CMPA    #'&'
+        BNE     VAL1
+        JSR     HEXLIT
+        BRA     VAL2
+VAL1    JSR     FIN
+VAL2    PULS    A,X
         STA     ,X
         PULS    D
         STD     <TXTPTR

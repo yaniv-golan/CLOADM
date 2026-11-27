@@ -196,7 +196,7 @@ TRSGN   RMB     1
 FPK2    RMB     1
 LOGE    EQU     FPK2            ; LOG's power of 2 (LOG, SIN and ATN each finish before another starts:
 *                                 one byte serves them all)
-QUAD    EQU     FPK2            ; SIN's quarter
+QUAD    EQU     FPK2            ; SIN's sign
 ATSGN   EQU     FPK2            ; ATN
 DPR5    RMB     0               ; (at or below CURPOS)
         ORG     CURPOS+2

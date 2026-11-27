@@ -250,6 +250,9 @@ USFMT   CLR     <USNEG
         CLR     <FACSGN
 UM1     LDA     <USFLG
         BMI     UMEXP
+        LDB     #9              ; 1E9 and up: % and the number as PRINT has it, its sign dropped, whatever the
+        JSR     FCMPP           ; field ("##";1E9 is "% 1E+09", "##.##";1E20 "% 1E+20", "#####.##";-7.4E19
+        LBLE    UMOV2           ; "% 7.4E+19") [BB bb10 using-exp-edge, num-print-big]
         LDB     <USNA           ; round to the decimals: |x| x 10^na + .5, whole
         CMPB    #17
         LBHI    FCERR
@@ -263,10 +266,10 @@ UM1     LDA     <USFLG
         JSR     QINT
         JSR     U32DEC          ; X = the digits, B = how many
         LBRA    UMBODY
-* Too large for 32 bits: FOUT's nine digits and zeros after them, in the field as any other (too wide for it:
-* after a %), so "#####.#####" prints 100000.5 as "%100000.50000" and 99999.5 as "99999.50000" [BB bb9
-* print-using-odd]. From 2^66 on (more than 20 digits): % and the scaled number as PRINT has it, its sign
-* dropped [OWN].
+* Too large for 32 bits once scaled (the number below 1E9): FOUT's nine digits and zeros after them, in the field
+* as any other (too wide for it: after a %), so "#####.#####" prints 100000.5 as "%100000.50000" and 99999.5 as
+* "99999.50000" [BB bb9 print-using-odd]. From 2^66 on (more than 20 digits): % and the scaled number as PRINT
+* has it, its sign dropped [OWN].
 UMOV    CMPA    #128+66
         BHI     UMOV2
         INC     <FONINE
@@ -333,13 +336,12 @@ UME3    DECB                    ; round up: carry along
         LDA     #'0'
         STA     B,X
         BRA     UME3
-UME4    LDA     #'1'            ; it carried out: 1000... and one place more
-        STA     ,X
-        JSR     E10INC
-        TST     ,S              ; with a sign's place, the 1 takes it and the exponent stays: ".##^^^^" prints
-        BEQ     UME5            ; 999999999 as ".10E+10", "#.##^^^^" as "1.00E+09" [BB bb9 print-using-odd]
-        CLR     ,S
-        INC     <USNB
+UME4    LDA     #'1'            ; it carried out: 1000... and the 1 in a place more before the point, the
+        STA     ,X              ; exponent kept. With a sign's place the 1 takes it: ".##^^^^" prints 999999999
+        JSR     E10INC          ; as ".10E+10", "#.##^^^^" as "1.00E+09" [BB bb9 print-using-odd]; with a sign
+        DEC     ,S              ; of the field's own the place is one the field does not have (-1 given back
+        INC     <USNB           ; below), so it prints after a %: "+.##^^^^" gives "%+1.00E+09" [BB bb10
+*                                 using-exp-edge]
         LDB     <USK
         LDA     #'0'
         STA     B,X

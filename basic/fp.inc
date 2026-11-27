@@ -60,11 +60,13 @@ INCFM   LDD     <FACM+2
         STD     <FACM
         RTS
 
-* MOVMF: store FAC, rounded, packed at X. Keeps X; uses D.
+* MOVMF: store FAC, rounded, packed at X. Keeps X; uses D. A 0 (exponent byte 0) is stored with the mantissa FAC
+* holds, as the original: 2.9E-39 is stored 0,124,160,41,60 (the quotient that fell below the smallest number),
+* 1E-39 and 1E-40 0,32,0,0,0 (10's mantissa: the divisor, left by a quotient known to be too small before it
+* is worked out, FDIV) [BB bb10 num-literal-bytes]
 MOVMF   BSR     ROUND
         LDA     <FACEXP
         STA     ,X
-        BEQ     MMF2
         LDA     <FACM
         ANDA    #$7F
         TST     <FACSGN
@@ -75,10 +77,6 @@ MMF1    STA     1,X
         STD     2,X
         LDA     <FACM+3
         STA     4,X
-        RTS
-MMF2    CLRB                    ; (A is 0)
-        STD     1,X
-        STD     3,X
         RTS
 
 * MOVAF: ARG = FAC (rounded). MOVFA: FAC = ARG.
@@ -338,6 +336,8 @@ FD1     TST     <ARGEXP
         SUBB    <FACEXP
         SBCA    #0
         STD     <FPEXP
+        BMI     FMZ             ; below 0: too small whatever the mantissas, 0 at once with FAC's mantissa (the
+*                                 divisor's) left [BB bb10 num-literal-bytes: 1E-39 is stored 0,32,0,0,0]
 * the quotient's 41 bits go into PROD a byte at a time (1 bit into PROD, then 8 into each byte after it), each
 * rotated in from the carry: 1 where the divisor goes into the remainder (then subtracted), else 0. Each byte
 * starts as a marker bit, and is full when that comes out. The remainder's top half is in D, its low half in

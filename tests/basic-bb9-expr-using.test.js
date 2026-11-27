@@ -40,9 +40,9 @@ for (const [c, what, file, from, to] of [
   ['print-using-odd', 'one digit fewer: the zeros counted from the exponent of the first digit, not one more', 'using.inc',
     '        LDB     <FPE10+1\n        INCB', '        LDB     <FPE10+1'],
   ['print-using-odd', 'a carry out renormalises even with a sign\'s place', 'using.inc',
-    'BEQ     UME5            ;', 'BRA     UME5            ;'],
+    '        DEC     ,S              ;', '        BRA     UME5            ;'],
   ['print-using-odd', 'a carry out takes the sign\'s place but the exponent still moves', 'using.inc',
-    '        CLR     ,S\n        INC     <USNB\n', '        CLR     ,S\n'],
+    '        INC     <USNB           ; below)', '        NOP                     ; below)'],
 ]) check(`${c} mutant "${what}": no longer identical`, same(mutant(file, from, to), c).same === 0);
 
 console.log(`\n${n - fail}/${n} passed`);

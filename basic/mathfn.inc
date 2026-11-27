@@ -1,7 +1,7 @@
 * ---------------- numeric functions ----------------
-* Our own approximations [OWN]: arguments reduced (SIN and COS by Cody and Waite: the multiple of pi/2 taken off in
-* two parts; LOG and EXP in base 2, as the original's low digits show [BB bb2 fn-sqr-bits]), then Taylor series
-* evaluated by Horner's rule; the constants come from tools/basic-consts.js.
+* Our own approximations [OWN]: arguments reduced (SIN, COS and TAN in turns, LOG and EXP in base 2, as the
+* original's low bits show [BB bb10 fn-last-bit, fn-trig-big; bb2 fn-sqr-bits]), then series evaluated by
+* Horner's rule; the constants come from tools/basic-consts.js.
 * tests/basic-math.test.js checks them against exact values over many arguments.
 
         INCLUDE "mathconst.inc"
@@ -46,9 +46,8 @@ F_ADD   EQU     $80             ; FAC = it + FAC
 F_RDIV  EQU     $A0             ; FAC = FAC / it
 F_DIVX  EQU     $C0             ; FAC = it / FAC
 F_SUBX  EQU     $E0             ; FAC = it - FAC
-K_P2HI  EQU     (PIO2HI-FPCON)/5+8
-K_P2LO  EQU     (PIO2LO-FPCON)/5+8
-K_2OPI  EQU     (TWOOPI-FPCON)/5+8
+K_2PI   EQU     (TWOPI-FPCON)/5+8
+K_QTR   EQU     (QUARTR-FPCON)/5+8
 K_LN2   EQU     (LN2-FPCON)/5+8
 K_ILN2  EQU     (INVLN2-FPCON)/5+8
 K_SQR3  EQU     (SQRT3-FPCON)/5+8
@@ -247,7 +246,7 @@ EXP1    JSR     <ZFPRUN           ; t = x / ln 2, kept
         JSR     GIVABF          ; r = (t - n) ln 2
         JSR     <ZFPRUN
         FCB     F_SUBX+1,F_MUL+K_LN2,0
-        LDX     #FACTAB+15
+        LDX     #FACTAB
         LDD     #$050C
         JSR     POLY
         LDB     <FACEXP         ; x 2^n
@@ -259,50 +258,58 @@ EXP1    JSR     <ZFPRUN           ; t = x / ln 2, kept
         STB     <FACEXP
         RTS
 
-* SIN(x), COS(x): k = the nearest whole number to x / (pi/2), r = x - k pi/2 (|r| <= pi/4); the quarter
-* (k, plus 1 for the cosine) picks sin r, cos r, -sin r or -cos r
-COS     JSR     <ZFNARGN
-FCOS    LDA     #1
-        BRA     SIN0
+* SIN(x) in turns, as the original [BB bb10 fn-last-bit: every SIN, COS and TAN bit for bit; fn-trig-big]:
+* f = x / 2 pi less its INT (from 2^32 turns on f is 0: SIN(1E10) is 0; at 1E9 a sixteenth of a turn,
+* SIN(1E9) .707106781), then folded to v (half turns, from -1/2 to 1/2, sin(pi v) = sin(2 pi f)) by the steps
+* g = 2f, or 2f - 1 with the sign changed from 1 on, |1/2 - g|, 1/2 less that (each rounded: SIN(.001) is 82
+* units below the nearest, as v rounded at 1/2 - g's place gives); then v x the series in v^2 (SINSER). COS(x) is
+* SIN(x + pi/2), x + pi/2 rounded (COS(1E9) .923879533, COS(-1E9) .707106781). TAN(x) is SIN(x) over the sine of
+* 1/4 - f turns (1 more when that is below 0): the same f, not COS(x) (TAN(1E9) is 1; TAN(100) 35 units off SIN(100)
+* / COS(100))
 SIN     JSR     <ZFNARGN
-FSIN    CLRA
-SIN0    STA     <QUAD
+        BRA     FSIN
+COS     JSR     <ZFNARGN
+FCOS    JSR     <ZFPRUN
+        FCB     F_ADD+K_PIO2,0
+FSIN    BSR     SINRED
+* SINF: the sine of f turns, f in FAC from 0 to below 1
+SINF    TST     <FACEXP         ; g = 2f
+        BEQ     SF1
+        INC     <FACEXP
+SF1     LDX     #FPONE
+        JSR     FCMPM
+        STA     <QUAD           ; 1 below 1; 0 or $FF from 1 on: the sign changed
+        BGT     SF2
+        JSR     <ZFPRUN         ; g - 1 (as 2 - 2f, the sign aside)
+        FCB     F_ADD+K_M1,0
+SF2     JSR     <ZFPRUN
+        FCB     F_SUBX+K_HALF,0
+        CLR     <FACSGN
         JSR     <ZFPRUN
-        FCB     F_STO+1,F_MUL+K_2OPI,F_ADD+K_HALF,0
-        JSR     FINT
-        JSR     INTCNV          ; (?FC ERROR when |x| is beyond about 51000)
-        PSHS    B
-        ADDB    <QUAD
-        STB     <QUAD
-        PULS    B
-        JSR     GIVABF          ; the argument reduction, as EXP's
-        JSR     <ZFPRUN
-        FCB     F_STO+2,F_MUL+K_P2HI,F_SUBX+1,F_STO+1,F_LD+2,F_MUL+K_P2LO,F_SUBX+1,0
-        LDA     <QUAD
-        BITA    #1
-        BNE     SIN1
-        LDX     #FACTAB+5
-        LDD     #$8A07
+        FCB     F_SUBX+K_HALF,0
+        LDX     #SINSER
+        LDD     #$0506
         JSR     ODDPOL
-        BRA     SIN2
-SIN1    JSR     <ZFPRUN
-        FCB     F_STO+4,F_MUL+4,0       ; r^2
-        JSR     FNEG
-        LDX     #FACTAB
-        LDD     #$0A08
-        JSR     POLY
-SIN2    LDA     <QUAD
-        BITA    #2
+        DEC     <QUAD
         LBNE    FNEG
-SIN3    RTS
-* TAN(x) = SIN(x) / COS(x)
-TAN     JSR     <ZFNARGN
-FTAN    JSR     <ZFPRUN
-        FCB     F_STO+5,0
-        BSR     FSIN
+        RTS
+* SINRED: FAC = x / 2 pi less its INT, from 0 to below 1
+SINRED  JSR     <ZFPRUN
+        FCB     F_RDIV+K_2PI,F_STO+1,0
+        JSR     FINT
         JSR     <ZFPRUN
-        FCB     F_STO+6,F_LD+5,0
-        BSR     FCOS
+        FCB     F_SUBX+1,F_STO+5,0      ; (kept for TAN)
+        RTS
+TAN     JSR     <ZFNARGN
+FTAN    BSR     SINRED
+        BSR     SINF
+        JSR     <ZFPRUN         ; the sine kept; 1/4 - f
+        FCB     F_STO+6,F_LD+5,F_SUBX+K_QTR,0
+        TST     <FACSGN
+        BPL     FTN1
+        JSR     <ZFPRUN
+        FCB     F_ADD+K_ONE,0
+FTN1    BSR     SINF
         JSR     <ZFPRUN
         FCB     F_DIVX+6,0
         RTS

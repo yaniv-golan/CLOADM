@@ -322,14 +322,15 @@ CNVBYT  BSR     GETADR
         BNE     ICFC
         RTS
 
-* &H hexadecimal and &O octal numbers (&nn is octal) [UM]
+* &H hexadecimal and &O octal numbers (&nn is octal) [UM]. An octal number takes 8 and 9 as digits too, x 8 and
+* added: &O8 and VAL("&O8") are 8 [BB bb10 num-val-hex; 9 is our inference]
 HEXLIT  CLR     <FPN
         CLR     <FPN+1
         LDX     #$040F          ; &H: the bits a digit, the largest digit
         JSR     <ZCHRGET
         CMPA    #'H'
         BEQ     HX1
-        LDX     #$0307          ; &O, and & alone
+        LDX     #$0309          ; &O, and & alone
         CMPA    #'O'
         BNE     HX2
 HX1     JSR     <ZCHRGET
@@ -351,9 +352,11 @@ HX6     ASL     <FPN+1
         BCS     HXOV
         DECB
         BNE     HX6
-        PULS    A
-        ORA     <FPN+1
-        STA     <FPN+1
+        PULS    B
+        CLRA
+        ADDD    <FPN
+        BCS     HXOV
+        STD     <FPN
         JSR     <ZCHRGET
         BRA     HX3
 HXOV    JMP     OVERR
