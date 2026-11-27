@@ -127,7 +127,7 @@ const newSession = (id) => {
     s.startWelcome(welcome);
     check('startWelcome on a machine with ROMs: no second menu', !menus.length && s.welcomeRunning, menus.join());
   }
-  // the MC-10 and Alice (6803): their own welcome menu, with the greetings and option 5; LIZA restarts on reset
+  // the MC-10 and Alice (6803): their own welcome menu, with the greetings and option 6 (option 5 is WYRMFIRE); LIZA restarts on reset
   for (const id of ['mc10', 'alice']) {
     const { s, menus } = newSession(id);
     s.powerCycle();
@@ -135,24 +135,24 @@ const newSession = (id) => {
     s.startWelcome(welcome6803[id], { greeting: 'back', carryOn: 'LIZA' });
     frames(s, 50);
     let t = s.screenText();
-    check(`${id}: the 6803 menu greets WELCOME BACK and offers 5 CARRY ON WITH LIZA (its digit inverse), PRESS 1 TO 5`, t[6] === '          WELCOME BACK          '
-      && t[12].trim() === '5 CARRY ON WITH LIZA' && s.shownMachine.ram[0x4000 + 12 * 32 + 4] === 0x35 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5', JSON.stringify(t.slice(6, 15)));
+    check(`${id}: the 6803 menu greets WELCOME BACK and offers 6 CARRY ON WITH LIZA (its digit inverse), PRESS 1 TO 6`, t[6] === '          WELCOME BACK          '
+      && t[11].trim() === '5 PLAY WYRMFIRE (DRAGON 64)' && t[12].trim() === '6 CARRY ON WITH LIZA' && s.shownMachine.ram[0x4000 + 12 * 32 + 4] === 0x36 && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 6', JSON.stringify(t.slice(6, 15)));
     const keys = [];
     s.on((e) => { if (e.startsWith('welcome:')) keys.push(e); });
-    s.shownMachine.stubKeys.push(0x35); frames(s, 2);
-    check(`${id}: key 5 emits welcome:carryon`, keys.join() === 'welcome:carryon', keys.join());
+    s.shownMachine.stubKeys.push(0x36); frames(s, 2);
+    check(`${id}: key 6 emits welcome:carryon`, keys.join() === 'welcome:carryon', keys.join());
     s.reset();
     frames(s, 50);
     t = s.screenText();
-    check(`${id}: reset keeps the menu as it was`, s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[12].trim() === '5 CARRY ON WITH LIZA', JSON.stringify(t.slice(7, 15)));
+    check(`${id}: reset keeps the menu as it was`, s.welcomeRunning && t[6].trim() === 'WELCOME BACK' && t[12].trim() === '6 CARRY ON WITH LIZA', JSON.stringify(t.slice(6, 15)));
     s.startWelcome(welcome6803[id], { greeting: 'bye' });
     frames(s, 50);
     t = s.screenText();
-    check(`${id}: BYE FOR NOW. PICK ANOTHER? and no option 5; key 5 does nothing`, t[7].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 4',
-      JSON.stringify(t.slice(7, 15)));
+    check(`${id}: BYE FOR NOW. PICK ANOTHER? and no option 6; key 6 does nothing`, t[6].trim() === 'BYE FOR NOW. PICK ANOTHER?' && t[12].trim() === '5 PLAY WYRMFIRE (DRAGON 64)' && t[13].trim() === '' && t[14].trim() === 'PRESS 1 TO 5',
+      JSON.stringify(t.slice(6, 15)));
     keys.length = 0;
-    s.shownMachine.stubKeys.push(0x35); frames(s, 2);
-    check(`${id}: without option 5, key 5 does nothing`, !keys.length, keys.join());
+    s.shownMachine.stubKeys.push(0x36); frames(s, 2);
+    check(`${id}: without option 6, key 6 does nothing`, !keys.length, keys.join());
   }
   {
     const { s, menus } = newSession('mc10');

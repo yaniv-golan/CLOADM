@@ -8,8 +8,8 @@
 ; "CLOADM" in large block characters and the menu. Keys 1-4 are
 ; posted in EVENT, a mailbox at a fixed address that the Session reads
 ; and clears after every frame (js/session.js WELCOME); the program
-; keeps waiting for keys. Key 5 (PLAY A GAME) opens the games menu, where 1 and 2 post
-; 6 (2048) and 7 (Minesweeper) and 0 or BREAK go back. Before it runs,
+; keeps waiting for keys. Key 5 (PLAY A GAME) opens the games menu, where 1, 2 and 3 post
+; 6 (2048), 7 (Minesweeper) and 8 (WYRMFIRE) and 0 or BREAK go back. Before it runs,
 ; the Session may set GREET (0 the first visit, 1 "WELCOME BACK",
 ; 2 "BYE FOR NOW. PICK ANOTHER?") and CARRY, the text of a sixth option
 ; ("CARRY ON WITH LIZA"): with CARRY set, the menu has option 6 and key 6
@@ -109,7 +109,7 @@ STRIP2  JSR     BLOCK
 
 ; ---- wait for keys; play the tune once sound is unlocked ----
 ; the main menu: 1-4 post their events, 5 opens the games menu, 6 (with option 6) posts 5;
-; the games menu: 1 and 2 post 6 and 7, 0 or BREAK go back
+; the games menu: 1, 2 and 3 post 6, 7 and 8, 0 or BREAK go back
 KEYLP   TST     SOUNDOK
         BEQ     NOSND
         TST     PLAYED
@@ -144,9 +144,9 @@ GAMEKEY CMPA    #'0
         BEQ     TOMAIN
         CMPA    #'1
         BLO     KEYLP
-        CMPA    #'2
+        CMPA    #'3
         BHI     KEYLP
-        ADDA    #6-'1           ; 6 2048, 7 Minesweeper
+        ADDA    #6-'1           ; 6 2048, 7 Minesweeper, 8 WYRMFIRE
         BRA     POST
 TOMAIN  JSR     MAINMENU
         BRA     KEYLP
@@ -167,7 +167,7 @@ MAINMENU
 MMSET   STD     ,X
         LDU     #MENU9
         JSR     TEXTS9
-; the greeting, chosen by GREET (its table's rows are the 6803 build's: one row higher here)
+; the greeting, chosen by GREET (row 6, as the 6803 build)
         LDB     GREET
         CMPB    #2
         BLS     GRTOK
@@ -177,7 +177,6 @@ GRTOK   LSLB
         LDU     #GREETS
         LEAU    B,U
         LDX     ,U++
-        LEAX    -32,X
         LDU     ,U
         JSR     PRAT
 ; With option 6 the options move up a row (rows 8-12 to 7-11), so a blank row still separates the menu from
@@ -285,29 +284,29 @@ MENU9   FDB     SCREEN+8*32+4,T_1
         FDB     SCREEN+10*32+4,T_3
         FDB     SCREEN+11*32+4,T_4
         FDB     SCREEN+12*32+4,T_5G
-        FDB     SCREEN+14*32+10,T_PRESS5
+        FDB     SCREEN+14*32+10,T_PRESS
         FDB     0
 GAMES9  FDB     SCREEN+6*32+2,T_GAMES
         FDB     SCREEN+8*32+4,T_G1
         FDB     SCREEN+9*32+4,T_G2
+        FDB     SCREEN+10*32+4,T_G3
         FDB     SCREEN+11*32+4,T_G0
         FDB     SCREEN+13*32+5,T_GBRK
-        FDB     SCREEN+14*32+8,T_GPRESS
+        FDB     SCREEN+14*32+7,T_GPRESS
         FDB     0
 T_5G    FCB     '5+$80
         FCN     " PLAY A GAME"
-T_6     FCB     '6+$80
-        FCN     " "
-T_PRESS5 FCN    "PRESS 1 TO 5"
 T_GAMES FCN     "NEW GAMES FOR AN OLD MACHINE"
 T_G1    FCB     '1+$80
         FCN     " 2048"
 T_G2    FCB     '2+$80
         FCN     " MINESWEEPER"
+T_G3    FCB     '3+$80
+        FCN     " WYRMFIRE (DRAGON 64)"
 T_G0    FCB     '0+$80
         FCN     " BACK TO THE MENU"
 T_GBRK  FCN     "BREAK LEAVES A GAME"
-T_GPRESS FCN    "PRESS 1, 2 OR 0"
+T_GPRESS FCN    "PRESS 1, 2, 3 OR 0"
 INGAMES FCB     0               ; the games menu is showing
 
         END     WELCOME

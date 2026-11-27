@@ -1,7 +1,7 @@
 {
   "name": "cloadm",
   "displayName": "CLOADM",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Play Dragon and Tandy Color Computer machines with Claude: live in Claude's side panel, or on your computer with your own ROMs and files.",
   "author": {
     "name": "Yaniv Golan",
@@ -25,7 +25,8 @@
       "command": "node",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/cli/cloadm.js",
-        "--mcp"
+        "--mcp",
+        "--no-skills"
       ]
     },
     "CLOADM side panel": {

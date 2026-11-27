@@ -138,8 +138,8 @@ const link = (box, version = 1) => new Uint8Array(Buffer.concat([Buffer.from([ve
       check(`refused, as damaged: ${what}`, damaged(e), e ? e.message : 'accepted');
     }
     // (byte 0 = 2 is the BASIC program link, js/media/snapshot.js PROGRAM_LINK_VERSION: tests/basic-share.test.js)
-    const newer = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(Buffer.from('x'), 3)).toString('base64url')));
-    check('a link from a newer CLOADM says so, as a SessionError', newer instanceof Emu.SessionError && /newer CLOADM \(link format 3; this page reads 1\)/.test(newer.message), newer && newer.message);
+    const newer = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(Buffer.from('x'), 5)).toString('base64url')));
+    check('a link from a newer CLOADM says so, as a SessionError', newer instanceof Emu.SessionError && /newer CLOADM \(link format 5; this page reads 1\)/.test(newer.message), newer && newer.message);
     const future = await rejects(s.readSnapshotLink('#z=' + Buffer.from(link(container('{"format":"cloadm-state","version":99,"machine":"dragon64","config":{},"roms":{},"state":{}}', []))).toString('base64url')));
     check('a snapshot version from a newer CLOADM says so', future instanceof Emu.SessionError && /newer CLOADM \(format version 99/.test(future.message), future && future.message);
     const machine = await rejects(Emu.decodeLongLink(link(container('{"format":"cloadm-state","version":4,"machine":"zx81","config":{},"roms":{},"state":{}}', []))));

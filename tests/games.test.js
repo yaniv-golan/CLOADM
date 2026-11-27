@@ -751,12 +751,12 @@ for (const name of ['2048', 'minesweeper']) {
     && (m.pia1.saveState().b.or & 0x80) === 0 && recorded && m.sam.memSize === m0 && during === 2 && samExit === m0 && A[name].symbols.get('SAMEXIT') === Emu.GAMES.samExit);
 }
 
-// With BASIC ROMs: BREAK hands the machine back to BASIC, started cold. A stand-in BASIC (our own firmware, no ROM
-// code: it sets the SAM as BASIC does, M=10, clears the text screen and prints OK and then COLD or WARM from BASIC's
-// warm-start flag at $0071, which it then sets to $55, as BASIC does; its POLCAT reads SPACE and BREAK from the
-// matrix) boots; the reset button gives WARM (the control); the game runs on it; BREAK leaves the game, the Session
-// clears the flag and presses reset, and BASIC is back started cold: OK COLD on the text screen, its SAM settings,
-// and the 'reset' event (?start= goes with it on the page).
+// With BASIC ROMs stored: the game still starts on the built-in firmware, without them. A stand-in BASIC (our own
+// firmware, no ROM code: it sets the SAM as BASIC does, M=10, clears the text screen and prints OK and then COLD or WARM
+// from BASIC's warm-start flag at $0071, which it then sets to $55, as BASIC does) boots; the reset button gives WARM
+// (the control); the game runs on the stub (no ROM in the machine, the stored ROMs untouched); BREAK leaves it for the
+// welcome menu ('menu', as without ROMs); and the stored ROMs then bring BASIC back, started cold, when the person
+// asks for them ("Use my ROMs").
 {
   const STANDIN = `
 LAST    EQU     $7F80
@@ -843,7 +843,7 @@ WARMS   FCB     $57,$41,$52,$4D,0
   const asm = Emu.assemble(STANDIN, '6809');
   const rom = new Uint8Array(0x4000).fill(0x12);
   for (const seg of asm.segments) rom.set(seg.data, seg.addr - 0x8000);
-  const s = new Emu.Session({ welcomeMenu: false });
+  const s = new Emu.Session();
   s.switchMachine('dragon64', {}, { menu: false });
   s.addRoms([{ name: 'd64_1.rom', bytes: rom }, { name: 'd64_2.rom', bytes: new Uint8Array(0x4000).fill(0x13) }]);
   const m = s.shownMachine;
@@ -854,18 +854,22 @@ WARMS   FCB     $57,$41,$52,$4D,0
   check('(the control: the reset button with BASIC is a warm start, OK WARM)', s.screenText()[0].trim() === 'OK WARM', JSON.stringify(s.screenText()[0]));
   const events = [];
   s.on((e) => events.push(e));
-  s.runGame('2048', bin('2048'));
+  s.runGame('2048', bin('2048'), { noRoms: true });
   s.runFrames(30);
-  const hold = (key) => { m.setKey(key, true); s.runFrames(3); m.setKey(key, false); s.runFrames(20); };
-  hold('SPACE');
+  const push = (key) => { m.stubKeys.push(key); s.runFrames(20); };   // (the stub's keyboard: BREAK is 3)
+  push(32);
   const playing = (m.pia1.saveState().b.or & 0x80) !== 0 && m.ram[A['2048'].symbols.get('BOARD')] !== undefined
     && Array.from(m.ram.slice(A['2048'].symbols.get('BOARD'), A['2048'].symbols.get('BOARD') + 16)).filter((v) => v).length === 2;
-  check('2048 with BASIC ROMs: it runs, reading SPACE through BASIC\'s POLCAT (two tiles on the board)', playing && m.ram[Emu.GAMES.samExit] === 2);
-  hold('BREAK');
+  const stored = () => Object.values(s.roms.get('dragon64')).filter(Boolean).length;
+  check('2048 with BASIC ROMs stored: it runs on the built-in firmware (no ROM in the machine), the ROMs stay stored (two tiles on the board)',
+    playing && m.useStub && !m.hasRom && stored() === 2 && s.romCodeIn() === null, `${m.useStub} ${stored()} ${s.romCodeIn()}`);
+  push(3);
   s.runFrames(10);
-  check('2048 with BASIC ROMs: BREAK hands the machine back to BASIC started cold (OK COLD, text mode, SAM M=10, at its idle loop)',
-    events.includes('reset') && !events.includes('menu') && s.screenText()[0].trim() === 'OK COLD' && (m.pia1.saveState().b.or & 0x80) === 0
-    && m.sam.memSize === 2 && m.cpu.pc === asm.symbols.get('IDLE') && m.hasRom, `${events.filter((e) => !/^(frame|status)/.test(e)).join()} | ${JSON.stringify(s.screenText()[0])}`);
+  check('2048 with BASIC ROMs stored: BREAK goes back to the welcome menu, as without ROMs, and not to BASIC', events.includes('menu') && !events.includes('reset') && m.useStub, events.filter((e) => !/^(frame|status)/.test(e)).join());
+  s.stubChosen.delete('dragon64');   // "Use my ROMs" (js/ui/welcome.js switchOnButton): the same switch the ROM page makes
+  s.switchMachine('dragon64', {}, { menu: false });
+  s.runFrames(20);
+  check('...and the stored ROMs then start BASIC, cold (OK COLD)', s.shownMachine.hasRom && s.screenText()[0].trim() === 'OK COLD' && stored() === 2, JSON.stringify(s.screenText()[0]));
 }
 
 // the flood leaves flagged squares alone: a flagged blank square inside the area the first square opens stays

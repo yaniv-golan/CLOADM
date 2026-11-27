@@ -7,6 +7,11 @@
 //    UnsupportedProtocolVersionError for a version it does not speak). Specification:
 //    https://modelcontextprotocol.io/specification/2026-07-28 (basic/versioning, server/discover, server/tools,
 //    basic/transports/stdio, basic/patterns/cancellation) and .../2025-11-25 (basic/lifecycle).
+//    The agent skill (skills/cloadm/) over the Skills extension, io.modelcontextprotocol/skills (js/mcp/skills.js):
+//    declared in server/discover with `resources` (that extension's revision, 2026-07-28), and in an initialize result
+//    only to a client whose initialize declared the extension itself (the handshake revisions define no skills, so a
+//    client that does not ask sees the handshake, and the unknown methods, it always saw); skills/list, skills/get and
+//    resources/read (resources/list, resources/templates/list) serve its files. --no-skills serves none of it.
 //  * --serve: the same tools over plain JSON lines, for programs that do not speak MCP.
 // The host gives the toolbox files only under --media-root (each path resolved with realpath and refused if it
 // leaves the root, also through a link; the file then opened without following a link and refused unless it is a
@@ -18,6 +23,8 @@ const fs = require('fs');
 const path = require('path');
 const { StringDecoder } = require('string_decoder');
 const T = require('../js/mcp/tools.js');
+const SK = require('../js/mcp/skills.js');
+const { SKILLS_EXTENSION } = SK;
 const { fetchRom, checkUrl } = require('./rom-fetch.js');
 const zlib = require('zlib');
 
@@ -254,7 +261,7 @@ function queued(keyOf) {
 }
 
 // ---------------- --mcp ----------------
-async function mcp({ toolbox, input, out }) {
+async function mcp({ toolbox, input, out, skills = null }) {
   const send = (msg) => out(JSON.stringify(Object.assign({ jsonrpc: '2.0' }, msg)));
   const running = new Map();   // request id -> AbortController
   const keyOf = (id) => JSON.stringify(id);
@@ -262,10 +269,13 @@ async function mcp({ toolbox, input, out }) {
   // the tool's result as MCP content (the toolbox's mcpResult, which the side panel's view sends too)
   const result = (r) => T.mcpResult(r, (bytes) => Buffer.from(bytes).toString('base64'));
   const capabilities = { tools: { listChanged: false } };
+  const withSkills = skills ? Object.assign({}, capabilities, { resources: { listChanged: false }, extensions: { [SKILLS_EXTENSION]: skills.capability() } }) : capabilities;
   // Asking the person (add_roms' consent): an elicitation/create request to a client that said at initialize it takes
   // them (the handshake revisions, 2025-06-18 on; a stateless request carries no such promise, so it is not asked).
   // Its reply is taken at once (immediate), not queued behind the call that waits for it.
   let elicitation = false, nextAsk = 1;
+  // a handshake client gets the skill methods only when its initialize declared the extension (one connection: kept here)
+  let skillsAsked = false;
   const asking = new Map();   // our request id -> resolve
   const confirm = (message, { signal } = {}) => new Promise((resolve) => {
     const id = `cloadm-ask-${nextAsk++}`, key = keyOf(id);
@@ -317,16 +327,18 @@ async function mcp({ toolbox, input, out }) {
     }
     switch (msg.method) {
       case 'server/discover':
-        answer({ supportedVersions: [...MODERN_VERSIONS, ...LEGACY_VERSIONS], capabilities, instructions: instructions(toolbox), ttlMs: LIST_TTL_MS, cacheScope: 'private', _meta: { [`${META}serverInfo`]: SERVER_INFO } });
+        answer({ supportedVersions: [...MODERN_VERSIONS, ...LEGACY_VERSIONS], capabilities: withSkills, instructions: instructions(toolbox), ttlMs: LIST_TTL_MS, cacheScope: 'private', _meta: { [`${META}serverInfo`]: SERVER_INFO } });
         return;
-      case 'initialize':
+      case 'initialize': {
         elicitation = !!(p.capabilities && p.capabilities.elicitation && typeof p.capabilities.elicitation === 'object');
+        const asks = skillsAsked = !!(p.capabilities && p.capabilities.extensions && typeof p.capabilities.extensions === 'object' && p.capabilities.extensions[SKILLS_EXTENSION]);
         // the handshake revisions: the client's version when this server speaks it, else the newest it speaks
         answer({
           protocolVersion: LEGACY_VERSIONS.includes(p.protocolVersion) ? p.protocolVersion : LEGACY_VERSIONS[0],
-          capabilities, serverInfo: SERVER_INFO, instructions: instructions(toolbox),
+          capabilities: asks ? withSkills : capabilities, serverInfo: SERVER_INFO, instructions: instructions(toolbox),
         });
         return;
+      }
       case 'ping': answer({}); return;   // the handshake revisions' liveness check (gone from 2026-07-28)
       case 'tools/list': answer({ tools: toolbox.tools(), ...(modern ? { ttlMs: LIST_TTL_MS, cacheScope: 'private' } : {}) }); return;
       case 'tools/call': {
@@ -342,10 +354,27 @@ async function mcp({ toolbox, input, out }) {
         answer(result(r));
         return;
       }
+      case 'skills/list': case 'skills/get': case 'resources/list': case 'resources/templates/list': case 'resources/read':
+        if (!skills || !(modern || skillsAsked)) break;
+        try {
+          if (msg.method === 'skills/list') answer(skills.list());
+          else if (msg.method === 'skills/get') answer(skills.get(p));
+          else if (msg.method === 'resources/list') answer({ resources: skills.resources(), ...(modern ? { ttlMs: SK.SKILL_TTL_MS, cacheScope: 'public' } : {}) });
+          else if (msg.method === 'resources/templates/list') answer({ resourceTemplates: [], ...(modern ? { ttlMs: SK.SKILL_TTL_MS, cacheScope: 'public' } : {}) });
+          else {
+            const r = skills.read(p.uri);
+            if (!r) throw new SK.SkillError(`unknown resource: ${typeof p.uri === 'string' ? p.uri : 'resources/read needs params.uri'}`);
+            answer(r);
+          }
+        } catch (e) {
+          if (!(e instanceof SK.SkillError)) throw e;
+          error(e.code, e.message);
+        }
+        return;
       default:
         if (msg.method.startsWith('notifications/')) return;
-        error(-32601, `method not found: ${msg.method}`);
     }
+    error(-32601, `method not found: ${msg.method}`);
   }, immediate, () => { for (const done of [...asking.values()]) done('cancel'); });
   return 0;
 }

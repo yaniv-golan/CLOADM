@@ -2619,7 +2619,7 @@ async function romUiChecks(browser, base, check) {
   await page.goto(`${base}?machine=coco`); await started(page);
   await inject();
   await page.evaluate(() => window.emu.session.switchMachine('coco'));
-  // the screen opens from the header's "No BASIC · Add ROMs" pill, and "← Emulator" closes it
+  // the screen opens from the header's "Add ROMs…", and "← Emulator" closes it
   check('Add ROMs: closed until asked for', !(await page.evaluate(romsOpen)) && await page.isVisible('#romPill'));
   await page.click('#romPill');
   check('Add ROMs: the pill opens the screen in place of the emulator', await waitFor(page, romsOpen)
@@ -2767,7 +2767,7 @@ async function visitChecks(browser, base, check) {
     && /1 TALK TO LIZA/.test(await screen()), (await screen()).split('\n')[8]);
   check('first visit: "Runs without ROMs" is the welcome menu (on screen now), our programs and the Claude chat', (await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join())) === 'Welcome menu on screen now,LIZA,Colour demo,2048,Minesweeper,WYRMFIREA 3D game for the Dragon 64 · Freedoom levelGPL · Freedoom level (BSD),Chat with Claude',
     await page.$$eval('#shelf :is(a, button)', (b) => b.map((x) => x.textContent).join()));
-  check('first visit: "No BASIC · Add ROMs" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
+  check('first visit: "Add ROMs…" in the header and the machine question', await page.isVisible('#romPill') && await page.isVisible('#askMachine'));
   // The welcome tune plays only when the person asked for the menu. The visit's own menu leaves the firmware's PLAYED flag
   // ($6005, the 6809 build) at 0 (a few frames in, once START has cleared it), so its tune is still to play once the
   // sound is unlocked
@@ -2882,8 +2882,11 @@ async function visitChecks(browser, base, check) {
     return gameSyms[name];
   };
   await key('5');
-  check('welcome: 5 PLAY A GAME opens the games menu, NEW GAMES FOR AN OLD MACHINE', await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'NEW GAMES FOR AN OLD MACHINE'
-    && window.emu.session.screenText()[8].trim() === '1 2048' && window.emu.session.screenText()[9].trim() === '2 MINESWEEPER'));
+  check('welcome: 5 PLAY A GAME opens the games menu: NEW GAMES FOR AN OLD MACHINE, 1 2048, 2 MINESWEEPER, 3 WYRMFIRE (DRAGON 64), 0 BACK TO THE MENU, PRESS 1, 2, 3 OR 0',
+    await waitFor(page, () => { const t = window.emu.session.screenText().map((l) => l.trim());
+      return window.emu.session.welcomeRunning && t[6] === 'NEW GAMES FOR AN OLD MACHINE' && t[8] === '1 2048' && t[9] === '2 MINESWEEPER' && t[10] === '3 WYRMFIRE (DRAGON 64)'
+        && t[11] === '0 BACK TO THE MENU' && t[13] === 'BREAK LEAVES A GAME' && t[14] === 'PRESS 1, 2, 3 OR 0'; }),
+    JSON.stringify(await page.evaluate(() => window.emu.session.screenText().slice(6, 15))));
   if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-games.png') });
   for (const [k, name, presses] of [['1', '2048', ['ArrowLeft', 'ArrowUp']], ['2', 'Minesweeper', ['ArrowRight', 'ArrowDown']]]) {
     if (k === '2') {
@@ -3015,9 +3018,9 @@ async function visitChecks(browser, base, check) {
       && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400),
       await page.evaluate(() => window.emu.session.screenText().slice(5, 8).join(' | ')));
   }
-  // "No BASIC · Add ROMs" opens Add ROMs, whose "Choose files…" opens the ROM file picker
+  // "Add ROMs…" opens Add ROMs, whose "Choose files…" opens the ROM file picker
   await page.click('#romPill');
-  check('first visit: "No BASIC · Add ROMs" opens Add ROMs', await waitFor(page, romsOpen));
+  check('first visit: "Add ROMs…" opens Add ROMs', await waitFor(page, romsOpen));
   const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null), page.click('#btnRomFiles')]);
   check('Add ROMs: "Choose files…" opens the ROM picker', !!chooser && chooser.isMultiple());
   await page.click('#btnRomBack');
@@ -3809,19 +3812,19 @@ async function powerOnChecks(browser, base, check) {
   for (const [id, sub] of [['coco3', 'DRAGON AND COLOR COMPUTER'], ['mc10', 'TANDY MC-10']]) {
     await pickMachine(page, id);
     check(`switching to the ${id} (no ROMs) from the machine menu: its welcome menu, WELCOME BACK`, await waitFor(page, (id) => window.emu.machine.id === id
-      && window.emu.session.welcomeRunning && window.emu.session.screenText()[id === 'mc10' ? 7 : 6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
+      && window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'WELCOME BACK', id) && !(await bare()), `${sub} | ${await text()}`);
     // the carry-on option offers only what runs here: loop.bin was loaded on the Dragon 64, so not on this machine
     const five = await page.evaluate(() => [window.emu.session.screenText()[13].trim(), window.emu.session.screenText()[14].trim()]);
-    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === (id === 'mc10' ? 'PRESS 1 TO 4' : 'PRESS 1 TO 5'), JSON.stringify(five));
+    check(`switching to the ${id}: the menu doesn't offer the Dragon 64's loop.bin (no carry-on option)`, five[0] === '' && five[1] === 'PRESS 1 TO 5', JSON.stringify(five));
   }
   await shot('switch-mc10');
   // the MC-10: Reset keeps its menu, Switch off and on brings it back (no more bare stub screen on the 6803)
   await page.click('#btnReset');
   check('MC-10 Reset (no ROMs) on its welcome menu: the menu restarts', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[9].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
+    && window.emu.session.screenText()[8].trim() === '1 TALK TO LIZA') && !(await bare()), await text());
   await page.click('#btnHardReset');
   check('MC-10 Switch off and on (no ROMs): its welcome menu, WELCOME BACK', await waitFor(page, () => window.emu.session.welcomeRunning
-    && window.emu.session.screenText()[7].trim() === 'WELCOME BACK') && !(await bare()), await text());
+    && window.emu.session.screenText()[6].trim() === 'WELCOME BACK') && !(await bare()), await text());
   // a snapshot taken on the stub's bare prompt (made below the page: the page no longer gets there) opens on the
   // welcome menu; one taken in a program opens in it
   await pickMachine(page, 'dragon64');
@@ -4760,7 +4763,7 @@ async function snapshotChecks(browser, base, check) {
         fits: box.left >= 0 && box.right <= innerWidth, scrollX: document.documentElement.scrollWidth <= innerWidth };
     });
     check(`snapshot (${label}): Share shows the captured picture at true size, the title, a link, what it does and what a recipient needs`,
-      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "What they'll see first · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
+      view.w === view.fw && view.h === view.fh && view.colours > 1 && view.title === "This moment · Dragon 64" && /\/play\/\?machine=dragon64/.test(view.link)
       && view.recipient === 'Runs without ROMs, so it opens for anyone.' && view.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.' && /^Download snapshot \(\d+ KB\)$/.test(view.kb) && view.fits && view.scrollX, JSON.stringify(Object.assign({}, view, { link: view.link.slice(0, 80) + '…' })));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `share-${label}.png`) });
     // the screen area is hidden behind the share view and the page loop keeps running (paused): the screen keeps
@@ -4945,7 +4948,7 @@ async function liza6803Checks(browser, base, check) {
     // BREAK (Esc) at the prompt leaves as BYE does: the goodbye, then the welcome menu (bounded in machine frames)
     await page.keyboard.press('Escape');
     const bye = await waitFor(page, () => /GOODBYE\. IT WAS NICE TALKING TO YOU/.test(window.emu.session.screenText().join(' ').replace(/ +/g, ' ')));
-    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[7].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
+    const menu = await waitForFrames(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[6].trim() === 'BYE FOR NOW. PICK ANOTHER?', null, 400);
     check(`${id}: BREAK (Esc) in LIZA says goodbye and brings the menu back, as BYE does`, bye && menu, (await screenOf(page)).split('\n').slice(6, 9).join(' | '));
     check(`${id}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
@@ -5718,7 +5721,7 @@ async function phoneChecks(browser, base, check) {
   await page.tap('#btnMenu');
   const menuOrder = await page.evaluate(() => [...document.querySelectorAll('#appbar nav > :is(a, button)')].filter((e) => e.checkVisibility()).map((e) => e.innerText.trim()));
   check('phone: Menu lists Programs…, Add ROMs, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, Library, Debugger, Commands…, Help, GitHub, in that order (the focus order too)',
-    menuOrder.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
+    menuOrder.join('|') === 'Programs…|Add ROMs…|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify(menuOrder));
   const gluedMenu = await gluedLabels(page, '#appbar nav > :is(a, button)');
   check('phone: no Menu label has words run together (each space between words drawn)', !gluedMenu.length, JSON.stringify(gluedMenu));
   await page.tap('#navSettings');
@@ -5781,10 +5784,10 @@ async function phoneChecks(browser, base, check) {
   await page.keyboard.press('Escape');
   const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/dragondos.vdk'))];
   await page.evaluate((b) => window.emu.session.drives.importImage('games/first.vdk', new Uint8Array(b), 0), disk);
-  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === 'first.vdk');
+  const oneDisk = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '1 disk');
   await page.evaluate((b) => window.emu.session.drives.importImage('second.vdk', new Uint8Array(b), 1), disk);
   const twoDisks = await waitFor(page, () => document.querySelector('#chipDisks .cs').textContent === '2 disks' && document.getElementById('chipDisks').classList.contains('has-media'));
-  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip names one disk by its file ("first.vdk"), two as "2 disks", outlined',
+  check('phone: NitrOS-9 is in the Disks sheet under the drives; the Disks chip says "1 disk", then "2 disks", outlined',
     n9 && oneDisk && twoDisks, JSON.stringify({ n9, oneDisk, twoDisks, chip: await page.textContent('#chipDisks .cs') }));
   // Power: Paused after Pause, Running after Resume
   await page.tap('#chipPower'); await page.tap('#btnPause');
@@ -5818,10 +5821,11 @@ async function phoneChecks(browser, base, check) {
   // heading and note), Open your library →
   const progOrder = await page.evaluate(() => ({ ids: [...document.querySelector('#sheetPrograms .sheetbody').children].map((e) => e.id),
     snap: [...document.querySelectorAll('#quickSave > :is(.eyebrow, #slotNote)')].map((e) => e.textContent) }));
-  // the no-ROM card in the sheet points at what is below it there, not at a Media tab
+  // the side card is in the sheet, and drawn only for the machine question: this visit's link named the machine, so
+  // there is none (the welcome menu's key 3 says what ROMs are for; firstVisit checks the question's card)
   const card = await page.evaluate(() => { const w = document.getElementById('welcome'); return { inSheet: !!w.closest('#sheetPrograms'), shown: w.checkVisibility(), text: w.innerText.replace(/\s+/g, ' ').trim() }; });
-  check('phone: the "Running with no ROMs." card in the Programs sheet says "Programs that run without them are listed below."',
-    card.inSheet && card.shown && card.text.startsWith('Running with no ROMs. Programs that run without them are listed below.'), JSON.stringify(card));
+  check('phone: the side card belongs to the Programs sheet, and with the machine named by the link there is none (no "Running with no ROMs.")',
+    card.inSheet && !card.shown && card.text === '', JSON.stringify(card));
   check('phone: the Programs sheet\'s order: Last time, the no-ROM card, Runs without ROMs, Recent on this machine, Snapshots (heading and note), Open your library →',
     progOrder.ids.join() === 'lastTime,welcome,shelfHead,shelf,recentHead,recentList,quickSave,linkLibrary'
       && progOrder.snap.join('|') === 'Snapshots|A snapshot reopens on the same machine, RAM and ROMs.', JSON.stringify(progOrder));
@@ -6040,18 +6044,19 @@ async function phoneChecks(browser, base, check) {
     const disk = [...fs.readFileSync(path.join(ROOT, 'tests/fixtures/disks/rsdos.dsk'))];
     await p.evaluate((b) => window.emu.session.drives.importImage('games.dsk', new Uint8Array(b), 0), disk);
     await p.setInputFiles('#fileTape', { name: 'HI.CAS', mimeType: 'application/octet-stream', buffer: Buffer.alloc(256, 0x55) });
-    // (no ROMs here, so Menu's one dot is the ROMs' too: its name says both)
-    const dotted = await waitFor(p, () => document.getElementById('btnMenu').getAttribute('aria-label') === 'Menu (ROMs needed, media inserted)'
+    // (no ROMs here: Menu's one dot is still media's, the accent; the ROMs have no dot)
+    const dotted = await waitFor(p, () => document.getElementById('btnMenu').getAttribute('aria-label') === 'Menu (media inserted)'
       && getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
-    // and with ROMs not needed (the pill off, as with BASIC in): the accent dot, "Menu (media inserted)"
+    // and with ROMs not needed (the pill off, as with BASIC in): the same accent dot, "Menu (media inserted)"
     const accent = await p.evaluate(() => { document.getElementById('romPill').hidden = true; return new Promise((r) => requestAnimationFrame(() => r({
       label: document.getElementById('btnMenu').getAttribute('aria-label'), dot: getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor }))); });
     await p.evaluate(() => { document.getElementById('romPill').hidden = false; });
+    const noRomDot = await p.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor);
     await p.evaluate(() => window.emu.feedback.clear());
     await p.tap('#btnMenu');
     const states = await p.evaluate(() => ({ ports: document.getElementById('navPortsState').textContent, power: document.getElementById('navPowerState').textContent, label: document.getElementById('navPorts').getAttribute('aria-label') }));
-    check(`${L}: with media in, Menu wears a dot and is named "Menu (media inserted)" (the accent dot; with ROMs also needed, the ROMs' dot and both in its name); its items say "HI.CAS · 1 disk", and "Paused" after Pause`,
-      power && dotted && accent.label === 'Menu (media inserted)' && accent.dot === 'rgb(61, 245, 90)' && states.ports === 'HI.CAS · 1 disk' && pausedState === 'Paused' && states.label === 'Tape, disks and cartridge: HI.CAS · 1 disk.', JSON.stringify({ states, accent, pausedState }));
+    check(`${L}: with media in, Menu wears a dot and is named "Menu (media inserted)" (the accent dot, with ROMs needed or not); its items say "HI.CAS · 1 disk", and "Paused" after Pause`,
+      power && dotted && noRomDot === 'rgb(61, 245, 90)' && accent.label === 'Menu (media inserted)' && accent.dot === 'rgb(61, 245, 90)' && states.ports === 'HI.CAS · 1 disk' && pausedState === 'Paused' && states.label === 'Tape, disks and cartridge: HI.CAS · 1 disk.', JSON.stringify({ states, accent, pausedState }));
     await p.tap('#navPorts');
     const sheet = await waitFor(p, () => document.getElementById('sheetPorts').open && document.getElementById('portTabTape').getAttribute('aria-selected') === 'true');
     const box = await p.evaluate(() => { const r = document.getElementById('sheetPorts').getBoundingClientRect(); return { bottom: Math.round(r.bottom), w: Math.round(r.width), vw: innerWidth, vh: innerHeight }; });
@@ -6077,8 +6082,9 @@ async function phoneChecks(browser, base, check) {
       controls: [...document.querySelector('.controls[aria-label="Machine controls"]').children].map((e) => e.id),
       drawer: [...document.querySelector('.layout > .drawer').children].map((e) => e.id || e.getAttribute('role')), welcome: document.getElementById('welcome').parentElement.className,
       media: [...document.getElementById('panel-media').children].map((e) => e.id || e.className || e.tagName) }));
-    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since)
-    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 893]];
+    // (the drawer is 90 px taller than it was: the "Runs without ROMs" shelf has WYRMFIRE's two-line row since; and
+    // 110 px shorter: a link naming the machine asks no machine question, so the first visit has no side card since)
+    const baseline = [[71, 849, 900, 254], [1041, 88, 364, 783]];
     const before = { rects: await rects(), order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
@@ -6223,6 +6229,182 @@ async function phoneChecks(browser, base, check) {
   }
   await phoneSnapshotChecks(browser, base, check);
   await phoneLandscapeFirstChecks(browser, base, check);
+  await phoneWyrmPadChecks(browser, base, check);
+}
+
+// WYRMFIRE held upright on a phone: the card is one line under the screen and Details opens it whole as a sheet; the
+// screen has the page's width (the pad gives way first: .tight); no page scroll, no key label cut short, taps 44 px.
+async function phoneWyrmUpright(p, L, check) {
+  // the first tap starts the sound and takes the "Tap for sound" chip's row away
+  await p.tap('.tube'); await p.waitForTimeout(400);
+  const T = await p.evaluate(async () => { const { WYRM_TEXT: t } = await import('../js/ui/wyrmfire.js'); return { privacy: t.privacy, trademark: t.trademark, guard: t.guard, freedoom: t.freedoom, useWad: t.useWad }; });
+  const g = await p.evaluate(() => {
+    const tube = document.querySelector('.tube').getBoundingClientRect(), short = document.getElementById('wyrmShort');
+    const keys = [...document.querySelectorAll('#touchKeys .tk, #touchKeys button, #wyrmShort button')].filter((b) => b.checkVisibility() && b.offsetWidth);
+    return { tube: tube.width, vw: innerWidth, vh: innerHeight, scrollH: document.documentElement.scrollHeight, short: short.textContent, shortH: short.getBoundingClientRect().height,
+      shortVisible: short.checkVisibility(), shortTop: short.getBoundingClientRect().top, tubeBottom: tube.bottom, modeTop: document.getElementById('tkModeSwitch').getBoundingClientRect().top,
+      bsd: (short.querySelector('a') || {}).href || '', card: document.getElementById('wyrmCard').checkVisibility(),
+      cut: keys.filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent), small: keys.filter((b) => b.offsetWidth < 44 || b.offsetHeight < 44).map((b) => `${b.textContent} ${b.offsetWidth}x${b.offsetHeight}`),
+      enter: [...document.querySelectorAll('#touchPad .padkeys .tk[data-key="ENTER"]')].map((b) => `${b.textContent}|${b.getAttribute('aria-label') || ''}`).join() };
+  });
+  check(`${L}: the screen has the page's width (canvas ${Math.round(g.tube)} >= ${g.vw} - 2 x 8)`, g.tube >= g.vw - 16 - 0.5, JSON.stringify(g.tube));
+  check(`${L}: one line under the screen, above the Keys | Pad strip: "WYRMFIRE · Freedoom level (BSD) · Details", (BSD) the licence link`,
+    g.shortVisible && g.short === 'WYRMFIRE · Freedoom level (BSD)Details' && !/·\s*Details$/.test(g.short) && g.shortH <= 48 && g.shortTop >= g.tubeBottom && g.shortTop < g.modeTop && /freedoom/i.test(g.bsd) && /COPYING/i.test(g.bsd), JSON.stringify(g));
+  check(`${L}: the whole card is out of the page's flow until Details`, !g.card);
+  check(`${L}: no page scroll`, g.scrollH <= g.vh, `${g.scrollH} > ${g.vh}`);
+  // the chips hold short values (a count, a short name): never cut, the full names in the aria-label
+  const chip = await p.evaluate(() => ['chipDisks', 'chipCart'].map((id) => { const c = document.getElementById(id), cs = c.querySelector('.cs');
+    return { id, shown: c.checkVisibility(), text: cs.textContent, label: c.getAttribute('aria-label'), cut: cs.scrollWidth > cs.clientWidth || c.scrollWidth > c.clientWidth, over: c.getBoundingClientRect().right > innerWidth }; }));
+  const chipDisks = chip[0], chipCart = chip[1];
+  check(`${L}: the Disks and Cartridge chips say "1 disk" and "Dragon FDC", whole (no ellipsis, no overflow); the full names are in their aria-labels`,
+    chipDisks.text === '1 disk' && chipCart.text === 'Dragon FDC' && chip.every((c) => !c.cut && !c.over) && chipDisks.label.includes('.vdk') && chipCart.label.includes('Dragon FDC (WD2797)'), JSON.stringify(chip));
+  check(`${L}: no key's label is cut short (ENTER says ENTER, or ↵ named ENTER)`, !g.cut.length && (g.enter === 'ENTER|' || g.enter === '↵|ENTER'), JSON.stringify([g.cut, g.enter]));
+  check(`${L}: every tap target at least 44 x 44`, !g.small.length, g.small.join('; '));
+  // Details: the sheet with today's card, its words exactly WYRM_TEXT's; ✕, Esc and a tap outside each close it
+  const card = () => p.evaluate(() => { const c = document.getElementById('wyrmCard');
+    return { open: c.checkVisibility(), privacy: document.getElementById('wyrmPrivacy').textContent, guard: document.getElementById('wyrmGuard').textContent,
+      level: document.getElementById('wyrmLevel').innerText.replace(/\s+/g, ' ').trim(), credits: document.getElementById('wyrmLine').innerText,
+      inView: c.getBoundingClientRect().bottom <= innerHeight + 0.5 && c.getBoundingClientRect().top >= 0, focus: document.activeElement && document.activeElement.id }; });
+  await p.tap('#wyrmDetails');
+  const c1 = await card();
+  check(`${L}: Details opens the card as a sheet, in view, the focus on ✕`, c1.open && c1.inView && c1.focus === 'wyrmClose', JSON.stringify(c1));
+  check(`${L}: the sheet's legal words are WYRM_TEXT's exactly (privacy and trademark, the guard, the Freedoom line and the WAD button)`,
+    c1.privacy === `${T.privacy} ${T.trademark}` && c1.guard === T.guard && c1.level === `${T.freedoom} ${T.useWad}` && /^WYRMFIRE \d/.test(c1.credits) && c1.credits.includes('Level data: Freedoom (BSD), modified'), JSON.stringify(c1));
+  if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-details-${L.split(' ').pop()}.png`) });
+  await p.tap('#wyrmClose');
+  const c2 = await card();
+  await p.tap('#wyrmDetails'); await p.keyboard.press('Escape');
+  const c3 = await card();
+  await p.tap('#wyrmDetails'); await p.tap('.tube', { position: { x: 4, y: 4 } }); await p.waitForTimeout(100);
+  const c4 = await card();
+  check(`${L}: ✕, Esc and a tap outside each close the sheet (the focus back on Details after ✕)`, !c2.open && c2.focus === 'wyrmDetails' && !c3.open && !c4.open, JSON.stringify([c2.open, c2.focus, c3.open, c4.open]));
+}
+
+// WYRMFIRE's pad on a phone (js/ui/touch-keys.js, the program's `thumb` controls): an 8-way thumb stick pressing the arrow
+// keys with a 20% dead zone, FIRE (SPACE) and USE (E), STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3; Keys | Pad with no Stick, the
+// choice kept as touchMode.dragon64.wyrmfire; separate pointers for the stick and the buttons; nothing overlapping at
+// 393x659 upright and 659x393 and 653x280 sideways.
+async function phoneWyrmPadChecks(browser, base, check) {
+  const held = (p) => p.evaluate(() => [...window.emu.input.heldKeys.values()].flatMap((e) => e.keys).sort().join('+'));
+  const pointer = (p, sel, type, id, fx, fy) => p.evaluate(([q, t, i, x, y]) => {
+    const el = document.querySelector(q), r = el.getBoundingClientRect();
+    el.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, pointerId: i, pointerType: 'touch', isPrimary: i === 11,
+      clientX: r.left + r.width / 2 + x * r.width / 2, clientY: r.top + r.height / 2 + y * r.height / 2 }));
+  }, [sel, type, id, fx, fy]);
+  const wait = (p) => p.waitForTimeout(80);
+  for (const [w, h] of [[393, 659], [320, 568], [659, 393], [653, 280]]) {
+    const L = `phone wyrmfire pad ${w}x${h}`;
+    const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: w, height: h }, isMobile: true, hasTouch: true });
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?start=wyrmfire`);
+    await started(p);
+    const up = await waitFor(p, () => !!window.emu.session.wyrmfireState && document.getElementById('touchKeys').dataset.mode === 'pad'
+      && document.querySelector('#touchPad .padthumb') && !document.querySelector('#touchPad .padthumb').hidden, null, 30000);
+    await p.waitForTimeout(300);
+    // what shows, and where: every control of the panel and the screen, none over another, all inside the window
+    const lay = await p.evaluate(() => {
+      const box = (e, name) => { const r = e.getBoundingClientRect(); return { name, l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; };
+      const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0;
+      const items = [box(document.querySelector('.tube'), 'screen'), box(document.querySelector('#touchPad .padthumb'), 'stick')];
+      for (const b of document.querySelectorAll('#touchKeys button')) if (shown(b)) items.push(box(b, b.getAttribute('aria-label') || b.textContent.trim() || b.id));
+      return { items, arrows: shown(document.querySelector('#touchPad .padarrows')), scrollW: document.documentElement.scrollWidth,
+        modes: [...document.querySelectorAll('#tkModeSwitch [data-touchmode]')].filter(shown).map((b) => b.textContent), vw: innerWidth, vh: innerHeight };
+    });
+    const over = [];
+    for (let i = 0; i < lay.items.length; i++) for (let j = i + 1; j < lay.items.length; j++) {
+      const a = lay.items[i], b = lay.items[j];
+      if (a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5) over.push(`${a.name} / ${b.name}`);
+    }
+    // sideways the panel is fixed to the window, so everything is in it; upright the panel is under the screen, in the page
+    // (which may scroll down to it, never sideways)
+    const side = w > h;
+    const out = lay.items.filter((a) => a.l < -0.5 || a.r > lay.vw + 0.5 || (side && (a.t < -0.5 || a.b > lay.vh + 0.5))).map((a) => a.name);
+    const screenBox = lay.items[0], under = lay.items.slice(1).every((a) => a.t >= screenBox.b - 0.5);
+    check(`${L}: Pad shows the thumb stick (not the D-pad), and the switch is Keys | Pad (no Stick)`, up && !lay.arrows && lay.modes.join() === 'Keys,Pad', JSON.stringify(lay.modes));
+    check(`${L}: the screen, the stick and every button: none overlaps another`, up && !over.length, over.join('; '));
+    check(side ? `${L}: all inside the window` : `${L}: the pad and its buttons are under the screen, inside the window's width`, up && !out.length && (side || under), out.join('; '));
+    check(`${L}: no sideways scroll`, up && lay.scrollW <= lay.vw, String(lay.scrollW));
+    if (!side) await phoneWyrmUpright(p, L, check);
+    else check(`${L}: sideways the card is as it was: no one-line summary`, await p.evaluate(() => !document.getElementById('wyrmShort').checkVisibility()));
+    const small = lay.items.filter((a) => a.name !== 'screen' && (a.w < (side ? 32 : 44) || a.h < (side ? 32 : 44))).map((a) => `${a.name} ${Math.round(a.w)}x${Math.round(a.h)}`);
+    check(`${L}: every control at least ${side ? 32 : 44} x ${side ? 32 : 44}`, up && !small.length, small.join('; '));
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, `wyrmfire-pad-${w}x${h}.png`) });
+    if (w === 393) {
+      // the stick's eight directions at 60% of its radius, then the dead zone (15% nothing, 25% a direction)
+      const DIRS = [[[1, 0], 'RIGHT'], [[0.7071, -0.7071], 'RIGHT+UP'], [[0, -1], 'UP'], [[-0.7071, -0.7071], 'LEFT+UP'], [[-1, 0], 'LEFT'],
+        [[-0.7071, 0.7071], 'DOWN+LEFT'], [[0, 1], 'DOWN'], [[0.7071, 0.7071], 'DOWN+RIGHT']];
+      const got = [];
+      for (const [[x, y]] of DIRS) {
+        await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, x * 0.6, y * 0.6); await wait(p);
+        got.push(await held(p));
+        await pointer(p, '#touchPad .padthumb', 'pointerup', 11, x * 0.6, y * 0.6); await wait(p);
+      }
+      check(`${L}: the stick holds the arrow keys in eight directions (→ ↗ ↑ ↖ ← ↙ ↓ ↘)`, got.join() === DIRS.map(([, k]) => k.split('+').sort().join('+')).join(), got.join());
+      check(`${L}: lifting the finger lets every key go`, await held(p) === '', await held(p));
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, 0.15, 0); await wait(p);
+      const dead = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointermove', 11, 0.25, 0); await wait(p);
+      const live = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointermove', 11, 0.1, -0.1); await wait(p);
+      const back = await held(p);
+      await pointer(p, '#touchPad .padthumb', 'pointerup', 11, 0, 0); await wait(p);
+      check(`${L}: the dead zone: nothing at 15% of the radius, RIGHT at 25%, nothing again back inside it`, dead === '' && live === 'RIGHT' && back === '', JSON.stringify([dead, live, back]));
+      // two thumbs: the stick held up, FIRE pressed with another finger, then USE; each lets go on its own
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, 0, -0.8); await wait(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="SPACE"]', 'pointerdown', 12, 0, 0); await p.waitForTimeout(200);
+      const both = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="SPACE"]', 'pointerup', 12, 0, 0); await wait(p);
+      const stickOnly = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="E"]', 'pointerdown', 13, 0, 0); await p.waitForTimeout(200);
+      const use = await held(p);
+      await pointer(p, '#touchPad .padbig .tk[data-key="E"]', 'pointerup', 13, 0, 0); await wait(p);
+      await pointer(p, '#touchPad .padthumb', 'pointerup', 11, 0, -0.8); await wait(p);
+      check(`${L}: the stick and FIRE are separate pointers: UP and SPACE together, then UP alone, UP and E with USE, then nothing`,
+        both === 'SPACE+UP' && stickOnly === 'UP' && use === 'E+UP' && await held(p) === '', JSON.stringify([both, stickOnly, use]));
+      // the small row: each sends its key
+      const row = [];
+      for (const k of ['Z', 'X', '1', '2', '3']) {
+        const sel = `#touchPad .padgroups .tk[data-key="${k}"]`;
+        await pointer(p, sel, 'pointerdown', 14, 0, 0); await p.waitForTimeout(200);
+        row.push(await held(p));
+        await pointer(p, sel, 'pointerup', 14, 0, 0); await wait(p);
+      }
+      check(`${L}: STRAFE ◀ ▶ send Z and X, WEAPON 1 2 3 send 1, 2 and 3`, row.join() === 'Z,X,1,2,3', row.join());
+      // the pad going while the stick is held (Keys tapped with another finger) lets the arrows go
+      await pointer(p, '#touchPad .padthumb', 'pointerdown', 11, -0.8, 0); await wait(p);
+      const holding = await held(p);
+      await p.tap('#tkModeSwitch [data-touchmode="keys"]'); await wait(p);
+      // (the machine's keys, and the stick's own idea of what it holds: the canvas losing the focus to the switch lets the
+      // machine's keys go by itself, so the stick's state is what shows the pad let go of it)
+      const gone = await held(p), stickSays = await p.evaluate(() => document.querySelector('#touchPad .padthumb').dataset.keys);
+      await p.tap('#tkModeSwitch [data-touchmode="pad"]'); await wait(p);
+      check(`${L}: leaving the pad with the stick held lets its keys go`, holding === 'LEFT' && gone === '' && stickSays === '', JSON.stringify([holding, gone, stickSays]));
+      // the mode is kept for WYRMFIRE on the Dragon 64: Keys, reloaded, is Keys; Pad again is kept as pad
+      await p.tap('#tkModeSwitch [data-touchmode="keys"]');
+      const keysSaved = await p.evaluate(() => window.emu.session.store.get('touchMode.dragon64.wyrmfire'));
+      await p.reload(); await started(p);
+      const keysBack = await waitFor(p, () => !!window.emu.session.wyrmfireState && document.getElementById('touchKeys').dataset.mode === 'keys', null, 30000);
+      await p.tap('#tkModeSwitch [data-touchmode="pad"]');
+      const padSaved = await p.evaluate(() => window.emu.session.store.get('touchMode.dragon64.wyrmfire'));
+      check(`${L}: the mode is kept as touchMode.dragon64.wyrmfire (Keys, reloaded, opens on Keys; then Pad)`, keysSaved === 'keys' && keysBack && padSaved === 'pad', JSON.stringify([keysSaved, keysBack, padSaved]));
+      // a level of the person's own (here the Freedoom disk, started as one: no id Software data in the check): the line
+      // names their file and has no Freedoom credit
+      const own = await p.evaluate(async () => {
+        const { WYRMFIRE_PIN: pin } = await import('../js/wyrmfire/pin.js');
+        const get = async (f) => new Uint8Array(await (await fetch(`../${f.path}`)).arrayBuffer());
+        window.emu.session.startWyrmfire(await get(pin.files.engine), await get(pin.files.level), { level: 'user', name: 'MYLEVELS.WAD' });
+        await new Promise((r) => setTimeout(r, 300));
+        const sh = document.getElementById('wyrmShort');
+        return { text: sh.textContent, link: !!sh.querySelector('a'), h: sh.getBoundingClientRect().height };
+      });
+      check(`${L}: with the person's own WAD the line is "WYRMFIRE · your MYLEVELS.WAD" and Details, no dangling "·", one line, no Freedoom link`,
+        own.text === 'WYRMFIRE · your MYLEVELS.WADDetails' && !own.link && own.h <= 48, JSON.stringify(own));
+    }
+    check(`${L}: no page errors`, !errs.length, errs.join('; '));
+    await ctx.close();
+  }
 }
 
 async function feedbackModelChecks(browser, base, check) {
@@ -8184,7 +8366,7 @@ async function libraryStorageChecks(base, check) {
   } finally { await closeOwnBrowser(browser); }
 }
 
-// A quieter first visit: one call to add ROMs outside the emulated screen (the header's "No BASIC · Add ROMs"; the welcome
+// A quieter first visit: one call to add ROMs outside the emulated screen (the header's "Add ROMs…"; the welcome
 // card no longer repeats it), one key legend at a time (over the screen until the one-time hint is done, then the
 // line under the slots), and no quick-save slots while the welcome program is all that has run.
 async function firstVisitChecks(browser, base, check) {
@@ -8204,10 +8386,15 @@ async function firstVisitChecks(browser, base, check) {
         sound: shown(document.getElementById('soundHint')), quickSave: shown(document.getElementById('quickSave')) };
     });
     const first = await seen();
+    // the side card is the machine question alone: its chips and Dismiss, nothing about ROMs (the welcome menu's key 3
+    // says that, once)
+    const cardText = await page.evaluate(() => { const w = document.getElementById('welcome'); return w.checkVisibility() || w.closest('#sheetPrograms') ? w.innerText.replace(/\s+/g, ' ').trim() : null; });
+    check(`first visit (${label}): the side card is the machine question, its chips and Dismiss, and nothing about ROMs`,
+      !!cardText && /^Which computer did you have\?/.test(cardText) && /Dismiss$/.test(cardText) && !/ROM/.test(cardText), String(cardText));
     // the line under the screen holds one note at a time: "click for sound" first, so no key legend yet; sound starts on the
     // first click, and the key hint takes the line
-    // (a phone's app bar has no room for the pill: Add ROMs is Menu's first item, and Menu wears a dot)
-    const phoneCall = label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : null;
+    // (a phone's app bar has no room for the pill: Add ROMs… is Menu's item, and Menu wears no dot)
+    const phoneCall = label === 'phone' ? await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content === 'none' && !document.getElementById('navRoms').hidden) : null;
     check(`first visit (${label}): one call to add ROMs outside the screen, the sound note on the line under the screen (no key legend yet), no quick-save slots yet`,
       (label === 'phone' ? JSON.stringify(first.romCalls) === '[]' && phoneCall : JSON.stringify(first.romCalls) === '["romPill"]') && JSON.stringify(first.legends) === '[]' && first.sound && !first.quickSave, JSON.stringify(first));
     await page.mouse.click(5, 5);
@@ -8228,6 +8415,23 @@ async function firstVisitChecks(browser, base, check) {
       await closeCtx(late);
     }
     if (label === 'desktop') {
+      // the machine question answered in the header's machine menu, a switch or the machine already on: the whole card
+      // goes (no card left with only Dismiss on it)
+      for (const same of [false, true]) {
+        const c2 = await browser.newContext({ viewport, serviceWorkers: 'block' });
+        const p2 = await c2.newPage();
+        await p2.goto(base);
+        await waitFor(p2, () => window.emu && window.emu.session.welcomeRunning && !!document.querySelector('#welcome #askMachine'));
+        const to = same ? await p2.evaluate(() => window.emu.session.shownMachine.id) : 'coco';
+        await p2.click('#machineBtn');
+        await waitFor(p2, () => !document.getElementById('machineMenu').hidden);
+        await p2.click(`#machineMenu button[data-machine="${to}"]`);
+        if (await p2.isVisible('#switchConfirm')) await p2.click('#btnSwitch');
+        const gone = await waitFor(p2, () => document.getElementById('welcome').hidden && !document.getElementById('askMachine'), null, 10000);
+        check(`first visit: the machine picked in the header menu (${same ? 'the one already on' : 'a switch'}) takes the whole machine-question card away`, gone,
+          await p2.evaluate(() => document.getElementById('welcome').outerHTML.slice(0, 200)));
+        await closeCtx(c2);
+      }
       // the card dismissed: the header pill takes over; Esc ends the one-time hint: the line under the slots shows
       await page.click('#welcome .close');
       await page.focus('#screen'); await page.keyboard.press('Escape');
@@ -8472,7 +8676,7 @@ async function commandsChecks(browser, site, check) {
   // written out here rather than read from COMMANDS (the page's own list is checked against them)
   const WANT = [
     ['Claude', ['Chat with Claude, full screen', 'What is this code doing?']],
-    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Share']],
+    ['Files', ['Take snapshot', 'Open a program, tape, disk or cartridge…', 'Insert a disk…', 'New blank disk', 'Eject disk', 'Insert a tape…', 'Rewind the tape', 'Eject the tape', 'Save the tape as .WAV', 'Record to tape', 'Save program as .CAS/.WAV', 'Share']],
     ['Views', ['Programs', 'WYRMFIRE', 'Open the Library', 'Open the Debugger']],
     ['Settings', ['Your ROMs', 'Display settings', 'Input settings', 'POKEs', 'Machine settings']],   // (Your ROMs first)
     ['Machine', ['Pause or resume', 'Turbo', 'Fullscreen', 'Reset', 'Switch off and on', 'Switch machine…', 'Copy bug report', 'Help']],
@@ -8560,14 +8764,14 @@ async function commandsChecks(browser, site, check) {
   }
   // tight mode hides the RAM size: the machine button's title and aria-label still name the machine and its RAM
   // (at 1200, the one-row bar's narrowest, in a wide font spaced wider still: with five of its links in More ▾ the bar
-  // needs both to go tight)
+  // needs both to go tight; 2 px, since "Add ROMs…" is a plain button, narrower than the bold "No BASIC · Add ROMs" was)
   {
     const { ctx, page } = await open({ viewport: { width: 1200, height: 720 } });
     const read = () => page.evaluate(() => { const b = document.getElementById('machineBtn'), sp = document.getElementById('machineSpec');
       return { title: b.title, aria: b.getAttribute('aria-label'), want: `${document.getElementById('machineName').textContent} ${sp.textContent}`.trim(),
         tight: document.getElementById('appbar').classList.contains('tight'), specShown: sp.getClientRects().length > 0 }; });
     const plain = await read();
-    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 1px !important; }' });
+    await page.addStyleTag({ content: 'body, button, a, input, select { font-family: "DejaVu Sans", Verdana, sans-serif !important; letter-spacing: 2px !important; }' });
     await waitFor(page, () => document.getElementById('appbar').classList.contains('tight'));
     const tight = await read();
     check('commands (app bar): the machine button\'s title and aria-label are "<name> <ram>K" (e.g. "Dragon 64 64K"), also in tight mode where the RAM size is hidden',
@@ -9331,7 +9535,7 @@ SUB     INCA
 // the emulator layout at desktop and phone width: header, grouped
 // machine menu with a confirmation, monitor bezel per family, controls and slots, the drawer's tabs
 async function layoutChecks(browser, base, check) {
-  // The app bar stays ONE row at 1280 x 720 (first visit: the "No BASIC" pill is showing, the widest the bar gets),
+  // The app bar stays ONE row at 1280 x 720 (first visit: "Add ROMs…" is showing, the widest the bar gets),
   // in the runner's own system font and again in a deliberately wide one, so a runner whose fallback font is wider
   // than this machine's cannot push the links onto a second row (they did: 116 px in CI, 68 locally).
   // Measured with getBoundingClientRect: every item sits in one band the height of the tallest, the bar's three links
@@ -9394,8 +9598,8 @@ async function layoutChecks(browser, base, check) {
     check(`layout (${label}): the Dragon picture is shown at 4:3`, Math.abs(aspectD - 4 / 3) < 0.02, aspectD.toFixed(3));
     check(`layout (${label}): one "Runs without ROMs" shelf (Media tab), "Share"`, (await page.$$('#shelf')).length === 1 && await page.evaluate(() => !!document.querySelector('#panel-media #shelf'))
       && await page.textContent('#btnShare') === 'Share');
-    check(`layout (${label}): first visit shows "No BASIC · Add ROMs" (a phone: Menu's first item, a dot on Menu) and the sound pill`,
-      (label === 'phone' ? await page.evaluate(() => document.getElementById('btnMenu').classList.contains('dot') && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
+    check(`layout (${label}): first visit shows "Add ROMs…" (a phone: Menu's item, no dot on Menu) and the sound pill`,
+      (label === 'phone' ? await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content === 'none' && !document.getElementById('navRoms').hidden) : await page.isVisible('#romPill')) && await page.isVisible('#soundHint')
       && /^Click or press a key for sound$/.test(await page.textContent('#soundHint')));
     if (label === 'desktop') {
       check('layout (desktop): the screen fills the first view', await page.evaluate(() => { const r = document.getElementById('screen').getBoundingClientRect(); return r.bottom <= innerHeight && r.width >= 640; }));
@@ -9417,10 +9621,10 @@ async function layoutChecks(browser, base, check) {
     // under at least one section, with no empty section
     check(`layout (${label}): machine menu lists every model exactly once under a section`,
       groups.length > 0 && new Set(listed).size === all.length && all.every((id) => listed.includes(id)), `${groups.join()} | ${listed.join(' ')}`);
-    // no ROMs: one line at the top says every machine needs them, instead of a tag on each row (uiModel checks the tags
-    // once ROMs are stored)
-    check(`layout (${label}): no ROMs: one line says every machine needs its own ROMs, and no row has a tag`,
-      await page.textContent('#menuNoRoms') === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
+    // no ROMs: no line at the top and no tag on any row (the welcome menu's key 3 says what ROMs are for; uiModel checks
+    // the tags once ROMs are stored)
+    check(`layout (${label}): no ROMs: no line about ROMs at the top of the machine menu, and no row has a tag`,
+      !(await page.$('#menuNoRoms')) && (await page.$$eval('#machineMenu [data-machine] .tag', (t) => t.length)) === 0);
     check(`layout (${label}): the CP 400 is in the menu (it matched no section before)`, listed.includes('cp400'), listed.join(' '));
     await shot('machine-menu');
     // a switch asks first; Cancel keeps the machine; Escape closes the menu
@@ -10239,6 +10443,24 @@ async function touchJoystickChecks(browser, base, check) {
     await page.goto(`${base}?machine=dragon64&touch=keys`);
     await started(page);
     await waitFor(page, () => window.emu.machine && window.emu.session.welcomeRunning && !document.getElementById('touchKeys').hidden && !document.getElementById('touchKeys').classList.contains('joystick'));
+    // a tap reads the page the VDG shows, not $0400: with the SAM's display offset moved to a blank page at $0E00
+    // (F = 7) the menu is still in memory at $0400 but not on screen, and a tap on its line must not choose; with the
+    // offset put back (F = 2) the control tap below chooses
+    await waitFor(page, () => window.emu.session.screenText()[9].trim() === '2 COLOUR AND SOUND');
+    const movedTap = await page.evaluate(() => {
+      const m = window.emu.machine, s = window.emu.session, r = document.getElementById('screen').getBoundingClientRect();
+      for (let i = 0; i < 512; i++) m.ram[0x0E00 + i] = 0x60;
+      m.write(0xFFC7, 0); m.write(0xFFC9, 0); m.write(0xFFCB, 0);          // the SAM offset bits 0-2 set: F = 7, $0E00
+      const shown = m.sam.displayBase;
+      document.getElementById('screen').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true,
+        clientX: r.left + r.width / 2, clientY: r.top + (24 + 9 * 12 + 6) / 240 * r.height, pointerType: 'touch' }));
+      return { shown, keys: m.stubKeys.length, menuAt0400: m.ram[0x400 + 9 * 32 + 4] };
+    });
+    await emuFrames(page, 30);
+    const afterMoved = await page.evaluate(() => ({ menu: window.emu.session.welcomeRunning, keys: window.emu.machine.stubKeys.length }));
+    check('touch joystick: a tap on a menu line the SAM has moved off screen (F = 7, a blank page) does not choose',
+      movedTap.shown === 0x0E00 && movedTap.menuAt0400 === 0x32 && afterMoved.menu === true && afterMoved.keys === movedTap.keys, JSON.stringify({ movedTap, afterMoved }));
+    await page.evaluate(() => { const m = window.emu.machine; m.write(0xFFC6, 0); m.write(0xFFCA, 0); });   // offset bits 0 and 2 clear: F = 2, $0400
     const controlTap = await tapMenuLine(page, { expectLeave: true });
     check('touch joystick: the same tap on the keys does choose (the check above is not blind)', !controlTap.stick && controlTap.before && controlTap.after === false,
       JSON.stringify(controlTap));
@@ -12103,18 +12325,83 @@ async function wyrmfireChecks(browser, site, check) {
     await ctx.close();
   }
 
+  // every toast the page shows, in order (a toast that is replaced before it is seen shows as lost): window.__toasts
+  const recordToasts = (pg) => pg.addInitScript(() => {
+    window.__toasts = [];
+    setInterval(() => { const t = document.getElementById('toast'), x = t && !t.hidden ? t.textContent.trim() : ''; if (x && window.__toasts[window.__toasts.length - 1] !== x) window.__toasts.push(x); }, 40);
+  });
+  const KEYS = 'WYRMFIRE: Enter skips the music. Arrows move and turn, Z and X strafe, Space fires, E opens doors.', SIDEWAYS = 'Turn sideways for a bigger view.';
   // ---- a phone: Pad with FIRE and USE; the one-time hint upright ----
   {
     const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const page = await newPage(ctx);
+    await recordToasts(page);
     await page.goto(`${base}?start=wyrmfire`);
     await started(page);
     await playing(page);
     const pad = await waitFor(page, () => document.getElementById('touchKeys').dataset.mode === 'pad') && await page.evaluate(() => ({
-      big: [...document.querySelectorAll('#touchPad .padbig .tk')].map((b) => `${b.textContent}:${b.dataset.key}`), extra: [...document.querySelectorAll('#touchPad .padextra .tk')].map((b) => b.dataset.key) }));
-    check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, Z X 1 2 3 among the keys', pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === 'Z,X,1,2,3', JSON.stringify(pad));
-    check('wyrmfire: upright, the one-time hint "Turn sideways for a bigger view"', await waitFor(page, () => /Turn sideways for a bigger view/.test(document.getElementById('toast').textContent)));
+      big: [...document.querySelectorAll('#touchPad .padbig .tk')].map((b) => `${b.textContent}:${b.dataset.key}`), extra: [...document.querySelectorAll('#touchPad .padextra .tk')].map((b) => b.dataset.key),
+      groups: [...document.querySelectorAll('#touchPad .padgroup')].map((g) => `${g.querySelector('.padcap').textContent} ${[...g.querySelectorAll('.tk')].map((b) => `${b.textContent}=${b.dataset.key}`).join(' ')}`) }));
+    check('wyrmfire: a phone opens on Pad: FIRE (Space) and USE (E) as the big buttons, STRAFE ◀ ▶ (Z, X) and WEAPON 1 2 3, no plain extras',
+      pad && pad.big.join() === 'FIRE:SPACE,USE:E' && pad.extra.join() === '' && pad.groups.join('|') === 'STRAFE ◀=Z ▶=X|WEAPON 1=1 2=2 3=3', JSON.stringify(pad));
+    check('wyrmfire: upright, ?start=wyrmfire: the keys toast, then the one-time hint "Turn sideways for a bigger view." (neither lost)',
+      await waitFor(page, () => window.__toasts.length >= 2, null, 15000) && (await page.evaluate(() => window.__toasts)).join(' | ') === `${KEYS} | ${SIDEWAYS}`, JSON.stringify(await page.evaluate(() => window.__toasts)));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, 'wyrmfire-phone.png') });
+    await ctx.close();
+  }
+  // ---- the welcome menu's WYRMFIRE: the 6809 build's games menu (5, then 3), the 6803 build's 5. On the Dragon 64 it starts at
+  // once; elsewhere it switches to the Dragon 64 with no question, and says so in a toast. Offline and not kept, the menu stays ----
+  {
+    const SWITCHED = 'WYRMFIRE runs on the Dragon 64, so CLOADM switched to it.';
+    for (const [id, keys, tell] of [['dragon64', ['5', '3'], false], ['coco3', ['5', '3'], true], ['coco', ['5', '3'], true], ['mc10', ['5'], true]]) {
+      const ctx = await browser.newContext({ serviceWorkers: 'block' });
+      const page = await newPage(ctx);
+      await page.goto(`${base}?machine=${id}`);
+      await started(page);
+      const menuUp = await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      // the switch question (#switchConfirm) must never show: counted on every change to it
+      await page.evaluate(() => { window.__asked = 0; const q = document.getElementById('switchConfirm'); new MutationObserver(() => { if (!q.hidden) window.__asked++; }).observe(q, { attributes: true }); });
+      for (const k of keys) { await page.focus('#screen'); await page.keyboard.press(k); await page.waitForTimeout(150); }
+      const ok = menuUp && await playing(page);
+      const after = await page.evaluate(() => ({ id: window.emu.session.personMachine.id, level: (window.emu.session.wyrmfireState || {}).level, toast: document.getElementById('toast').textContent,
+        switchQuestion: !document.getElementById('switchConfirm').hidden, asked: window.__asked }));
+      check(`wyrmfire: the welcome menu on the ${id} (${keys.join(' then ')}) starts WYRMFIRE on the Dragon 64 with the Freedoom level, asking nothing`,
+        ok && after.id === 'dragon64' && after.level === 'freedoom' && !after.switchQuestion && !after.asked, JSON.stringify(after));
+      check(tell ? `wyrmfire: from the ${id}'s menu, the toast "${SWITCHED}"` : 'wyrmfire: on the Dragon 64 it starts at once, with no switch toast',
+        tell ? await waitFor(page, (t) => document.getElementById('toast').textContent.includes(t), SWITCHED) : !after.toast.includes(SWITCHED), after.toast);
+      if (shotDir && id === 'mc10') await page.screenshot({ path: path.join(shotDir, 'wyrmfire-from-mc10-menu.png') });
+      await ctx.close();
+    }
+    // no toast lost, in order: the switch, the keys, and on an upright phone the sideways hint
+    for (const [label, opts, want] of [['desktop', {}, [SWITCHED, KEYS]], ['an upright phone (393x659)', { viewport: { width: 393, height: 659 }, isMobile: true, hasTouch: true }, [SWITCHED, KEYS, SIDEWAYS]]]) {
+      const c = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
+      const pg = await newPage(c);
+      await recordToasts(pg);
+      await pg.goto(`${base}?machine=coco3`);
+      await started(pg);
+      await waitFor(pg, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO'));
+      for (const k of ['5', '3']) { await pg.focus('#screen'); await pg.keyboard.press(k); await pg.waitForTimeout(150); }
+      // (on the phone a tap on the screen clears the toast showing: the ones after it still come)
+      if (want.length > 2) { await waitFor(pg, () => window.__toasts.length >= 1); await pg.waitForTimeout(500); await pg.tap('.tube'); }
+      const got = await waitFor(pg, (n) => window.__toasts.length >= n, want.length, 20000);
+      check(`wyrmfire: from the CoCo 3's menu on ${label}, every toast is shown in turn: the switch, the keys${want.length > 2 ? ', the turn-sideways hint' : ''}`,
+        got && (await pg.evaluate(() => window.__toasts)).join(' | ') === want.join(' | '), JSON.stringify(await pg.evaluate(() => window.__toasts)));
+      await c.close();
+    }
+    // offline, nothing kept: the strip says so with Try again, and the menu stays on the MC-10
+    const ctx = await browser.newContext({ serviceWorkers: 'block' });
+    const page = await newPage(ctx);
+    await page.goto(`${base}?machine=mc10`);
+    await started(page);
+    await waitFor(page, () => window.emu.session.welcomeRunning && window.emu.session.screenText()[14].includes('PRESS 1 TO 5'));
+    if (shotDir) await page.locator('#screenWrap').screenshot({ path: path.join(shotDir, 'welcome-mc10.png') });
+    await ctx.setOffline(true);
+    await page.focus('#screen'); await page.keyboard.press('5');
+    const off = await waitFor(page, () => document.getElementById('wyrmStrip').dataset.state === 'error');
+    const st = await strip(page);
+    const m = await page.evaluate(() => ({ id: window.emu.session.personMachine.id, menu: window.emu.session.welcomeRunning, line: window.emu.session.screenText()[12].trim() }));
+    check('wyrmfire: from the MC-10\'s menu offline: "WYRMFIRE needs one download the first time, and you\'re offline." with Try again; the MC-10 and its menu stay',
+      off && st.text.startsWith('WYRMFIRE needs one download the first time, and you\'re offline.') && st.buttons[0] === 'Try again' && m.id === 'mc10' && m.menu && m.line === '5 PLAY WYRMFIRE (DRAGON 64)', JSON.stringify([st, m]));
     await ctx.close();
   }
   // ---- Help -> WYRMFIRE: the licences, the Freedoom disk to keep (never a level of the person's own), the facts ----
@@ -12514,7 +12801,8 @@ async function firstUseChecks(browser, base, check) {
     await waitFor(page, () => window.emu.session.welcomeRunning);
     await emuFrames(page, 3);
     const pill = await page.getAttribute('#romPill', 'title');
-    check(`${L}: the "No BASIC · Add ROMs" pill's title says why`, pill === 'No BASIC: this machine needs its BASIC ROM to type programs', pill);
+    const name = await page.getAttribute('#romPill', 'aria-label');
+    check(`${L}: the "Add ROMs…" button's title and name are "Add ROMs for BASIC"`, pill === 'Add ROMs for BASIC' && name === pill, `${pill} | ${name}`);
     await screenFocus(page);
     await page.keyboard.press('9');   // a number, if not one of the menu's: no word about it
     await ticks(page, 10);
@@ -17370,8 +17658,8 @@ async function settingsChecks(browser, base, check) {
     await waitFor(page, () => document.getElementById('askInput').checkVisibility());
     const line = await page.evaluate(() => { const l = document.getElementById('askSendsLine'), i = document.getElementById('askInput');
       return { text: l.textContent, shown: l.checkVisibility(), above: l.getBoundingClientRect().bottom <= i.getBoundingClientRect().top + 1 }; });
-    check('Ask Claude: "Nothing is sent until you ask. …" shows, above the input', line.shown && line.above
-      && line.text === "Nothing is sent until you ask. Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
+    check('Ask Claude: "Nothing is sent until you ask (or open an empty chat with Suggest questions on). …" shows, above the input', line.shown && line.above
+      && line.text === "Nothing is sent until you ask (or open an empty chat with Suggest questions on). Then your question, the machine's facts and the chat so far go to Anthropic with your key (or your Claude account in the plugin), and Claude can read the screen and any memory (ROM areas included) without asking. Only changes to the machine ask you first.", JSON.stringify(line));
     await page.evaluate(() => localStorage.removeItem('cloadm.anthropicKey'));
     await page.click('#btnAsk');   // (closes the panel: the settings file's buttons are on the Machine tab beside it)
     await waitFor(page, () => !document.getElementById('askInput').checkVisibility());
@@ -17485,9 +17773,9 @@ async function shareScreenChecks(browser, base, check) {
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'share-r33-375x548.png') });
   check('share screen (375x548): on open, the primary Copy link and the preview switch are inside the viewport, the long link is folded away',
     first.copy && first.sw && !first.longOpen && !first.fieldShown, JSON.stringify(first));
-  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "What they\'ll see first · " with no " · CLOADM"',
+  check('share screen (375x548): the clarity copy is the fixed wording, exactly, and the caption is prefixed "This moment · " with no " · CLOADM"',
     first.note === 'Opens a copy of this Dragon 64 exactly as it is now: the screen, the program and everything in memory, including anything you typed. Changes you make later aren\'t in it.'
-    && first.cap === "What they'll see first · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
+    && first.cap === "This moment · Dragon 64", JSON.stringify({ note: first.note, cap: first.cap }));
   check('share screen (375x548): with the disclosures closed the page is at most 1.5 screens tall, the preview at most 30vh', first.closed && first.h <= first.vh * 1.5 && first.pic <= first.vh * 0.3 + 1, JSON.stringify(first));
   // the long link's Copy button, wholly inside the viewport at the sizes the page supports. A width sweep, because the
   // share screen is two columns above 860px and one below, and the short-link section made the two-column first screen
@@ -17684,7 +17972,7 @@ async function shareScreenChecks(browser, base, check) {
   }
 
   // The caption one line over the picture, and the ORDER in which it gives way: " · CLOADM" is gone from every mode,
-  // then the machine (or program) name ends in "…", and the prefix "What they'll see first · " is never the part cut.
+  // then the machine (or program) name ends in "…", and the prefix "This moment · " is never the part cut.
   // Every REAL name fits at 375 (prefix 121px in a 341px caption), so measuring only a fitting caption proves nothing
   // about the order: the order is only observable when the caption is too narrow. So the squeeze is forced for real -
   // the name span is given a long title, and the caption a width far below what prefix+name needs - and the ORDER is
@@ -17709,8 +17997,8 @@ async function shareScreenChecks(browser, base, check) {
         prefixShown: pre.checkVisibility(), prefixFlexGrow: getComputedStyle(pre).flexGrow, prefixFlexShrink: getComputedStyle(pre).flexShrink };
     });
     if (shotDir) await sp.screenshot({ path: path.join(shotDir, 'share-caption-375-coco3.png') });
-    check("share screen (375x548, CoCo 3): the caption reads \"What they'll see first · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
-      fits.prefixShown && fits.prefix === "What they'll see first ·" && /^What they'll see first ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
+    check("share screen (375x548, CoCo 3): the caption reads \"This moment · CoCo 3\" whole — the words, the rendered gap between them (>= 3px), no ' · CLOADM', and an untruncated unshrinkable prefix",
+      fits.prefixShown && fits.prefix === "This moment ·" && /^This moment ·\s*CoCo 3$/.test(fits.text) && fits.gap >= 3
       && fits.prefixScroll <= fits.prefixClient && fits.prefixFlexGrow === '0' && fits.prefixFlexShrink === '0', JSON.stringify(fits));
     // THE SQUEEZE: a long name and a caption too narrow for both. What gives way must be the NAME, in that order.
     const sq = await sp.evaluate(() => {
@@ -17956,6 +18244,9 @@ async function shareLayoutChecks(browser, base, check) {
         // one line: the caption's name and time on one row, its title no taller than one line of its text
         captionOneLine: (() => { const t = document.getElementById('shareTitle'), lh = parseFloat(getComputedStyle(t).fontSize) * 1.6;
           return t.getBoundingClientRect().height <= lh && Math.abs(t.getBoundingClientRect().top - document.getElementById('shareWhen').getBoundingClientRect().top) < lh; })(),
+        capText: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
+        capCut: (() => { const p = document.getElementById('sharePrefix'), n = document.getElementById('shareName');
+          return p.scrollWidth > p.clientWidth + 0.5 || n.scrollWidth > n.clientWidth + 0.5 || getComputedStyle(n).textOverflow === 'ellipsis' && n.scrollWidth > n.clientWidth; })(),
         noSideways: document.documentElement.scrollWidth <= innerWidth && (!own || side.scrollWidth <= side.clientWidth),
         brief: brief.textContent, briefShown: getComputedStyle(brief).display !== 'none', full: full.textContent, title: rom.title,
         saveIn: document.getElementById('btnShareShot').parentElement.id + '/' + document.getElementById('btnShareClip').parentElement.id,
@@ -17968,13 +18259,14 @@ async function shareLayoutChecks(browser, base, check) {
       first.preview >= 120 && first.previewShown && first.copyH >= 44 && first.nativeShown && first.nativeH >= 44, JSON.stringify(first));
     const needs = state === 'ROMs needed';
     check(`share layout (${label}): the ROM line says ${needs ? 'what to add' : 'it runs without ROMs'}${first.short ? ', in one line, the full sentence its title' : ''}`,
-      (needs ? /^Needs 32K-mode BASIC and 64K-mode BASIC: the person opening it adds their own\.$/.test(first.full) && first.brief === 'Needs your Dragon 64 ROMs to open.'
+      (needs ? first.full === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.' && first.brief === 'Needs your Dragon 64 ROMs to open.'
         : first.full === 'Runs without ROMs, so it opens for anyone.' && first.brief === 'Runs without ROMs.') && first.title === first.full && first.briefShown === first.short,
       JSON.stringify(first));
     if (first.short) {
       check(`share layout (${label}): two columns under the header, the picture on the left at most ${h < 300 ? 30 : 40}% of the width with its caption one line under it, the right column scrolling on its own, the page not`,
         first.sideBySide && first.previewOfWidth <= (h < 300 ? 0.3 : 0.4) + 0.005 && first.captionUnder && first.captionOneLine && first.sideScrolls && !first.pageScrolls
         && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
+      check(`share layout (${label}): the caption reads "This moment · Dragon 64" whole, with ROMs or without, not truncated`, /^This moment · Dragon 64\b/.test(first.capText) && !first.capCut, JSON.stringify({ cap: first.capText, cut: first.capCut }));
     } else check(`share layout (${label}): an upright phone keeps one column, Save picture and Save clip under "More ways to share"`, !first.sideBySide && first.saveIn === 'shareSaveMore/shareSaveMore', JSON.stringify(first));
     // the right column's order on a short landscape screen
     if (first.short) {
@@ -18200,16 +18492,17 @@ async function shareChecks(browser, base, site, check) {
     check('share: the link opens exactly that moment in another browser profile', await p2.evaluate(() => window.emu.machine.ram[1030] === 42 && location.hash === '')
       && await waitFor(p2, () => window.__said.some((m) => /^Snapshot opened: Dragon 64/.test(m))) && await p2.evaluate(() => !window.__said.some((m) => /^ERROR /.test(m))),
       `${await said(p2)} · ram[1030] ${await p2.evaluate(() => window.emu.machine.ram[1030])}`);
-    // arriving on that moment without ROMs (a first visit): no "Running with no ROMs" card and no "No BASIC" pill. They
-    // come back once the person leaves the moment: here by Reset (the menu again)
+    // arriving on that moment without ROMs (a first visit): no side card and no "Add ROMs…". "Add ROMs…" comes back
+    // once the person leaves the moment: here by Reset (the menu again). (The link names the machine, so there is no
+    // machine question: no side card then either)
     const quiet = () => p2.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), card: document.getElementById('welcome').checkVisibility(),
       cardThere: !document.getElementById('welcome').hidden, menuItem: !document.getElementById('navRoms').hidden, shared: window.emu.session.sharedMoment }));
     const arrived = await quiet();
-    check('share: arriving on a shared no-ROM moment shows no no-ROM card and no "No BASIC" pill', !arrived.pill && !arrived.card && arrived.cardThere && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
+    check('share: arriving on a shared no-ROM moment shows no side card and no "Add ROMs…"', !arrived.pill && !arrived.card && !arrived.menuItem && arrived.shared, JSON.stringify(arrived));
     if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'share-arrival.png') });
     await p2.evaluate(() => document.getElementById('btnReset').click());
-    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && document.getElementById('welcome').checkVisibility(), null, 10000);
-    check('share: leaving the moment (Reset) brings back the card and the pill', left, JSON.stringify(await quiet()));
+    const left = await waitFor(p2, () => document.getElementById('romPill').checkVisibility() && !window.emu.session.sharedMoment, null, 10000);
+    check('share: leaving the moment (Reset) brings back "Add ROMs…" (and no side card)', left && !(await quiet()).card, JSON.stringify(await quiet()));
     const p2b = await ctx2.newPage();   // a link that differs only after # wouldn't reload the same page
     await p2b.goto(link.slice(0, link.length - 400));
     await linkIn(p2b);
@@ -18217,8 +18510,16 @@ async function shareChecks(browser, base, site, check) {
       && await p2b.evaluate(() => !window.__said.some((m) => /Snapshot opened/.test(m))), await said(p2b));
     await closeCtx(ctx2);
 
-    // no ROMs in use: no "holds no part of your ROMs" line (it appears exactly when ROMs are: below, with stand-ins)
-    check(`share (${label}): without ROMs there is no ROM-free line`, await page.evaluate(() => { const e = document.getElementById('shareRomFree'); return e.hidden && e.textContent === '' && !e.checkVisibility(); }));
+    // no ROMs in use: the screen is what it was. One ROM line, "Runs without ROMs, so it opens for anyone.", the caption
+    // "This moment · <machine>", and nothing under Copy link (the ROM sentence and the long-link note below
+    // appear exactly when ROMs are in use, with stand-ins)
+    const noRoms = await page.evaluate(() => ({ line: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent,
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), note: document.getElementById('primaryNote').textContent,
+      why: document.getElementById('primaryWhy').textContent, holds: document.getElementById('share').innerText.includes('holds none of your ROMs'),
+      gone: !document.getElementById('shareRomFree') }));
+    check(`share (${label}): without ROMs the ROM line, the caption and the area under Copy link are unchanged, and there is no second ROM line`,
+      noRoms.line === 'Runs without ROMs, so it opens for anyone.' && noRoms.brief === 'Runs without ROMs.' && /^This moment · \S/.test(noRoms.cap)
+      && noRoms.note === '' && noRoms.why === '' && !noRoms.holds && noRoms.gone, JSON.stringify(noRoms));
     // Copy as text for a forum: BBCode and Markdown, each the link with one line, text only; it never uploads. With no
     // Copy-link tap yet it carries the long link and makes ZERO requests to s.cloadm.dev; once Copy link has made the
     // short link (a stand-in store here), the forum text carries that short link, and nothing more is uploaded.
@@ -18349,15 +18650,33 @@ async function shareChecks(browser, base, site, check) {
     await page.click('#btnPause');                                      // hold the moment still
     await page.click('#btnShare');
     await page.waitForSelector('#share', { state: 'visible' });
-    const shared = await page.evaluate(async () => ({ link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent,
-      labels: (await window.emu.session.shareFile()).needs.map((x) => x.label), free: document.getElementById('shareRomFree').textContent,
-      freeShown: document.getElementById('shareRomFree').checkVisibility(),
-      above: document.getElementById('shareRomFree').getBoundingClientRect().bottom <= document.getElementById('shareRom').getBoundingClientRect().top + 1 }));
-    check('share: with ROMs in use, "This link holds no part of your ROMs. Whoever opens it needs their own: <needs>." shows, above the needs line',
-      shared.freeShown && shared.above && shared.free === `This link holds no part of your ROMs. Whoever opens it needs their own: ${shared.labels.join(' and ')}.`, JSON.stringify([shared.free, shared.freeShown, shared.above]));
-    // the line names what the snapshot itself names (its needs' labels), whatever they are
-    check('share: with your own ROMs the moment is shared, and the ROM line names the ROMs the snapshot needs', /#z=/.test(shared.link) && shared.labels.length > 0
-      && shared.recipient === `Needs ${shared.labels.join(' and ')}: the person opening it adds their own.` && /32K-mode BASIC and 64K-mode BASIC/.test(shared.recipient), JSON.stringify(shared));
+    const shared = await page.evaluate(async () => {
+      const rom = document.getElementById('shareRom'), note = document.getElementById('primaryNote'), why = document.getElementById('primaryWhy');
+      const probe = document.createElement('i'); probe.style.color = 'var(--orange)'; document.body.append(probe);
+      const orange = getComputedStyle(probe).color; probe.remove();
+      const text = document.getElementById('share').innerText;
+      return { link: document.getElementById('shareLink').value, recipient: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent,
+        needs: (await window.emu.session.shareFile()).needs.length, machine: window.emu.session.shownMachine.profile.name,
+        sentences: (text.match(/holds none of your ROMs/g) || []).length, whoever: (text.match(/Whoever opens it/g) || []).length, oldWords: /holds no part of your ROMs|the person opening it adds their own/.test(text),
+        romLines: document.querySelectorAll('#share .romline').length, romShown: rom.checkVisibility(), second: !!document.getElementById('shareRomFree'),
+        warnOnRom: rom.classList.contains('warn') || !!rom.closest('.warn'), warnOnNote: note.classList.contains('warn') || !!note.closest('.warn'),
+        romColour: getComputedStyle(rom).color, noteColour: getComputedStyle(note).color, orange,
+        note: note.textContent, noteShown: note.checkVisibility(), why: why.textContent, whyShown: why.checkVisibility(),
+        cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(),
+        below: note.getBoundingClientRect().top >= document.getElementById('btnShareCopy').getBoundingClientRect().bottom - 1 };
+    });
+    // with ROMs in use: exactly one ROM sentence on the screen, in normal text (no .warn, not the orange), naming the machine
+    check('share: with ROMs in use, one ROM sentence, "This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs." and no second line, no slot labels',
+      shared.needs > 0 && shared.machine === 'Dragon 64' && shared.recipient === 'This link holds none of your ROMs. Whoever opens it needs their own Dragon 64 ROMs.'
+      && shared.brief === 'Needs your Dragon 64 ROMs to open.' && shared.sentences === 1 && shared.whoever === 1 && !shared.oldWords && shared.romLines === 1 && shared.romShown && !shared.second
+      && !/32K|64K/.test(shared.recipient), JSON.stringify(shared));
+    check('share: with ROMs in use, the ROM sentence is in normal text: no .warn on it, and its colour is not the orange',
+      !shared.warnOnRom && shared.romColour !== shared.orange, JSON.stringify([shared.warnOnRom, shared.romColour, shared.orange]));
+    check('share: with ROMs in use, the note under Copy link is the neutral "Copy link gives a long link: short links are only for moments that run without ROMs." (no .warn, not orange, no orange reason beside it)',
+      shared.note === 'Copy link gives a long link: short links are only for moments that run without ROMs.' && shared.noteShown && shared.below && !shared.warnOnNote
+      && shared.noteColour !== shared.orange && shared.why === '' && !shared.whyShown, JSON.stringify(shared));
+    check('share: with ROMs in use, the caption reads "This moment · Dragon 64"', shared.cap === 'This moment · Dragon 64', JSON.stringify(shared.cap));
+    check('share: with your own ROMs the moment is shared, as a long link (#z=)', /#z=/.test(shared.link) && shared.needs > 0, JSON.stringify(shared));
     const W = 16, uni = (a, k) => a.slice(k, k + W).every((v) => v === a[k]);
     const romWindows = new Set();
     for (const r of Object.values(roms)) for (let k = 0; k + W <= r.length; k++) if (!uni(r, k)) romWindows.add(Buffer.from(r.slice(k, k + W)).toString('hex'));
@@ -18554,11 +18873,11 @@ async function arrivalChecks(browser, base, check) {
   {
     const { ctx, p, asked } = await open(`${base}#l=${game.id}.${game.key}`);
     const c = await card(p);
-    // opened as a shared moment, as a long link's is: without ROMs no "Running with no ROMs" card and no "No BASIC" pill
+    // opened as a shared moment, as a long link's is: without ROMs no side card and no "Add ROMs…"
     // beside the arrival card
     const quiet = await p.evaluate(() => ({ pill: document.getElementById('romPill').checkVisibility(), noRomCard: document.getElementById('welcome').checkVisibility(),
       shared: window.emu.session.sharedMoment, roms: window.emu.session.hasAnyRoms }));
-    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no no-ROM card or "No BASIC" pill',
+    check('arrival: a short link\'s moment without ROMs is a shared moment: the arrival card, and no side card or "Add ROMs…"',
       c.shown && quiet.shared && !quiet.pill && !quiet.noRomCard && !quiet.roms, JSON.stringify(quiet));
     if (shotDir) await p.screenshot({ path: path.join(shotDir, 'arrival-short-1280x800.png') });
     check('arrival: a short link\'s moment arrives with the same card, and only a short link\'s card ends with "Report this link": the Worker\'s report page (/api/report/<id>, no key, a new tab)',
@@ -19355,7 +19674,7 @@ async function semanticsChecks(browser, base, site, check) {
   // text of the panels and views: none of it is the article on the emulator
   const SOUP = ['Cassette', 'Drives', 'Cartridge port', 'Multi-Pak', 'Slot 1', 'Fast tape loading', 'Runs without ROMs', 'Recent on this machine',
     'Machine settings', 'Your Anthropic API key', 'Ask about this machine', 'Give it a BASIC to boot', 'A link that opens exactly here',
-    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Running with no ROMs'];
+    'Your tapes, disks and cartridges', 'Breakpoints', 'Credits', 'Which computer did you have?'];
 
   const SIZES = [['desktop', { viewport: { width: 1440, height: 900 } }], ['phone', devices['Pixel 7']],
     ['phone landscape', devices['Pixel 7 landscape']], ['tablet', devices['iPad (gen 7)']]];
@@ -19731,7 +20050,7 @@ async function installChecks(browser, base, check) {
     // both facts the feature needs: it held the event (preventDefault, so no Android mini-infobar) and it has it
     return !!(window.emu.install && window.emu.install.prompt) && e.defaultPrevented;
   });
-  // LIZA running, with the first visit's "Running with no ROMs" box dismissed and its toast gone: the page as it is
+  // LIZA running, with the first visit's side card dismissed and its toast gone: the page as it is
   // when the offer has a free hand (the conditions are checked on their own in section 2)
   // the link is in the app bar (behind Menu on a phone): press it
   const chooseInstall = pressInstall;
@@ -21380,8 +21699,8 @@ async function uiModelChecks(browser, base, check) {
         return { order: r.every((x, i) => !i || x.left > r[i - 1].left), under: r.every((x) => x.top >= keys.getBoundingClientRect().bottom - 1),
           disks: ids[1].querySelector('.cs').textContent, marked: ids[1].classList.contains('has-media') && !ids[0].classList.contains('has-media') };
       });
-      check('slots (phone): with a disk in and no tape, the Disks chip names it and is outlined, the chips in their fixed order under the keyboard panel',
-        chips.order && chips.under && chips.disks === 'games.vdk' && chips.marked, JSON.stringify(chips));
+      check('slots (phone): with a disk in and no tape, the Disks chip says "1 disk" and is outlined, the chips in their fixed order under the keyboard panel',
+        chips.order && chips.under && chips.disks === '1 disk' && chips.marked, JSON.stringify(chips));
     } else {
     const order = await page.evaluate(() => {
       const top = (el) => el.getBoundingClientRect().top, tape = document.querySelector('.slots .slot.tape'), drives = document.getElementById('driveSlot');
@@ -21912,7 +22231,7 @@ async function uiModelChecks(browser, base, check) {
     check(`copy (${label}): with BASIC in use the ROMs row says "BASIC ready"`, await waitFor(page, () => document.getElementById('romState').textContent === 'BASIC ready'), await page.textContent('#romState'));
     await closeCtx(ctx);
   }
-  // ---- the machine menu: one "No ROMs yet" line instead of 17 tags, a subtitle per section, the footer's line for the
+  // ---- the machine menu: no ROM line and no tags without ROMs, a subtitle per section, the footer's line for the
   // model under the focus or the pointer (each item's aria-description), "Which one is mine? ↗" to Help's list ----
   for (const [label, opts] of SIZES) {
     const ctx = await browser.newContext(Object.assign({ serviceWorkers: 'block' }, opts));
@@ -21922,7 +22241,9 @@ async function uiModelChecks(browser, base, check) {
     const menuState = () => page.evaluate(async () => {
       const m = document.getElementById('machineMenu'), { SUBTITLES, describe } = await import(new URL('js/machines/menu.js', document.baseURI).href);
       const items = [...m.querySelectorAll('[data-machine]')];
-      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t && t.checkVisibility() ? t.textContent : null; })(),
+      return { top: (() => { const t = document.getElementById('menuNoRoms'); return t ? t.textContent : null; })(),
+        // (the first thing in the list is the first section's name: no empty band where a line was)
+        first: (() => { const f = m.querySelector('.menulist').firstElementChild; return f ? (f.querySelector('.group-name') || f).textContent : null; })(),
         tags: items.map((b) => (b.querySelector('.tag') ? b.querySelector('.tag').textContent : null)),
         ids: items.map((b) => b.dataset.machine),
         legend: m.querySelector('.legend').checkVisibility(),
@@ -21940,13 +22261,13 @@ async function uiModelChecks(browser, base, check) {
     await page.click('#machineBtn');
     await waitFor(page, () => !document.getElementById('machineMenu').hidden);
     const none = await menuState();
-    check(`machine menu (${label}): no ROMs stored: one line at the top, "No ROMs yet: every machine needs its own ROMs for BASIC.", and no tags (no legend)`,
-      none.top === 'No ROMs yet: every machine needs its own ROMs for BASIC.' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
+    check(`machine menu (${label}): no ROMs stored: no line about ROMs at the top, and no tags (no legend)`,
+      none.top === null && none.first === 'DRAGON' && none.tags.length === 17 && none.tags.every((t) => t === null) && !none.legend, JSON.stringify(none));
     check(`machine menu (${label}): every section shows its subtitle, as the data words it`,
       none.subs.length === 5 && none.subs.every(([g, sub]) => sub === none.want[g]), JSON.stringify(none.subs));
     check(`machine menu (${label}): every item carries its description as aria-description; no live region`, none.described && !none.live);
-    check(`machine menu (${label}): with no ROMs a screen reader hears the "No ROMs yet" line as the menu's description (aria-describedby)`,
-      none.describedBy === 'No ROMs yet: every machine needs its own ROMs for BASIC.', String(none.describedBy));
+    check(`machine menu (${label}): with no ROMs the menu has no description about them (no aria-describedby)`,
+      none.describedBy === null, String(none.describedBy));
     check(`machine menu (${label}): the band above the footer fades into the panel's colour, with no mask over the page`,
       none.fade.mask === 'none' && none.fade.image.includes(none.fade.panel.replace(/\)$/, '')), JSON.stringify(none.fade));
     check(`machine menu (${label}): the footer has "Which one is mine? ↗" to help/#machines, a menu item`, none.which === 'Which one is mine? ↗|help/#machines|menuitem', String(none.which));
@@ -22059,7 +22380,7 @@ async function mobileChecks(browser, base, check) {
         const vis = [...document.querySelectorAll('#appbar > *')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0);
         const bs = vis.map((e) => ({ id: e.id || e.className, ...e.getBoundingClientRect().toJSON() }));
         const name = (e) => (e.getAttribute('aria-label') || e.textContent).replace(/\s+/g, ' ').trim();
-        // (named Menu, or "Menu, Add ROMs needed" while its dot is on)
+        // (named Menu, or "Menu (media inserted)" while media's dot is on)
         const menus = [...document.querySelectorAll('button, a, [role=button]')].filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && /^Menu\b/.test(name(e))).length;
         return { ids: bs.map((b) => b.id), oneRow: bs.every((b) => Math.abs((b.top + b.bottom) / 2 - (bs[0].top + bs[0].bottom) / 2) <= 3), h: document.getElementById('appbar').getBoundingClientRect().height,
           small: bs.filter((b) => b.height < 44 - 0.5 || b.width < 44 - 0.5).map((b) => b.id), menus, rom: document.getElementById('romPill').checkVisibility() };
@@ -22142,16 +22463,16 @@ async function mobileChecks(browser, base, check) {
     const { ctx, page, errors } = await open({ width: 393, height: 659 }, '?machine=dragon64');
     const dot = await page.evaluate(() => getComputedStyle(document.getElementById('btnMenu'), '::after').content !== 'none');
     const menuName = await page.getAttribute('#btnMenu', 'aria-label');
-    check('mobile (393x659): the dot on Menu is in its name too: "Menu (ROMs needed)"', dot && menuName === 'Menu (ROMs needed)', JSON.stringify({ dot, menuName }));
+    check('mobile (393x659): no ROMs, no media: Menu wears no dot, and its name is just "Menu"', !dot && menuName === null && await page.textContent('#btnMenu').then((t) => t.trim()) === 'Menu', JSON.stringify({ dot, menuName }));
     const row = () => page.evaluate(() => ['machineBtn', 'btnLoad', 'btnAsk', 'btnMenu'].map((id) => JSON.stringify(document.getElementById(id).getBoundingClientRect())));
     const before = await row();
     await tap(page, '#btnMenu');
     await until(page, () => document.getElementById('appbar').classList.contains('menu-open'));
     const items = await page.evaluate(() => [...document.querySelectorAll('.appbar nav > *')].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
-    // the first item says why ROMs, and wears Menu's dot
-    const itemDot = await page.evaluate(() => { const d = document.querySelector('#navRoms .dot'); return !!d && d.checkVisibility() && getComputedStyle(d).backgroundColor === getComputedStyle(document.getElementById('btnMenu'), '::after').backgroundColor; });
-    check('mobile (393x659): Menu has a dot while there is no BASIC, and lists Programs… first, then "Add ROMs (BASIC needs them)", with the same dot, Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
-      dot && itemDot && items.join('|') === 'Programs…|Add ROMs (BASIC needs them)|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
+    // Add ROMs… is a plain item: no dot, no reason (the welcome menu's key 3 says it)
+    const itemDot = await page.evaluate(() => !!document.querySelector('#navRoms .dot'));
+    check('mobile (393x659): with no BASIC Menu lists Programs… first, then "Add ROMs…" (no dot), Settings…, Share…, Take snapshot, Restore snapshot…, Install CLOADM…, the links, Commands…, Help and GitHub',
+      !dot && !itemDot && items.join('|') === 'Programs…|Add ROMs…|Settings…|Share…|Take snapshot|Restore snapshot…|Install CLOADM…|Library|Debugger|Commands…|Help|GitHub', JSON.stringify({ dot, itemDot, items }));
     const glued = await gluedLabels(page, '.appbar nav > *');
     check('mobile (393x659): no Menu label has words run together', !glued.length, JSON.stringify(glued));
     check('mobile (393x659): opening Menu moves nothing in the bar', JSON.stringify(before) === JSON.stringify(await row()));
@@ -22245,8 +22566,11 @@ async function mobileChecks(browser, base, check) {
     });
     // (a toast never lies over the picture: here it is docked over the keys, under the BREAK/CLEAR strip, or over the
     // app bar when it is one line; a key under it still takes the tap)
-    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), lies over neither the picture nor the BREAK/CLEAR strip`,
-      /tap a key/.test(t.text) && /BREAK/.test(t.text) && !/Esc|press/.test(t.text) && !t.onPicture && !t.strip.length && t.inView, JSON.stringify(t));
+    // (held sideways, 734x343, the keys stand round the picture and no key may be covered: the toast lies over the top of
+    // the picture then, compact -- the layoutBugs group's rule; upright it stays off the picture)
+    const sideways = w > h;
+    check(`mobile (${w}x${h}, 2048): the toast says tap (no "Esc", no "press"), ${sideways ? 'covers no key and not the BREAK/CLEAR strip' : 'lies over neither the picture nor the BREAK/CLEAR strip'}`,
+      /tap a key/.test(t.text) && (sideways ? t.text === '2048: tap a key to play' : /BREAK/.test(t.text)) && !/Esc|press/.test(t.text) && (sideways ? !t.keys.length : !t.onPicture) && !t.strip.length && t.inView, JSON.stringify(t));
     {
       // a toast of more lines than one is docked over the letter rows: a tap on a key it lies over reaches the key (the
       // toast's body takes no taps)
@@ -22269,7 +22593,13 @@ async function mobileChecks(browser, base, check) {
       });
       if (at) await page.touchscreen.tap(at.x, at.y);
       const hit = await page.evaluate(() => ({ key: window.__keyHit, toastUp: !document.getElementById('toast').hidden }));
-      check(`mobile (${w}x${h}, 2048): a tap on a key under a showing toast (${at && at.name}) reaches the key`, !!at && hit.key === at.name, JSON.stringify({ at, hit }));
+      // (held sideways no key is under a toast at all, so there is no tap to pass through: that is the check -- but a
+      // toast that never showed, or has no size, covers nothing either, so it is shown, sized, in view and keys stand first)
+      const tb = await page.evaluate(() => { const t = document.getElementById('toast'), b = t.getBoundingClientRect();
+        return { shown: !t.hidden && b.width > 0 && b.height > 0, inView: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+          keys: [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility()).length }; });
+      check(`mobile (${w}x${h}, 2048): ${sideways ? 'a wrapped toast, shown and in view with the keys showing, covers no key' : `a tap on a key under a showing toast (${at && at.name}) reaches the key`}`,
+        sideways ? tb.shown && tb.inView && tb.keys > 0 && at === null : !!at && hit.key === at.name, JSON.stringify({ at, hit, tb }));
     }
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `mobile-${w}x${h}-toast.png`) });
     await closeCtx(ctx);
@@ -23041,15 +23371,170 @@ async function needsBasicChecks(browser, base, check) {
   }
 }
 
-// ---------------- the no-ROM chrome (js/ui/main.js): the pill and Menu's dot never show together ----------------
-// With no ROMs the app bar shows "No BASIC · Add ROMs" where it has room, and Menu wears an orange dot where the pill is
-// folded into it: at every width from 320 to 1600 px, with a mouse and on a touch screen, upright and short, never
-// both (no Menu dot while the pill shows).
+// Where the no-ROM chrome is orange: every colour of the bar's Add ROMs…, Menu's item, the touch keys' Add ROMs… and
+// Menu (fill, text, border, outline), and of their drawn ::before / ::after and children, compared with --orange.
+// Runs in the page: [names of what is orange, the orange].
+const orangeChrome = () => {
+  const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
+  const orange = getComputedStyle(probe).backgroundColor; probe.remove();
+  const hits = [];
+  for (const id of ['romPill', 'navRoms', 'tkRoms', 'btnMenu']) {
+    const el = document.getElementById(id);
+    for (const [who, e] of [[id, el], ...[...el.querySelectorAll('*')].map((c, i) => [`${id} child ${i}`, c])]) {
+      for (const pseudo of [null, '::before', '::after']) {
+        const c = getComputedStyle(e, pseudo);
+        if (pseudo && c.content === 'none') continue;
+        for (const prop of ['backgroundColor', 'color', 'borderTopColor', 'outlineColor']) if (c[prop] === orange) hits.push(`${who}${pseudo || ''} ${prop}`);
+      }
+    }
+  }
+  return [hits, orange];
+};
+// ---------------- the ROM requirement said once (the welcome menu's "3 ADD YOUR ROMS FOR BASIC") ----------------
+// Everywhere else "Add ROMs…" is a plain action: on the app bar an ordinary button like Share, in a phone's Menu an item
+// with no dot, no line at the top of the machine menu, and a first-visit card that is the machine question alone.
+// Checked at 1440x900 (a mouse) and 393x659, 659x393 and 653x280 (a touch screen) on the Dragon 64, the CoCo 3 and the
+// MC-10, in every state: a first visit without ROMs, returning without them, ROMs stored but the built-in firmware
+// running, the ROMs running (stand-ins of the right size and name, made here: a BRA * and the reset vector, no ROM
+// code), the chat screen and ?embed=1. In no state does the page hold one of the old reasons, and with no ROMs nothing
+// on the bar or in Menu is orange (orange is a socket's fault, shown on Add ROMs).
+async function romOnceChecks(browser, base, check) {
+  const GONE = ['No BASIC ·', '(BASIC needs them)', 'Running with no ROMs.', 'No ROMs yet:'];
+  const DESK = [['1440x900', { width: 1440, height: 900 }]];
+  const PHONE = [['393x659', { width: 393, height: 659 }], ['659x393', { width: 659, height: 393 }], ['653x280', { width: 653, height: 280 }]];
+  const MACHINES = [['dragon64', 'd64_1.rom', 0x4000, 0x8000], ['coco3', 'coco3.rom', 0x8000, 0x8000], ['mc10', 'mc10.rom', 0x2000, 0xE000]];
+  // a stand-in of a socket's size: BRA * at its start and every 16K half's reset vector pointing there
+  const standIn = (size, at) => { const b = Buffer.alloc(size, 0x01); b[0] = 0x20; b[1] = 0xFE; for (let e = size; e > 0; e -= 0x4000) { b[e - 2] = at >> 8; b[e - 1] = at & 0xFF; } return b; };
+  const look = (gone) => {
+    const probe = document.createElement('i'); probe.style.background = 'var(--orange)'; document.body.append(probe);
+    const orange = getComputedStyle(probe).backgroundColor; probe.remove();
+    const pill = document.getElementById('romPill'), share = document.getElementById('btnShare'), menu = document.getElementById('btnMenu'), item = document.getElementById('navRoms');
+    // every element drawn with the orange fill, itself or its ::before / ::after (the Add ROMs screen is not open here)
+    const orangeAt = [...document.querySelectorAll('body *')].filter((e) => e.checkVisibility() && [null, '::before', '::after'].some((p) => {
+      const c = getComputedStyle(e, p); return c.backgroundColor === orange && (p === null || c.content !== 'none');
+    })).map((e) => e.id || e.className || e.tagName);
+    const html = document.documentElement.outerHTML;
+    const st = (e) => { const c = getComputedStyle(e), r = e.getBoundingClientRect(); return { bg: c.backgroundColor, border: c.borderTopColor, color: c.color, weight: c.fontWeight, radius: c.borderTopLeftRadius, h: Math.round(r.height) }; };
+    return { gone: gone.filter((g) => html.includes(g)), orange, orangeAt,
+      pill: pill.checkVisibility(), pillText: pill.textContent, pillTitle: pill.title, pillName: pill.getAttribute('aria-label'),
+      pillStyle: pill.checkVisibility() ? st(pill) : null, shareStyle: share.checkVisibility() ? st(share) : null,
+      pillOneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && pill.getClientRects().length === 1 && pill.getBoundingClientRect().height <= share.getBoundingClientRect().height + 0.5),
+      pillBeside: pill.checkVisibility() && pill.previousElementSibling.id === 'status' && document.getElementById('machineBtn').nextElementSibling.id === 'status',
+      item: !item.hidden, itemShown: !item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility(), itemText: item.textContent, tkRoms: !document.getElementById('tkRoms').hidden, menuDot: menu.checkVisibility() && getComputedStyle(menu, '::after').content !== 'none',
+      card: (() => { const w = document.getElementById('welcome'); return w.hidden ? null : w.innerText.replace(/\s+/g, ' ').trim(); })(),
+      useStub: window.emu.machine.useStub, bootable: window.emu.session.machineRoms().bootable };
+  };
+  const NO_ROMS = ['first visit', 'returning', 'chat screen', 'embed'];
+  for (const [id, file, size, at] of MACHINES) {
+    for (const [device, sizes, opts] of [['desktop', DESK, {}], ['phone', PHONE, { hasTouch: true, isMobile: true }]]) {
+      const L = `ROM once (${id}, ${device})`;
+      const errors = [];
+      const shotAll = async (page, state) => {
+        for (const [sz, vp] of sizes) {
+          await page.setViewportSize(vp); await page.waitForTimeout(150);
+          const l = { ...await page.evaluate(look, GONE), chrome: (await page.evaluate(orangeChrome))[0] };
+          const noRoms = NO_ROMS.includes(state);
+          const where = `${L} ${sz}, ${state}`;
+          check(`${where}: none of the old reasons anywhere in the page (${GONE.join(' | ')})`, !l.gone.length, l.gone.join(' | '));
+          if (noRoms) {
+            check(`${where}: nothing drawn orange (fills anywhere; and every colour of the bar's button, Menu, its dot, its Add ROMs… item and the touch keys' Add ROMs…)`,
+              !l.orangeAt.length && !l.chrome.length && !l.menuDot, JSON.stringify({ at: l.orangeAt, chrome: l.chrome, orange: l.orange }));
+          }
+          if (state === 'first visit' || state === 'returning') {
+            if (device === 'desktop') {
+              check(`${where}: "Add ROMs…" beside the machine, named "Add ROMs for BASIC", one line, styled as Share (border, colour, weight, radius, height)`,
+                l.pill && l.pillText === 'Add ROMs…' && l.pillTitle === 'Add ROMs for BASIC' && l.pillName === 'Add ROMs for BASIC' && l.pillBeside && l.pillOneLine
+                && JSON.stringify(l.pillStyle) === JSON.stringify(l.shareStyle), JSON.stringify(l));
+            } else {
+              check(`${where}: Menu has "Add ROMs…", Menu wears no dot`, l.item && l.itemText === 'Add ROMs…' && !l.menuDot, JSON.stringify(l));
+            }
+            // the link names the machine, so no machine question: no card at all (firstVisit checks the question's card)
+            check(`${where}: no side card`, l.card === null, String(l.card));
+          }
+          if (state === 'ROMs stored, built-in firmware' || state === 'ROMs running') {
+            check(`${where}: no "Add ROMs…" on the bar or in Menu`, !l.pill && !l.item && !l.tkRoms && l.bootable, JSON.stringify(l));
+          }
+          if (state === 'ROMs running') check(`${where}: the ROMs run, and there is no side card`, !l.useStub && l.card === null, JSON.stringify(l));
+          if (state === 'ROMs stored, built-in firmware') check(`${where}: the built-in firmware runs`, l.useStub, JSON.stringify(l));
+          if (state === 'chat screen' || state === 'embed') check(`${where}: no "Add ROMs…" shown (the bar, Menu), no side card`, !l.pill && !l.itemShown && l.card === null, JSON.stringify(l));
+          if (shotDir) await page.screenshot({ path: path.join(shotDir, `rom-once-${id}-${state.replace(/[^a-z]+/gi, '-')}-${sz}.png`) });
+        }
+      };
+      // first visit, returning, the ROMs stored with the built-in firmware, then the ROMs running: one browser profile
+      {
+        const ctx = await browser.newContext({ viewport: sizes[0][1], serviceWorkers: 'block', ...opts });
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(`${base}?machine=${id}`); await started(page);
+        await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+        await shotAll(page, 'first visit');
+        // each way to Add ROMs: the bar's button (a phone: Menu's item), and the welcome menu's key 3
+        await page.setViewportSize(sizes[0][1]); await page.waitForTimeout(150);
+        if (device === 'desktop') await page.click('#romPill');
+        else { await page.tap('#btnMenu'); await waitFor(page, () => document.getElementById('appbar').classList.contains('menu-open')); await page.tap('#navRoms'); }
+        check(`${L}: "Add ROMs…" (${device === 'desktop' ? 'the bar' : 'Menu'}) opens Add ROMs`, await waitFor(page, romsOpen));
+        await page.click('#btnRomBack');
+        await waitFor(page, () => !document.body.classList.contains('roms-open'));
+        let three = false;
+        for (let i = 0; i < 25 && !three; i++) {
+          await page.focus('#screen'); await page.keyboard.press('3');
+          // (the menu reads its keys once its tune has played: a key before then is lost, so it is pressed again)
+          three = await maybeWaitFor('the welcome menu not reading keys yet', page, romsOpen, null, 1000);
+        }
+        check(`${L}: the welcome menu's key 3 opens Add ROMs`, three);
+        await page.click('#btnRomBack');
+        await page.reload(); await started(page);
+        await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000);
+        await shotAll(page, 'returning');
+        await dropFiles(page, [[file, standIn(size, at)]]);
+        const stored = await waitFor(page, (m) => window.emu.session.machineRoms(m).bootable, id, 15000);
+        await page.evaluate(() => { location.hash = ''; window.emu.session.runWithoutRoms(); });
+        await waitFor(page, () => !document.body.classList.contains('roms-open') && window.emu.machine.useStub, null, 10000);
+        check(`${L}: the stand-in is stored and the machine runs the built-in firmware`, stored && await page.evaluate(() => window.emu.machine.useStub));
+        await shotAll(page, 'ROMs stored, built-in firmware');
+        await page.evaluate(() => window.emu.session.index.flush());   // (the store's writes done before the reload)
+        await page.goto(`${base}?machine=${id}`); await started(page);
+        await waitFor(page, () => !window.emu.machine.useStub, null, 15000);
+        await shotAll(page, 'ROMs running');
+        await closeCtx(ctx);
+      }
+      for (const [state, q] of [['chat screen', 'app=claude'], ['embed', 'embed=1']]) {
+        const ctx = await browser.newContext({ viewport: sizes[0][1], serviceWorkers: 'block', ...opts });
+        const page = await ctx.newPage();
+        page.on('pageerror', (e) => errors.push(e.message));
+        await page.goto(`${base}?machine=${id}&${q}`); await started(page);
+        if (state === 'chat screen') check(`${L}: the chat screen is up`, await waitFor(page, () => document.body.classList.contains('chat-screen'), null, 15000));
+        else check(`${L}: the embedded page is up`, await waitFor(page, () => document.body.classList.contains('embed'), null, 15000));
+        await shotAll(page, state);
+        await closeCtx(ctx);
+      }
+      check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    }
+  }
+  // the bar's button at the narrowest desktop width (701 px) and at 1440: whole, on one line
+  const ctx = await browser.newContext({ viewport: { width: 701, height: 800 }, serviceWorkers: 'block' });
+  const page = await ctx.newPage();
+  await page.goto(base); await started(page);
+  for (const w of [701, 1440]) {
+    await page.setViewportSize({ width: w, height: 800 }); await page.waitForTimeout(150);
+    const l = await page.evaluate(look, GONE);
+    check(`ROM once (${w} px): "Add ROMs…" shows on one line, not cut`, l.pill && l.pillOneLine && l.pillText === 'Add ROMs…', JSON.stringify({ pill: l.pill, one: l.pillOneLine, style: l.pillStyle }));
+  }
+  await closeCtx(ctx);
+}
+
+// ---------------- the no-ROM chrome (js/ui/main.js): Add ROMs… is plain, and nothing is orange ----------------
+// With no ROMs the app bar shows "Add ROMs…" where it has room, a phone's Menu has it as an item (held sideways, the touch
+// keys' row has it): at every width from
+// 320 to 1600 px, with a mouse and on a touch screen, upright and short, one of the two is there, nothing on the bar or
+// in Menu is orange (orange is a socket's fault, on Add ROMs), and the button is one line, never cut.
 async function noRomChromeChecks(browser, base, check) {
   const look = () => {
-    const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu');
-    const dot = menu.checkVisibility() && getComputedStyle(menu, '::after').content !== 'none' && menu.classList.contains('dot');
-    return { pill: pill.checkVisibility(), dot };
+    const pill = document.getElementById('romPill'), menu = document.getElementById('btnMenu'), item = document.getElementById('navRoms');
+    const r = pill.getBoundingClientRect();
+    // (held sideways on a touch screen, the touch keys' row has its own "Add ROMs…" and the bar no Menu)
+    return { pill: pill.checkVisibility(), item: (!item.hidden && getComputedStyle(item).display !== 'none' && menu.checkVisibility()) || document.getElementById('tkRoms').checkVisibility(),
+      oneLine: !pill.checkVisibility() || (pill.scrollWidth <= pill.clientWidth && r.height <= parseFloat(getComputedStyle(pill).lineHeight) * 1.5 + 20), text: pill.textContent };
   };
   for (const [kind, opts] of [['mouse', {}], ['touch', { hasTouch: true, isMobile: true }]]) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block', ...opts });
@@ -23057,19 +23542,20 @@ async function noRomChromeChecks(browser, base, check) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base); await started(page);
-    const bad = [], seen = { pill: 0, dot: 0 };
+    const bad = [], seen = { pill: 0, item: 0 };
     for (let w = 320; w <= 1600; w += 40) {
       for (const h of [800, 400]) {
         await page.setViewportSize({ width: w, height: h });
         await page.waitForTimeout(60);
-        const l = await page.evaluate(look);
-        if (l.pill && l.dot) bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
-        if (l.pill || l.dot) seen[l.pill ? 'pill' : 'dot']++;
+        const l = { ...await page.evaluate(look), orange: (await page.evaluate(orangeChrome))[0] };
+        if (l.orange.length || !l.oneLine || (!l.pill && !l.item) || l.text !== 'Add ROMs…') bad.push(`${w}x${h}: ${JSON.stringify(l)}`);
+        if (l.pill) seen.pill++;
+        if (l.item) seen.item++;
       }
     }
-    check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, the pill and Menu's dot never show together`, !bad.length, bad.slice(0, 4).join('; '));
+    check(`no-ROM chrome (${kind}): at every width from 320 to 1600 px, upright and short, "Add ROMs…" is on the bar or in Menu, one line, and nothing there is orange`, !bad.length, bad.slice(0, 4).join('; '));
     // (the sweep is not vacuous: each of the two does show at some width)
-    check(`no-ROM chrome (${kind}): ...and each of them shows somewhere in the sweep`, seen.pill > 0 && seen.dot > 0, JSON.stringify(seen));
+    check(`no-ROM chrome (${kind}): ...and the bar's button and Menu's item each show somewhere in the sweep`, seen.pill > 0 && seen.item > 0, JSON.stringify(seen));
     // the one line under the tube (desktop only): "Click or press a key for sound" until sound starts, then the typing
     // line (the key hint first while it is live; Esc ends it); "No ROMs needed" nowhere. A touch screen shows no line.
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -23306,16 +23792,300 @@ async function toastOffScreenChecks(browser, base, check) {
         const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
         const t = rect(document.getElementById('toast')), c = rect(document.getElementById('screen')), chipEl = document.getElementById('soundChip');
         const chip = chipEl.checkVisibility() ? rect(chipEl) : null;
+        const keys = [...document.querySelectorAll('#touchKeys button')].filter((b) => b.checkVisibility()).map(rect);
         return { toast: Object.values(t).map(Math.round), canvas: Object.values(c).map(Math.round), chip: chip && Object.values(chip).map(Math.round),
-          overCanvas: hits(t, c), overChip: !!chip && hits(t, chip), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight };
+          overCanvas: hits(t, c), nKeys: keys.length, overKeys: keys.filter((k) => hits(t, k)).length, overChip: !!chip && hits(t, chip),
+          pass: document.getElementById('toast').classList.contains('passthru'), h: t.bottom - t.top, cap: Math.min(40, 0.22 * (c.bottom - c.top)), inView: t.left >= 0 && t.top >= 0 && t.right <= innerWidth && t.bottom <= innerHeight,
+          short: matchMedia('(orientation: landscape) and (max-height: 500px)').matches && document.body.classList.contains('touch-keys') };
       });
-      check(`${L}: "${text.slice(0, 20)}…": the toast's rect and the canvas's do not intersect, it covers no part of the sound chip, and it is in view`,
-        !r.overCanvas && !r.overChip && r.inView, JSON.stringify(r));
+      // (held sideways with the keys round the screen there is no place off both the picture and the keys, and a toast
+      // never covers a key or a Pad button: it lies over the top of the picture then -- the layoutBugs group's rule)
+      // (sideways: keys stand; the toast covers no key and is within the cap, or -- too long for it -- docks over the letter
+      // keys off the picture, passthru: Ruling C, tested at length in the layoutBugs group)
+      check(`${L}: "${text.slice(0, 20)}…": ${touch && w > h ? 'the toast covers no key or Pad button within its cap, or docks over the letter keys off the picture' : "the toast's rect and the canvas's do not intersect"}, it covers no part of the sound chip, and it is in view`,
+        (r.short ? r.nKeys > 0 && ((r.overKeys === 0 && r.h <= r.cap + 0.5) || (r.pass && !r.overCanvas)) : !r.overCanvas) && !r.overChip && r.inView, JSON.stringify(r));
       if (shotDir) await page.screenshot({ path: path.join(shotDir, `toast-off-screen-${w}x${h}-${text.length}.png`) });
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
+}
+
+// Three layout bugs the UX pass found (each is a rectangle test, so it fails when the thing overlaps what it must not):
+//  B5 Ask Claude's intro with no key saved: the sentence "Claude reads only this emulated <machine> ..." is wholly visible,
+//     above the key form, nothing overlapping it, on a phone held upright, right after opening and 3 s later;
+//  B6 the "Tap for sound" chip: clear of the screen's own border and of the bottom bar, at 659x393 and 653x280, on the
+//     base screen and on WYRMFIRE;
+//  B7 the start toast in a short landscape window covers no key and no Pad button (CoCo 3, Menu -> Programs -> Minesweeper).
+const rectOf = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+async function layoutBugsChecks(browser, base, check) {
+  // ---- B5 ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await emuFrames(page, 10);
+    await page.evaluate(() => { try { localStorage.removeItem('cloadm.anthropicKey'); } catch (e) { /* none */ } });
+    await page.tap('#btnAsk');
+    await waitFor(page, () => !document.getElementById('ask').hidden && !document.getElementById('askKeyForm').hidden, 'ask open with the key form');
+    for (const [when, wait] of [['on opening', 400], ['3 s later', 3000]]) {
+      await page.waitForTimeout(wait);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const t = document.getElementById('askEmptyText'), tr = rect(t), k = rect(document.getElementById('askKeyForm')), a = rect(document.getElementById('ask'));
+        // the sentence's own box, and the element on top at its first and last line (a covering box takes the hit)
+        const at = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && (el === t || t.contains(el)); };
+        const mx = (tr.left + tr.right) / 2;
+        const askScrolls = getComputedStyle(document.getElementById('ask')).overflowY;
+        return { text: Object.values(tr).map(Math.round), key: Object.values(k).map(Math.round), ask: Object.values(a).map(Math.round), vh: innerHeight, askScrolls,
+          aboveKey: tr.bottom <= k.top + 0.5, inSheet: tr.top >= a.top - 0.5 && tr.bottom <= a.bottom + 0.5,
+          topHit: at(mx, tr.top + 4), bottomHit: at(mx, tr.bottom - 4), shown: t.checkVisibility(), text_: t.textContent.slice(0, 60) };
+      });
+      check(`Ask Claude intro (393x659, no key, ${when}): the sentence is whole, above the key form, inside the sheet, and nothing covers its first or last line`,
+        r.shown && r.aboveKey && r.inSheet && r.topHit && r.bottomHit && /^Claude reads only this emulated Dragon 64/.test(r.text_), JSON.stringify(r));
+    }
+    // the key form is below the fold now: scrolled to, the API-key field lies inside the sheet (it is reachable), and the intro is
+    // still the sheet's first thing
+    const reach = await page.evaluate(async () => {
+      const inp = document.getElementById('askKeyInput'); inp.scrollIntoView({ block: 'nearest' });
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const a = document.getElementById('ask').getBoundingClientRect(), b = inp.getBoundingClientRect(), at = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+      return { input: [b.top, b.bottom].map(Math.round), ask: [a.top, a.bottom].map(Math.round), inside: b.top >= a.top - 0.5 && b.bottom <= a.bottom + 0.5, onTop: at === inp };
+    });
+    check('Ask Claude intro (393x659, no key): scrolled to, the API-key field lies inside the sheet and takes the tap (reachable)', reach.inside && reach.onTop, JSON.stringify(reach));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, 'layout-bugs-ask-intro-393x659.png') });
+    check('Ask Claude intro: no page errors', !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // ---- B6 ----
+  for (const [w, h] of [[659, 393], [653, 280]]) {
+    for (const start of ['', 'wyrmfire']) {
+      const L = `sound chip (${w}x${h}${start ? ', WYRMFIRE' : ''})`;
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.goto(`${base}?machine=dragon64${start ? `&start=${start}` : ''}`); await started(page);
+      await emuFrames(page, 20);
+      await page.evaluate(() => document.getElementById('screen').focus());
+      await emuFrames(page, 3);
+      const r = await page.evaluate(() => {
+        const rect = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+        const chipEl = document.getElementById('soundChip'), screen = document.getElementById('screen'), tube = document.querySelector('.tube');
+        const o = {}; for (const [k, e] of [['chip', chipEl], ['screen', screen], ['tube', tube]]) o[k] = e && e.checkVisibility() ? Object.values(rect(e)).map(Math.round) : null;
+        o.barBox = document.querySelector('#touchKeys .tkcenter') ? Object.values(rect(document.querySelector('#touchKeys .tkcenter'))).map(Math.round) : null; o.chipShown = chipEl.checkVisibility();
+        return o;
+      });
+      // clear: no intersection (1 px apart) with the screen's focus ring (the monitor's own edge, 2 px) or the bar under it;
+      // a chip that is not shown (a window with no room: the first tap still starts the sound) covers nothing
+      const apart = (c, o) => !c || !o || c[3] + 1 <= o[1] || c[1] >= o[3] + 1 || c[2] + 1 <= o[0] || c[0] >= o[2] + 1;
+      const inside = (c, o) => c[0] >= o[0] && c[2] <= o[2] && c[3] <= o[3] - 2 && c[1] >= o[1];
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `layout-bugs-sound-chip-${w}x${h}${start ? '-wyrmfire' : ''}.png`) });
+      check(`${L}: the chip is clear of the screen (and its green focus border) and of the bar under the monitor, inside the bezel when shown`,
+        !r.chipShown || (apart(r.chip, r.screen) && inside(r.chip, r.tube) && apart(r.chip, r.barBox)), JSON.stringify(r));
+      await closeCtx(ctx);
+    }
+  }
+  await sidewaysToastChecks(browser, base, check);
+}
+
+// Ruling C: the toast in a short landscape window with the touch keys round the screen (js/ui/feedback.js sidewaysSlot).
+// Over the top of the picture (picture top + 4 px, the picture's width less 16), compact type, the action inline at the end
+// of the text's last line with a 44 px tap area, at most 2 lines / 40 px / 22% of the picture; a toast that does not fit
+// docks over the letter keys (Keys mode: full text, passthru, off the picture) or is clamped to two lines ending "… More"
+// (Pad, Stick: a tap opens it in place, its time paused). It never covers a Pad button or a stick. Where the stage has room
+// under the picture (a taller window) its band holds the toast there, off the picture and off every key.
+async function sidewaysToastChecks(browser, base, check) {
+  const SIZES = [[653, 280], [734, 343], [659, 393]];
+  const CASES = [
+    ['short + Undo', 'Snapshot 1 taken', { action: 'Undo' }, false],
+    ['long + Undo', 'Deleted JUNK.BIN, GAME.CAS and LEVEL.VDK', { action: 'Undo' }, false],
+    ['two-part (ROM removed + Switch off and on)', 'ROM removed.', { also: ['The Dragon 64 keeps it until you switch off and on.', 'Switch off and on'] }, true],
+    ['error + Details', 'The disk could not be read. The file is not a disk image this CLOADM knows how to open at all.', { error: true, first: 'The disk could not be read.' }, false],
+  ];
+  const errors = [];
+  const open = async (w, h, query) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${w}x${h} ${query}: ${e.message}`));
+    await page.goto(`${base}${query}`); await started(page); await emuFrames(page, 20);
+    return { ctx, page };
+  };
+  const mode = async (page, name) => { await page.evaluate((m) => { for (const b of document.querySelectorAll('#tkModeSwitch button')) if (b.textContent.trim() === m) b.click(); }, name); await emuFrames(page, 3); };
+  // everything the rules read, from the page as it is now
+  const snap = (page) => page.evaluate(() => {
+    const rc = (e) => { const b = e.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom }; };
+    const hits = (a, o) => !(a.bottom <= o.top || a.top >= o.bottom || a.right <= o.left || a.left >= o.right);
+    const t = document.getElementById('toast'), a = document.getElementById('toastAction'), tx = document.getElementById('toastText');
+    // the keys that are really there: shown, not see-through, taking pointer events, the topmost thing at their centre (or under the toast)
+    const real = (e) => { if (!e.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(e).pointerEvents === 'none') return false;
+      const r = e.getBoundingClientRect(), top = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2); return !!top && (top === e || e.contains(top) || document.getElementById('toastRegion').contains(top)); };
+    const keys = [...document.querySelectorAll('#touchKeys button')].filter(real).map(rc);
+    const pic = rc(document.getElementById('screen')), box = rc(t), act = a.checkVisibility() ? rc(a) : null;
+    const tap = act ? { left: act.left - 6, right: act.right + 6, top: (act.top + act.bottom) / 2 - 22, bottom: (act.top + act.bottom) / 2 + 22 } : null;
+    const letters = [...document.querySelectorAll('#touchKeys button')].filter((e) => real(e) && /^[A-Z]$/.test(e.textContent.trim()));
+    return { shown: !t.hidden && box.right > box.left && box.bottom > box.top, text: tx.textContent, also: document.getElementById('toastAlso').hidden ? null : document.getElementById('toastAlso').textContent,
+      box, pic, nKeys: keys.length, nLetters: letters.length, overKeys: keys.filter((k) => hits(box, k)).length, onPic: hits(box, pic), h: box.bottom - box.top, picH: pic.bottom - pic.top,
+      act, lastLine: act ? act.bottom >= box.bottom - 6 && act.top >= box.top : null, tapOverKeys: tap ? keys.filter((k) => hits(tap, k)).length : 0,
+      after: act ? getComputedStyle(a, '::after').height : null, inlineFlow: act ? /^inline/.test(getComputedStyle(a).display) && getComputedStyle(t).display === 'block' : null, pass: t.classList.contains('passthru'), over: t.classList.contains('overscreen'), clamped: t.classList.contains('clamped'),
+      pend: window.emu.feedback.pending[0] || null, inView: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight };
+  });
+  const raise = (page, text, o) => page.evaluate(([t, o2]) => { window.__ran = null; window.emu.feedback.clear();
+    window.emu.feedback.toast(t, { error: !!o2.error, action: o2.action ? { label: o2.action, run() { window.__ran = o2.action; } } : null,
+      also: o2.also ? { text: o2.also[0], action: { label: o2.also[1], run() { window.__ran = o2.also[1]; } } } : null }); }, [text, o]);
+  const shown = (page) => waitFor(page, () => !document.getElementById('toast').hidden, null, 5000);
+  const cut = (x, full) => x.text === full || /… More$/.test(x.text);   // (never ends in a cut word without "… More")
+  for (const [w, h] of SIZES) for (const machine of ['dragon64', 'coco3']) for (const m of ['Keys', 'Pad']) {
+    const L = `sideways toast (${machine} ${w}x${h}, ${m})`;
+    const { ctx, page } = await open(w, h, `?machine=${machine}`);
+    await mode(page, m);
+    for (const [name, text, o, twoPart] of CASES) {
+      await raise(page, text, o);
+      await shown(page); await emuFrames(page, 3);
+      const x = await snap(page);
+      const cap = Math.min(40, 0.22 * x.picH);
+      const docked = x.pass && !x.over;
+      const want = o.first || text, wantFull = want + (twoPart ? ` ${o.also[0]}` : '');
+      const base2 = x.shown && x.inView && x.nKeys > 0 && (docked ? x.text === want : cut(x, wantFull));
+      if (docked) {
+        // Keys mode over the cap: over the letter keys, full text, off the picture, passthru
+        check(`${L}: ${name}: docked over the letter keys (Keys mode only), the full text, off the picture`, m === 'Keys' && x.nLetters > 0 && !x.onPic && base2, JSON.stringify(x));
+      } else if (x.over) {
+        // over the picture: at most 2 lines, 40 px and 22% of it, covers no key or Pad button, the action on the last line
+        check(`${L}: ${name}: over the picture, within the cap (2 lines, 40 px, 22%), covering no key, the action on the last line with a 44 px tap area clear of the keys`,
+          base2 && x.onPic && x.h <= cap + 0.5 && x.overKeys === 0 && (Math.abs(x.box.top - (x.pic.top + 4)) <= 1 || Math.abs(x.box.bottom - (x.pic.bottom - 4)) <= 1)
+          && (x.act ? x.lastLine && x.inlineFlow && x.after === '44px' && x.tapOverKeys === 0 : true), JSON.stringify(x));
+      } else {
+        // (room under the picture: the stage's band there holds it, off the picture and off every key)
+        check(`${L}: ${name}: placed off the picture and off every key`, base2 && !x.onPic && x.overKeys === 0, JSON.stringify(x));
+      }
+      if (twoPart) check(`${L}: ${name}: a two-part toast never fits the cap: ${m === 'Keys' ? 'it docks over the letter keys' : 'it is clamped to two lines ending "… More"'}`,
+        m === 'Keys' ? docked : x.clamped && /… More$/.test(x.text) && x.h <= cap + 0.5 && !!x.act && x.lastLine, JSON.stringify(x));
+    }
+    if (m === 'Keys' && machine === 'dragon64' && w === 653) {
+      // Keys mode, docked: a tap on a key under it types, and its own button works
+      await raise(page, CASES[2][1], CASES[2][2]);
+      await shown(page); await emuFrames(page, 3);
+      const at = await page.evaluate(() => {
+        const box = document.getElementById('toast').getBoundingClientRect(), btns = [...document.querySelectorAll('#toast button')].filter((e) => e.checkVisibility()).map((e) => e.getBoundingClientRect());
+        for (const key of [...document.querySelectorAll('#touchKeys button')].filter((e) => e.checkVisibility())) {
+          const r = key.getBoundingClientRect(), l = Math.max(r.left, box.left) + 2, t = Math.max(r.top, box.top) + 2, rr = Math.min(r.right, box.right) - 2, b = Math.min(r.bottom, box.bottom) - 2;
+          if (rr <= l || b <= t) continue;
+          const x = (l + rr) / 2, y = (t + b) / 2;
+          if (btns.some((q) => x >= q.left - 4 && x <= q.right + 4 && y >= q.top - 4 && y <= q.bottom + 4)) continue;
+          window.__keyHit = null; key.addEventListener('pointerdown', () => { window.__keyHit = key.textContent.trim(); }, { once: true });
+          return { x, y, name: key.textContent.trim() };
+        }
+        return null;
+      });
+      if (at) await page.touchscreen.tap(at.x, at.y);
+      const hit = await page.evaluate(() => window.__keyHit);
+      check(`${L}: docked over the letter keys: a tap on a key under it (${at && at.name}) reaches the key`, !!at && hit === at.name, JSON.stringify({ at, hit }));
+      await raise(page, CASES[2][1], CASES[2][2]); await emuFrames(page, 3);
+      const btn = await page.evaluate(() => { const b = document.querySelector('#toastAlso button'); const r = b.getBoundingClientRect(); return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2, ok: b.checkVisibility() }; });
+      await page.touchscreen.tap(btn.x, btn.y);
+      check(`${L}: docked over the letter keys: its own button ("Switch off and on") works`, btn.ok && await page.evaluate(() => window.__ran) === 'Switch off and on', JSON.stringify(btn));
+      // keys over the picture's top edge leaving no 200 px span AND over its bottom edge: no edge is free, so (Keys mode) the dock
+      const pic = (await snap(page)).pic;
+      await page.evaluate((r) => { const tk = document.getElementById('touchKeys'); tk.style.zIndex = '100000';
+        for (const el of tk.querySelectorAll('button')) { const b = el.getBoundingClientRect(); if (b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+        for (const q of [[r.left, r.top, r.left + 80, r.top + 70], [r.left + 150, r.top, r.right, r.top + 70], [r.left, r.bottom - 40, r.right, r.bottom]]) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+          b.style.cssText = `position:fixed;left:${q[0]}px;top:${q[1]}px;width:${q[2] - q[0]}px;height:${q[3] - q[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, pic);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const dd = await snap(page);
+      check(`${L}: keys over the picture's top (no 200 px span) and over its bottom edge too: the letter keys' dock, off the picture`, dd.shown && dd.pass && !dd.over && !dd.onPic && dd.text === CASES[0][1], JSON.stringify(dd));
+    }
+    if (m === 'Pad' && machine === 'dragon64' && w === 653) {
+      // Pad mode, clamped: a tap on the body opens it in place (full text, time paused), a second tap closes it, a tap outside ends it
+      await raise(page, CASES[2][1], CASES[2][2]);
+      await shown(page); await emuFrames(page, 3);
+      const c = await snap(page);
+      await page.touchscreen.tap(c.box.left + 40, c.box.top + 6);
+      await emuFrames(page, 3);
+      const o = await snap(page);
+      check(`${L}: clamped: a tap on the toast opens it in place (the full text and the second line, in view) and pauses its time`, c.clamped && !o.clamped && o.pend && o.pend.opened && o.pend.paused && o.inView && /ROM removed\./.test(o.text) && /switch off and on/.test(o.also || ''), JSON.stringify({ c: c.text, o }));
+      await page.touchscreen.tap(o.box.left + 40, o.box.top + 6); await emuFrames(page, 3);
+      const k = await snap(page);
+      check(`${L}: clamped: a second tap closes it again (two lines, "… More", its time running)`, k.clamped && /… More$/.test(k.text) && k.pend && !k.pend.opened && !k.pend.paused, JSON.stringify(k));
+      await page.touchscreen.tap(k.pic.left + 20, k.pic.bottom - 20); await emuFrames(page, 3);
+      check(`${L}: clamped: a tap outside ends it`, await page.evaluate(() => document.getElementById('toast').hidden), '');
+    }
+    await closeCtx(ctx);
+  }
+  // game start, at 653x280: one line, the title row of the picture left fully visible (nothing drawn under the toast)
+  for (const machine of ['dragon64', 'coco3']) for (const game of ['2048', 'minesweeper']) {
+    const { ctx, page } = await open(653, 280, `?machine=${machine}&start=${game}`);
+    await waitFor(page, () => /tap a key to play/.test(document.getElementById('toastText').textContent), null, 15000);
+    await emuFrames(page, 5);
+    const x = await snap(page);
+    // what the game drew under the toast: sharp edges (a glyph's pixels) in the toast's rectangle; and the same rectangle
+    // 40 px lower, where the title is, as the control that the measure sees a title at all
+    const under = await page.evaluate(async () => {
+      const c = document.getElementById('screen'), t = document.getElementById('toast').getBoundingClientRect(), p = c.getBoundingClientRect();
+      const img = new Image(); img.src = c.toDataURL(); await img.decode();
+      const o = document.createElement('canvas'); o.width = c.width; o.height = c.height; const g = o.getContext('2d'); g.drawImage(img, 0, 0);
+      const sx = c.width / p.width, sy = c.height / p.height;
+      const edges = (dy) => {
+        const x0 = Math.max(0, Math.floor((t.left - p.left) * sx)), y0 = Math.max(0, Math.floor((t.top - p.top + dy) * sy)), w = Math.ceil(t.width * sx), h = Math.ceil(t.height * sy);
+        const d = g.getImageData(x0, y0, w, h).data; let n = 0;
+        for (let y = 0; y < h; y++) for (let x = 1; x < w; x++) { const i = (y * w + x) * 4, j = i - 4; if (Math.abs(d[i] - d[j]) + Math.abs(d[i + 1] - d[j + 1]) + Math.abs(d[i + 2] - d[j + 2]) > 120) n++; }
+        return n;
+      };
+      return { drawn: edges(0), control: edges(40) };
+    });
+    check(`sideways toast (${machine} 653x280, ${game} start): "tap a key to play" in one line, within the cap, covering no key, and nothing the game drew under it (the title row stays visible)`,
+      x.shown && x.text === `${game === '2048' ? '2048' : 'Minesweeper'}: tap a key to play` && x.text.length <= 36 && x.over && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.h < 30 && x.overKeys === 0 && x.nKeys > 0 && under.drawn === 0 && under.control > 20,
+      JSON.stringify({ x: { text: x.text, box: x.box, pic: x.pic, h: x.h, over: x.over, overKeys: x.overKeys }, under }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `sideways-toast-${machine}-${game}.png`) });
+    await closeCtx(ctx);
+  }
+  // WYRMFIRE's Pad at 653x280: FIRE and USE lie on the picture's top corners, so the toast takes the bottom edge there
+  {
+    const { ctx, page } = await open(653, 280, '?machine=dragon64&start=wyrmfire');
+    // the real start toast, while it shows (FIRE and USE lie under the picture and are no keys, so the top edge is free: a toast
+    // that took the bottom edge here covered the HUD for its whole life)
+    await waitFor(page, () => /WYRMFIRE/.test(document.getElementById('toastText').textContent) && !document.getElementById('toast').hidden, null, 10000);
+    const st = await snap(page);
+    check('sideways toast (WYRMFIRE Pad, 653x280): the real start toast, while it shows, is at the picture\'s top edge (picture top + 4), not the bottom (the HUD stays clear)',
+      st.shown && st.over && Math.abs(st.box.top - (st.pic.top + 4)) <= 1 && st.overKeys === 0 && st.nKeys > 0 && /WYRMFIRE/.test(st.text), JSON.stringify(st));
+    await emuFrames(page, 10);
+    await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 3);
+    const x = await snap(page);
+    check('sideways toast (WYRMFIRE Pad, 653x280): a two-part toast is clamped to two lines ending "… More", the action visible on the second line, covering no Pad button, at the picture\'s top (the HUD stays clear)',
+      /touch-pad/.test(await page.evaluate(() => document.body.className)) && x.clamped && /… More$/.test(x.text) && x.h <= Math.min(40, 0.22 * x.picH) + 0.5 && x.act && x.lastLine && x.overKeys === 0 && x.nKeys > 0
+      && Math.abs(x.box.top - (x.pic.top + 4)) <= 1, JSON.stringify(x));
+    // a key lying over the picture's top: the toast keeps the top edge, narrowed to the free span between keys if that is at least
+    // 200 px wide; with no such span it takes the bottom edge, clamped first and anchored 4 px over the picture's bottom
+    // (the synthetic keys must be the topmost thing where they stand, so the keys' layer is raised above the picture while they
+    // are there, and the real keys that overlap the picture -- FIRE and USE, which lie under it -- are hidden for the case)
+    const fake = (page2, rects) => page2.evaluate((rs) => {
+      const tk = document.getElementById('touchKeys'), pic = document.getElementById('screen').getBoundingClientRect();
+      for (const el of document.querySelectorAll('.fakekey')) el.remove();
+      for (const el of tk.querySelectorAll('button[data-hid]')) { el.style.visibility = ''; delete el.dataset.hid; }
+      tk.style.zIndex = rs.length ? '100000' : '';
+      if (!rs.length) return;
+      for (const el of tk.querySelectorAll('button')) { const r = el.getBoundingClientRect(); if (r.right > pic.left && r.left < pic.right && r.bottom > pic.top && r.top < pic.bottom) { el.dataset.hid = '1'; el.style.visibility = 'hidden'; } }
+      for (const r of rs) { const b = document.createElement('button'); b.className = 'fakekey'; b.textContent = 'KEY';
+        b.style.cssText = `position:fixed;left:${r[0]}px;top:${r[1]}px;width:${r[2] - r[0]}px;height:${r[3] - r[1]}px;z-index:100000;opacity:1;pointer-events:auto`; tk.append(b); } }, rects);
+    {
+      const pic = x.pic;
+      await fake(page, [[pic.left, pic.top, pic.left + 60, pic.top + 70]]);
+      await raise(page, CASES[0][1], CASES[0][2]); await shown(page); await emuFrames(page, 4);
+      const y = await snap(page);
+      check('sideways toast (653x280, a key over the picture\'s top-left): the toast keeps the top edge, narrowed to the free span (at least 200 px) clear of the key',
+        y.shown && y.over && Math.abs(y.box.top - (y.pic.top + 4)) <= 1 && y.box.left >= pic.left + 60 && y.box.right - y.box.left >= 200 && y.overKeys === 0 && y.nKeys > 0, JSON.stringify(y));
+      await fake(page, [[pic.left, pic.top, pic.left + 80, pic.top + 70], [pic.left + 150, pic.top, pic.right, pic.top + 70]]);
+      await raise(page, CASES[2][1], CASES[2][2]); await shown(page); await emuFrames(page, 4);
+      const z = await snap(page);
+      check('sideways toast (653x280, two keys over the picture\'s top leaving no 200 px span): the bottom edge, clamped to two lines first, its bottom 4 px over the picture\'s bottom',
+        z.shown && z.over && z.clamped && z.h <= Math.min(40, 0.22 * z.picH) + 0.5 && Math.abs(z.box.bottom - (z.pic.bottom - 4)) <= 1 && z.overKeys === 0, JSON.stringify(z));
+      await fake(page, []);
+    }
+    await closeCtx(ctx);
+  }
+  check('sideways toasts: no page errors', errors.length === 0, errors.join('; '));
 }
 
 // Short links end to end (js/ui/share.js, Session.shortLink, shortlink/worker.js): the real Worker, run here in Node
@@ -23427,6 +24197,49 @@ async function shortLinkChecks(browser, base, site, check) {
     && (await page.click('#btnShortQr'), await waitFor(page, () => document.getElementById('shortQrWrap').hidden)));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-made.png'), fullPage: true });
 
+  // A program page (?start=liza, what cloadm.dev/liza/ opens) starts on the built-in firmware, WITHOUT the person's
+  // ROMs, even with ROMs stored for the model (stand-ins made from this project's firmware, never real ROMs): its
+  // moment holds none of their code, so Copy link makes a SHORT link (through the stand-in Worker) and the ROM line says
+  // it runs without ROMs; the stored ROMs are untouched, and BASIC afterwards (a plain visit) still starts on them.
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+    await serve(ctx3);
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+    const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+    const roms = { basic: standIn(101), basic64: standIn(138) };
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, roms);
+    const control = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn() }));
+    check('shortLink: (the control) with stand-in ROMs stored, a plain visit runs on them', control.hasRom && control.code === 'roms', JSON.stringify(control));
+    await p3.goto(`${base}?machine=dragon64&start=liza`);
+    await linkIn(p3);
+    const lizaUp = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    // (touched: an untouched program gives its own page, not a moment; a person's key is a touch)
+    await p3.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+    await p3.keyboard.type('HELLO');
+    await waitFor(p3, () => window.emu.session.touches() > 0, null, 10000);
+    await openShare(p3);
+    const onStub = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn(), line: document.getElementById('shareRomFull').textContent,
+      free: !document.getElementById('shareRomFree'), why: document.getElementById('primaryWhy').textContent, note: document.getElementById('primaryNote').textContent,
+      cap: document.getElementById('shareTitle').innerText.replace(/\s+/g, ' ').trim(), stored: Object.values(window.emu.session.roms.get('dragon64')).filter(Boolean).length }));
+    check('shortLink: a program page with ROMs stored runs on the built-in firmware: no ROM in the machine, and the Share screen says it runs without ROMs, with nothing under Copy link',
+      lizaUp && !onStub.hasRom && onStub.code === null && onStub.line === 'Runs without ROMs, so it opens for anyone.' && onStub.why === '' && onStub.note === '' && /^This moment · /.test(onStub.cap) && onStub.stored === 2, JSON.stringify(onStub));
+    await p3.click('#btnShareCopy');
+    const madeStub = await waitFor(p3, () => !document.getElementById('shortMade').hidden, null, 15000);
+    const urlStub = await p3.evaluate(() => document.getElementById('shareShort').value);
+    check('shortLink: ...and Copy link makes a SHORT link of that moment (https://s.cloadm.dev/<id>#<key>), not the long one', madeStub && /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#[A-Za-z0-9_-]{22}$/.test(urlStub), urlStub);
+    // BASIC afterwards: a plain visit starts on the stored ROMs, which nothing touched and nothing marked
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    const back = await waitFor(p3, () => window.emu.machine.hasRom, null, 30000);
+    const after = await p3.evaluate(() => ({ hasRom: window.emu.machine.hasRom, code: window.emu.session.romCodeIn(), stored: Object.values(window.emu.session.roms.get('dragon64')).filter(Boolean).length }));
+    check('shortLink: ...and BASIC afterwards (a plain visit) still starts on the stored ROMs, which are all still stored', back && after.hasRom && after.code === 'roms' && after.stored === 2, JSON.stringify(after));
+    await closeCtx(ctx3);
+  }
+
   // opened from the arrival page in another profile: the page counts the open and goes on to cloadm.dev/play/#l=
   const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
   await serve(ctx2); await said(ctx2);
@@ -23516,12 +24329,146 @@ async function shortLinkChecks(browser, base, site, check) {
   await page.click('#shareBack');
   await page.evaluate(() => window.emu.session.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)));
   await openShare(page);
-  const cart = await page.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, whyShown: document.getElementById('primaryWhy').checkVisibility(),
+  const cart = await page.evaluate(() => ({ why: document.getElementById('primaryWhy').textContent, note: document.getElementById('primaryNote').textContent, noteWarn: !!document.getElementById('primaryNote').closest('.warn') || document.getElementById('primaryNote').classList.contains('warn'), whyShown: document.getElementById('primaryWhy').checkVisibility(),
     swShown: document.getElementById('previewSwitch').checkVisibility(), terms: document.getElementById('shortTerms').checkVisibility(), long: /#z=/.test(document.getElementById('shareLink').value),
     copyEnabled: !document.getElementById('btnShareCopy').disabled }));
   await page.evaluate(() => { const d = document.getElementById('shareMore'); d.open = true; d.querySelector(':scope > :not(summary)').hidden = false; });
-  check('shortLink: a cartridge moment: no short-link terms or switch, the reason in view, the long link offered', cart.whyShown && /Not with a cartridge plugged in/.test(cart.why) && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
+  check('shortLink: a cartridge moment: no short-link terms or switch, the neutral note (not the orange refusal) in view, the long link offered',
+    cart.why === '' && cart.note === 'Copy link gives a long link: short links are only for moments that run without a cartridge.' && !cart.noteWarn && !cart.swShown && !cart.terms && cart.long && cart.copyEnabled, JSON.stringify(cart));
   if (shotDir) await page.screenshot({ path: path.join(shotDir, 'short-link-cartridge.png'), fullPage: true });
+  // the ROM line of a moment on a cartridge alone, and on ROMs and a cartridge: one sentence each, in normal text, the
+  // cartridge named by its file as the Library shows it (never a checksum)
+  const romLine = () => page.evaluate(() => { const r = document.getElementById('shareRom'), t = document.getElementById('share').innerText;
+    return { full: document.getElementById('shareRomFull').textContent, brief: document.getElementById('shareRomBrief').textContent, warn: r.classList.contains('warn') || !!r.closest('.warn'),
+      sentences: (t.match(/holds none of your/g) || []).length, lines: document.querySelectorAll('#share .romline').length, shown: r.checkVisibility(),
+      crc: /\b[0-9a-f]{8}\b/.test(document.getElementById('shareRomFull').textContent) };
+  });
+  const cartOnly = await romLine();
+  const noteNow = () => page.evaluate(() => ({ note: document.getElementById('primaryNote').textContent, why: document.getElementById('primaryWhy').textContent }));
+  check('shortLink: a cartridge alone: "This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.", one sentence, no .warn, no checksum',
+    cartOnly.full === 'This link holds none of your cartridge. Whoever opens it needs the same cartridge: stand-in.ccc.' && cartOnly.brief === 'Needs the same cartridge to open.'
+    && cartOnly.sentences === 1 && cartOnly.lines === 1 && cartOnly.shown && !cartOnly.warn && !cartOnly.crc, JSON.stringify(cartOnly));
+  await page.click('#shareBack');
+  const ours2 = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+  const romsBoth = { basic: [...Array(0x4000)].map((_, i) => ours2[(i * 3 + 101) % ours2.length] ^ ((i >> 8) + 101) & 0xFF), basic64: [...Array(0x4000)].map((_, i) => ours2[(i * 3 + 138) % ours2.length] ^ ((i >> 8) + 138) & 0xFF) };
+  await page.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled();
+    s.load('stand-in.ccc', new Uint8Array(0x2000).fill(0x39)); }, romsBoth);
+  await openShare(page);
+  const both = await romLine();
+  const bothNote = await noteNow();
+  check('shortLink: ROMs and a cartridge: the note under Copy link names both, "…without ROMs or a cartridge.", and no orange reason',
+    bothNote.note === 'Copy link gives a long link: short links are only for moments that run without ROMs or a cartridge.' && bothNote.why === '', JSON.stringify(bothNote));
+  check('shortLink: ROMs and a cartridge: "This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.", one sentence, no .warn',
+    both.full === 'This link holds none of your ROMs or your cartridge. Whoever opens it needs their own Dragon 64 ROMs and the same cartridge: stand-in.ccc.'
+    && both.brief === 'Needs your Dragon 64 ROMs and the same cartridge to open.' && both.sentences === 1 && both.lines === 1 && both.shown && !both.warn && !both.crc, JSON.stringify(both));
+
+  // A first visit (a fresh profile, nothing stored) opening a link to a moment of ANOTHER model than the page boots: the
+  // short link (/play/#l=, no ?machine=) lands on the Dragon 64's welcome menu first (the case that asked); the long
+  // link names its model (?machine=), so the page starts on it and it is checked as a guard that it stays so.
+  // Neither asks "Switching to … resets the Dragon 64. The running program will be lost.": nothing of the person's is
+  // there to lose. The moment opens exactly, on its machine. With the person's work on the page (a key typed while the
+  // short link's moment is still being fetched: Session.switchLoses) the question still asks first.
+  {
+    const moments = [['coco', 'CoCo 1/2', 0x0406], ['mc10', 'MC-10', 0x4006]];
+    const made = [];
+    for (const [mid, name, at] of moments) {
+      const cm = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', permissions: ['clipboard-read', 'clipboard-write'] });
+      await serve(cm);
+      const pm = await cm.newPage();
+      pm.on('pageerror', (e) => errors.push(e.message));
+      await pm.goto(`${base}?machine=${mid}`);
+      await linkIn(pm);
+      await waitFor(pm, () => window.emu.session.welcomeOnScreen, null, 60000);
+      await pm.evaluate((a) => window.emu.machine.poke(a, 0x4D), at);
+      await openShare(pm);
+      const long = await pm.inputValue('#shareLink');
+      await pm.click('#btnShareCopy');
+      await waitFor(pm, () => !document.getElementById('shortMade').hidden, null, 15000);
+      made.push({ mid, name, at, short: await pm.inputValue('#shareShort'), long });
+      await closeCtx(cm);
+    }
+    const fresh = async () => {
+      const c = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+      await serve(c); await said(c);
+      // the switch question, counted every time it shows (it may show and go before a check could look)
+      await c.addInitScript(() => { window.__asked = []; document.addEventListener('DOMContentLoaded', () => { const q = document.getElementById('switchConfirm');
+        new MutationObserver(() => { if (!q.hidden) window.__asked.push(q.textContent.replace(/\s+/g, ' ').trim()); }).observe(q, { attributes: true }); }); });
+      const p = await c.newPage();
+      p.on('pageerror', (e) => errors.push(e.message));
+      return { c, p };
+    };
+    const state = (p, at) => p.evaluate((a) => ({ id: window.emu.machine.id, byte: window.emu.machine.peek(a), asked: window.__asked, hash: location.hash,
+      opened: window.__said.filter((x) => /^Snapshot opened/.test(x)) }), at);
+    for (const { mid, name, at, short, long } of made) {
+      for (const [kind, url] of [['short', short], ['long', long]]) {
+        const { c, p } = await fresh();
+        await p.goto(url);
+        await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+        await linkIn(p);
+        const ok = await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+        const s = await state(p, at);
+        check(`shortLink: a first visit opening a ${kind} link to a ${name} moment: no switch question, the moment opens on the ${name}`,
+          ok && (kind === 'short' ? /^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}#/.test(url) : new URL(url).searchParams.get('machine') === mid && /#z=/.test(url)) && s.id === mid && s.byte === 0x4D && s.asked.length === 0 && s.hash === '' && s.opened.length === 1, JSON.stringify(Object.assign({ url: url.slice(0, 48) }, s)));
+        await closeCtx(c);
+      }
+    }
+    // the person's work on the page before the moment arrives: a key typed while its sealed moment is held back
+    {
+      const { mid, name, at, short } = made[0];
+      const { c, p } = await fresh();
+      let release;
+      const held = new Promise((ok) => { release = ok; });
+      await c.route(/^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}\.bin$/, async (route) => { await held; await route.fallback(); });
+      await p.goto(short);
+      await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+      await waitFor(p, () => !!window.emu && !window.emu.started && !!window.emu.machine && window.emu.session.welcomeOnScreen, null, 60000);
+      await p.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+      await p.keyboard.type('X');
+      const typed = await waitFor(p, () => window.emu.session.touches() > 0, null, 10000);
+      release();
+      const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 15000);
+      const q = await p.evaluate(() => ({ name: document.getElementById('switchName').textContent, from: document.getElementById('switchFrom').textContent, id: window.emu.machine.id }));
+      check(`shortLink: with the person's input on the page first, a link to a ${name} moment still asks before switching`,
+        typed && asked && q.name === 'CoCo 1/2 (64K)' && q.from === 'Dragon 64' && q.id === 'dragon64', JSON.stringify(q));
+      if (asked) await p.click('#btnSwitch');
+      const ok = asked && await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+      const s = await state(p, at);
+      check(`shortLink: ...and Switch opens the ${name} moment`, ok && s.id === mid && s.byte === 0x4D, JSON.stringify(s));
+      await closeCtx(c);
+    }
+    // a question the person's own switch raised while the link was fetched (the menu's CoCo 3) is not left standing over
+    // the moment: the link's own question takes its place, naming the moment's model
+    {
+      const { mid, name, at, short } = made[0];
+      const { c, p } = await fresh();
+      let release;
+      const held = new Promise((ok) => { release = ok; });
+      await c.route(/^https:\/\/s\.cloadm\.dev\/[A-Za-z0-9_-]{8}\.bin$/, async (route) => { await held; await route.fallback(); });
+      await p.goto(short);
+      await p.waitForURL(/^https:\/\/cloadm\.dev\/play\//, { timeout: 15000 }).catch(() => {});
+      await waitFor(p, () => !!window.emu && !window.emu.started && !!window.emu.machine && window.emu.session.welcomeOnScreen, null, 60000);
+      await p.click('#machineBtn');
+      await p.click('#machineMenu [data-machine="coco3"]');
+      const mine = await waitFor(p, () => !document.getElementById('switchConfirm').hidden && document.getElementById('switchName').textContent === 'CoCo 3');
+      release();
+      const replaced = await waitFor(p, () => document.getElementById('switchName').textContent === 'CoCo 1/2 (64K)' && !document.getElementById('switchConfirm').hidden, null, 15000);
+      if (replaced) await p.click('#btnSwitch');
+      const ok = replaced && await waitFor(p, () => window.__said.some((x) => /^Snapshot opened/.test(x)), null, 15000);
+      const s = await state(p, at);
+      check(`shortLink: a switch question open when a ${name} moment arrives is replaced by the link's own, and Switch opens the moment`, mine && ok && s.id === mid && s.byte === 0x4D, JSON.stringify(s));
+      await closeCtx(c);
+    }
+    // in an embed (no chat, so no js/ui/ask.js) a key typed on the machine is the person's input too (Session.switchLoses)
+    {
+      const { c, p } = await fresh();
+      await p.goto(`${base}?embed=1`);
+      await linkIn(p);
+      await p.click('#screen', { position: { x: 20, y: 20 } }).catch(() => {});
+      await p.keyboard.type('X');
+      check('shortLink: in an embed, a key typed on the machine counts as the person\'s input', await waitFor(p, () => window.emu.session.touches() > 0, null, 10000));
+      await closeCtx(c);
+    }
+  }
   check('shortLink: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx2);
   await closeCtx(ctx);
@@ -23665,8 +24612,10 @@ async function basicShareChecks(browser, base, site, check) {
   await page.click('#btnProgramMode');
   const no = await page.evaluate(() => ({ why: document.getElementById('programWhy').textContent, shown: document.getElementById('programWhy').checkVisibility(), copy: document.getElementById('btnShareCopy').disabled,
     btn: document.getElementById('btnProgramMode').textContent, lines: document.getElementById('programLines').textContent, more: document.getElementById('programMore').checkVisibility() }));
-  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark',
-    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && !no.more, JSON.stringify(no));
+  // (its tape needs no text: "More ways to share" keeps Download .CAS and .WAV, and only those)
+  const tapeOnly = await page.evaluate(() => ['btnProgramForum', 'btnProgramBas', 'btnProgramCas', 'btnProgramWav'].filter((id) => !document.getElementById(id).hidden));
+  check('basicShare: a program that can\'t be shared as text: the reason inline, with "Share the whole moment instead", Copy dark; only its tape is offered',
+    no.why === REFUSED && no.shown && no.copy && no.btn === 'Share the whole moment instead' && no.lines === '1 line' && tapeOnly.join() === 'btnProgramCas,btnProgramWav', JSON.stringify([no, tapeOnly]));
   await page.click('#btnProgramMode');
   check('basicShare: ... and the moment can still be shared', await page.evaluate(() => !document.getElementById('btnShareCopy').disabled && document.getElementById('shareHeading').textContent === 'Share this moment'));
 
@@ -23735,8 +24684,826 @@ async function basicShareChecks(browser, base, site, check) {
   await p2.waitForTimeout(1000);
   check('basicShare: a second after a short link\'s program arrives listed, the focus is on the screen', await p2.evaluate(() => document.activeElement.id) === 'screen', await p2.evaluate(() => document.activeElement.id));
   check('basicShare: the short link, with the Dragon 64\'s BASIC there: a fresh Dragon 64, the program listed', short && short.list === LISTED && short.id === 'dragon64' && short.hash === '' && short.report, JSON.stringify(short || await p2.evaluate(() => [document.getElementById('arrivalText').textContent, document.getElementById('status').textContent, window.emu.machine.id, window.emu.machine.hasRom])));
+  // A program picked from the Programs list restarts the machine on the built-in firmware, so a BASIC program in memory
+  // would be lost: asked first, in the machine menu's question box, and only then. The stored ROMs stay stored; the
+  // status line says the program runs without them.
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    // (what the page says on its status line is a toast: every one is kept)
+    await ctx3.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (roms) => { const s = window.emu.session; for (const [k, v] of Object.entries(roms)) s.roms.put('dragon64', k, new Uint8Array(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); }, romsOf('dragon64'));
+    const bootOk = await waitFor(p3, () => window.emu.session.bootStatus().state === 'ok');
+    const pick = (name) => p3.evaluate((n) => document.querySelector(`#shelf [data-shelf="${n}"]`).click(), name);
+    const state = () => p3.evaluate(() => { const c = document.getElementById('switchConfirm'), s = window.emu.session;
+      return { asked: !c.hidden && c.checkVisibility(), text: document.getElementById('switchText').textContent, yes: document.getElementById('btnSwitch').textContent, name: c.getAttribute('aria-label'),
+        lines: (s.sharedProgram(s.personMachine) || { lines: 0 }).lines, hasRom: s.personMachine.hasRom, stub: s.personMachine.useStub, screen: s.screenText().join(' '),
+        said: window.__said.slice(), stored: Object.values(s.roms.get('dragon64')).filter(Boolean).length }; });
+    // an empty program: no question; LIZA runs, and the status says it runs without the ROMs (which stay stored)
+    await pick('LIZA');
+    const lizaUp = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const empty = await state();
+    check('basicShare: no BASIC program in memory: Programs → LIZA asks nothing and runs LIZA, and the status line says it runs without the ROMs, which stay stored',
+      bootOk && lizaUp && !empty.asked && empty.stub && empty.stored === 2 && empty.said.includes('LIZA loaded · runs without ROMs; yours are untouched'), JSON.stringify(empty));
+    // back to BASIC on the stored ROMs, with a 3-line program
+    await p3.evaluate(async () => { const s = window.emu.session; s.stubChosen.delete('dragon64'); s.switchMachine('dragon64'); await s.index.settled(); });
+    await waitFor(p3, () => window.emu.session.bootStatus().state === 'ok');
+    await p3.evaluate(() => window.emu.session.loadBasic('10 REM ONE\n20 REM TWO\n30 END\n'));
+    const before = await state();
+    await pick('LIZA');
+    const asked = await state();
+    check('basicShare: with a 3-line program in memory, Programs → LIZA asks "Starting LIZA restarts the Dragon 64, and the BASIC program in memory (3 lines) will be lost." with [Start LIZA] and Cancel',
+      before.lines === 3 && !before.asked && asked.asked && asked.text === 'Starting LIZA restarts the Dragon 64, and the BASIC program in memory (3 lines) will be lost.' && asked.yes === 'Start LIZA'
+      && asked.name === 'Start LIZA' && asked.hasRom && asked.lines === 3, JSON.stringify(asked));
+    await p3.click('#btnSwitchCancel');
+    const cancelled = await state();
+    check('basicShare: Cancel keeps the program, the ROMs in the machine and BASIC where it was', !cancelled.asked && cancelled.lines === 3 && cancelled.hasRom && !/LIZA - A/.test(cancelled.screen), JSON.stringify(cancelled));
+    await pick('LIZA');
+    await p3.click('#btnSwitch');
+    const started = await waitFor(p3, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const lost = await state();
+    check('basicShare: Start LIZA loses the program and runs LIZA without the ROMs (stored, untouched), and the status line says so',
+      started && !lost.asked && lost.lines === 0 && lost.stub && lost.stored === 2 && lost.said.filter((m) => m === 'LIZA loaded · runs without ROMs; yours are untouched').length === 2, JSON.stringify(lost));
+    await ctx3.close();
+    // without ROMs the status line is what it was
+    const ctx4 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    await ctx4.addInitScript(() => { window.__said = []; document.addEventListener('DOMContentLoaded', () => { const t = document.getElementById('toastText');
+      if (t) new MutationObserver(() => { if (t.textContent) window.__said.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); }); });
+    const p4 = await ctx4.newPage();
+    p4.on('pageerror', (e) => errors.push(e.message));
+    await p4.goto(`${base}?machine=dragon64`);
+    await linkIn(p4);
+    await p4.evaluate(() => document.querySelector('#shelf [data-shelf="LIZA"]').click());
+    const up4 = await waitFor(p4, () => /LIZA - A/.test(window.emu.session.screenText().join(' ')), null, 60000);
+    const said4 = await p4.evaluate(() => window.__said.slice());
+    check('basicShare: without ROMs, Programs → LIZA says just "LIZA loaded", as before', up4 && said4.includes('LIZA loaded') && !said4.some((m) => /runs without ROMs/.test(m)), JSON.stringify(said4));
+    await ctx4.close();
+  }
   check('basicShare: no page errors', errors.length === 0, errors.join(' | '));
   await ctx.close(); await ctx2.close();
+}
+
+// LIZA postcards (js/postcard.js, js/ui/share.js's postcard mode, js/ui/arrival.js): a chat typed to LIZA on the page, sent
+// as a postcard (the Share screen's mode, its picture the postcard replayed, its short link sealed as kind 3 through the
+// Worker), the BYE note, and the recipient's card: Replay, a key skipping to the end, "Your turn". Also a phone's
+// "Share postcard…" and toast, a trimmed chat's note, and the refusals.
+async function postcardChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const LINES = ['I MISS MY DRAGON', 'BECAUSE IT WAS MAGIC'];
+  const NOTE = 'Opens LIZA and replays this chat: your 2 lines and LIZA\'s answers. Anyone with the link can read what you typed.';
+  const errors = [];
+  // the postcard replayed in Node, as the page replays it: its frame and its picture's bytes
+  const lizaBin = fs.readFileSync(path.join(__dirname, '../examples/liza.bin'));
+  const replayed = (lines) => new Emu.Session({ welcomeMenu: false }).postcards.replayFrame({ machine: 'dragon64', lines }, lizaBin);
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const heard = (n) => waitFor(page, (k) => { const c = window.emu.session.postcards.current(); return !!c && c.all === k; }, n, 15000);
+  await page.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(page);
+  check('postcard: LIZA runs (?start=liza)', await waitFor(page, () => window.emu.session.bundledRunning === 'liza' && window.emu.session.screenText().join('').includes('>'), null, 15000));
+  // the first line on the real keyboard, lower case (READLN makes it upper case), the second typed in
+  await page.click('#screen');
+  await page.keyboard.type('i miss my dragon');
+  await page.keyboard.press('Enter');
+  check('postcard: a line typed on the keyboard is heard, in upper case', await heard(1) && await page.evaluate(() => window.emu.session.postcards.current().lines[0]) === LINES[0]);
+  await page.evaluate((l) => window.emu.session.typeText(`${l}\n`), LINES[1]);
+  await heard(2);
+  await page.waitForTimeout(500);
+  const openShare = async () => {
+    if (await page.evaluate(() => location.hash === '#share')) { await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' }); }
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  await openShare();
+  const cardText = await page.evaluate(() => ({ shown: document.getElementById('postcardCard').checkVisibility(), text: document.getElementById('postcardCard').innerText.replace(/\s+/g, ' ').trim(),
+    h1: document.getElementById('shareHeading').textContent, mode: document.getElementById('share').classList.contains('postcard-mode') }));
+  check('postcard: the Share screen offers it: "Your chat with LIZA · 2 lines · Send it as a postcard instead"; the moment stays the default',
+    cardText.shown && cardText.text === 'Your chat with LIZA · 2 lines · Send it as a postcard instead' && cardText.h1 === 'Share this moment' && !cardText.mode, JSON.stringify(cardText));
+  await page.click('#btnPostcardMode');
+  const want = Emu.frameToRGBA(replayed(LINES));
+  const pm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, note: document.getElementById('shareNote').textContent, name: document.getElementById('shareName').textContent,
+      prefix: vis('sharePrefix') && document.getElementById('sharePrefix').textContent,
+      copy: document.getElementById('btnShareCopy').textContent, copyOn: !document.getElementById('btnShareCopy').disabled, px: Array.from(px), w: c.width, h: c.height,
+      hidden: ['btnShareClip', 'btnShareDownload', 'btnShareGif', 'previewSwitch', 'shareForum', 'shareRom', 'programCard'].filter(vis), shot: vis('btnShareShot'),
+      trim: vis('postcardTrim'), back: document.getElementById('btnPostcardMode').textContent, long: document.getElementById('shareLink').value,
+      terms: vis('shortTerms') };
+  });
+  check('postcard: postcard mode: its heading, the note (exact), the caption "What they\'ll see first · LIZA" (never "This moment ·"), "Copy postcard link" with Save picture beside it, "Share the whole moment instead"',
+    pm.h1 === 'Send a postcard from LIZA' && pm.note === NOTE && pm.prefix === 'What they\'ll see first ·' && pm.name === 'LIZA' && pm.copy === 'Copy postcard link' && pm.copyOn && pm.shot && pm.back === 'Share the whole moment instead' && !pm.trim && pm.terms,
+    JSON.stringify(Object.assign({}, pm, { px: undefined, long: undefined })));
+  check('postcard: the moment\'s other ways give way (clip, GIF, snapshot file, the picture switch, its forum text, the ROM line)', pm.hidden.length === 0, pm.hidden.join());
+  check('postcard: the preview is the postcard replayed from its link (computed again here), pixel for pixel', pm.w === want.length / pm.h && pm.px.length === want.length && pm.px.every((v, i) => v === want[i]), `${pm.w}x${pm.h}`);
+  const longPc = await new Emu.Session({ welcomeMenu: false }).postcards.read(pm.long.slice(pm.long.indexOf('#'))).catch((e) => e);
+  check('postcard: the long link carries the two lines (#z=, byte 0 = 3), for the Dragon 64', longPc && longPc.machine === 'dragon64' && JSON.stringify(longPc.lines) === JSON.stringify(LINES), pm.long.slice(0, 90));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-share.png'), fullPage: true });
+  // Save picture: liza-postcard.png, the postcard replayed on a link card (js/video/card.js)
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnShareShot')]);
+  const png = fs.readFileSync(await dl.path());
+  const wantPng = Buffer.from(await Emu.encodeIndexedPng(Emu.cardPicture(replayed(LINES))));
+  check('postcard: Save picture downloads liza-postcard.png, the postcard replayed (1200 x 630), byte for byte', dl.suggestedFilename() === 'liza-postcard.png' && png.equals(wantPng), `${dl.suggestedFilename()} ${png.length}`);
+  // Copy postcard link: the short link, sealed kind 3, through the Worker
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const opened = sealed ? await Emu.decodePostcardLink((await Emu.openMoment(new Uint8Array(sealed.bytes), m[2])).bytes).catch((e) => e) : null;
+  const html = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('postcard: Copy makes the short link and copies it: sealed (version 1, kind 3), the two lines, no picture; the arrival page says "A postcard from LIZA on a Dragon 64"',
+    made && await page.evaluate(() => navigator.clipboard.readText()) === url && !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 3 && opened && JSON.stringify(opened.lines) === JSON.stringify(LINES)
+    && !env.BUCKET.objects.has(`${m[1]}.png`) && html.includes('<meta property="og:title" content="A postcard from LIZA on a Dragon 64, CLOADM">'), url);
+  check('postcard: ... and the button says "Copy postcard link" again after', await page.textContent('#btnShareCopy') === 'Copy postcard link');
+  await page.click('#btnPostcardMode');
+  check('postcard: "Share the whole moment instead" switches back, and the caption is the moment\'s again: "This moment · Dragon 64"', await page.evaluate(() => document.getElementById('shareHeading').textContent === 'Share this moment'
+    && document.getElementById('sharePrefix').checkVisibility() && document.getElementById('sharePrefix').textContent === 'This moment ·' && document.getElementById('shareName').textContent === 'Dragon 64'
+    && document.getElementById('btnShareCopy').textContent === 'Copy link' && document.getElementById('shortMade').hidden && document.getElementById('btnShareClip').checkVisibility()));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  // BYE: the note under the screen, once; it opens the Share screen in postcard mode
+  await page.evaluate(() => window.emu.session.typeText('BYE\n'));
+  const note = await waitFor(page, () => document.getElementById('postcardNote').checkVisibility(), null, 10000) && await page.evaluate(() => document.getElementById('postcardNote').innerText.trim());
+  check('postcard: after BYE, the note under the screen: "Send this chat as a postcard…"', note === 'Send this chat as a postcard…', note);
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'postcard-bye-note.png') });
+  await page.click('#btnPostcardNote');
+  await page.waitForSelector('#share', { state: 'visible' });
+  check('postcard: the note opens the Share screen in postcard mode (the menu is back: the chat that just ended)', await waitFor(page, () => document.getElementById('share').classList.contains('postcard-mode')
+    && document.getElementById('shareNote').textContent.startsWith('Opens LIZA and replays this chat: your 2 lines'), null, 10000));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  check('postcard: ... and the note has gone', await page.isHidden('#postcardNote'));
+
+  // a chat of 21 lines: the postcard starts at line 2, and says so
+  await page.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(page);
+  await waitFor(page, () => window.emu.session.bundledRunning === 'liza', null, 15000);
+  await page.evaluate(() => { for (let i = 0; i < 21; i++) window.emu.session.typeText(`LINE ${i + 1}\n`); });
+  await heard(21);
+  await page.waitForTimeout(300);
+  await openShare();
+  await page.click('#btnPostcardMode');
+  const trim = await page.evaluate(() => ({ t: document.getElementById('postcardTrim').checkVisibility() && document.getElementById('postcardTrim').textContent, lines: document.getElementById('postcardLines').textContent }));
+  check('postcard: 21 lines: "Postcards hold 20 lines: this one starts at your line 2."', trim.t === 'Postcards hold 20 lines: this one starts at your line 2.' && trim.lines === '20 lines', JSON.stringify(trim));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+
+  // the recipient: the short link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(`${base}#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const arr = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => {
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    const a = document.getElementById('arrival').getBoundingClientRect(), sc = document.getElementById('screenWrap').getBoundingClientRect();
+    return { text: document.getElementById('arrivalText').textContent, buttons: ['btnPostcardReplay', 'btnPostcardSkip', 'btnArrivalStart', 'btnArrivalBack'].filter(vis).map((id) => document.getElementById(id).textContent),
+      top: a.top < sc.top + sc.height / 3, report: vis('arrivalReport'), machine: window.emu.machine.id, liza: window.emu.session.bundledRunning, typed: window.emu.session.screenText().join('').includes('MISS'), hash: location.hash };
+  });
+  check('postcard: the recipient: "A postcard from LIZA · 2 lines" [Replay] [Skip to the end], at the top, LIZA waiting on a Dragon 64, nothing typed yet',
+    arr && arr.text === 'A postcard from LIZA · 2 lines' && arr.buttons.join() === 'Replay,Skip to the end' && arr.top && arr.report && arr.machine === 'dragon64' && arr.liza === 'liza' && !arr.typed && arr.hash === '', JSON.stringify(arr));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'postcard-arrival.png') });
+  await p2.click('#btnPostcardReplay');
+  const typing = await waitFor(p2, () => window.emu.session.screenText().join('').includes('I MIS'), null, 10000);
+  const mid = await p2.evaluate(() => ({ state: window.emu.session.arrivedFromLink.postcard.state, buttons: ['btnPostcardReplay', 'btnPostcardSkip'].filter((id) => document.getElementById(id).checkVisibility()),
+    focus: document.activeElement.id }));
+  check('postcard: Replay types the lines (the card keeps Skip to the end; the screen has the focus)', typing && mid.state === 'replaying' && mid.buttons.join() === 'btnPostcardSkip' && mid.focus === 'screen', JSON.stringify(mid));
+  // a key skips to the end (it is not typed into LIZA)
+  await p2.keyboard.press('q');
+  const done = await waitFor(p2, () => document.getElementById('arrivalText').textContent === 'Your turn: type to LIZA.', null, 10000);
+  await p2.waitForTimeout(300);
+  const end = await p2.evaluate(() => ({ text: window.emu.session.screenText().join('\n'), buttons: document.getElementById('arrivalPostcard').checkVisibility() }));
+  check('postcard: a key skips to the end: "Your turn: type to LIZA.", both lines answered, and the key was not typed', done && !end.buttons && end.text.includes('> I MISS MY DRAGON') && end.text.includes('> BECAUSE IT WAS MAGIC')
+    && !/> Q/.test(end.text), end.text.replace(/\s+/g, ' ').slice(-160));
+  const want2 = Emu.frameToRGBA(replayed(LINES));
+  const same = await p2.evaluate(() => Array.from(window.emu.Emu.frameToRGBA(window.emu.session.shownMachine.render())));
+  check('postcard: the recipient\'s screen is the sender\'s picture, pixel for pixel', same.length === want2.length && same.every((v, i) => v === want2[i]));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'postcard-your-turn.png') });
+  await p2.keyboard.type('hello');
+  check('postcard: their first key goes to LIZA and the card goes', await waitFor(p2, () => document.getElementById('arrival').hidden && window.emu.session.screenText().join('').includes('> HELLO'), null, 5000));
+  // refused: a newer postcard format, and a machine CLOADM lacks
+  const z = (v) => `#z=${Buffer.concat([Buffer.from([3]), require('zlib').deflateRawSync(Buffer.from(JSON.stringify(v)))]).toString('base64url')}`;
+  // (a different address each time: a change of the fragment alone does not load the page again)
+  for (const [what, v, re, at] of [['a newer postcard format', { format: 'cloadm-liza', version: 2, machine: 'dragon64', lines: ['HI'] }, /made by a newer CLOADM/, 'coco'],
+    ['a machine CLOADM lacks', { format: 'cloadm-liza', version: 1, machine: 'zx81', lines: ['HI'] }, /machine this CLOADM doesn't have/, 'dragon32']]) {
+    await p2.goto(`${base}?machine=${at}${z(v)}`);
+    await linkIn(p2);
+    const said = await waitFor(p2, (r) => new RegExp(r).test(document.getElementById('toast').textContent), re.source, 10000);
+    check(`postcard: refused, said: ${what}`, said && await p2.evaluate(() => document.getElementById('arrival').hidden && location.hash === ''), await p2.textContent('#toast'));
+  }
+
+  // a phone: "Share postcard…" (where the browser has a share sheet) then "Copy link"; BYE's offer is a toast
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+  await phone.addInitScript(() => { navigator.share = async () => {}; navigator.canShare = () => true; });
+  const p3 = await phone.newPage();
+  p3.on('pageerror', (e) => errors.push(e.message));
+  await p3.goto(`${base}?machine=dragon64&start=liza`);
+  await linkIn(p3);
+  await waitFor(p3, () => window.emu.session.bundledRunning === 'liza', null, 15000);
+  await p3.evaluate(() => window.emu.session.typeText('HELLO\n'));
+  await waitFor(p3, () => !!window.emu.session.postcards.current(), null, 10000);
+  await p3.evaluate(() => window.emu.session.typeText('BYE\n'));
+  const toast = await waitFor(p3, () => [...document.querySelectorAll('#toast button')].some((b) => b.checkVisibility() && b.textContent === 'Send this chat as a postcard…'), null, 10000);
+  check('postcard: a phone: after BYE, the offer is a toast ("Send this chat as a postcard…"), not the line under the screen', toast && await p3.isHidden('#postcardNote'));
+  await p3.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Send this chat as a postcard…').click());
+  await p3.waitForSelector('#share', { state: 'visible' });
+  const ph = await waitFor(p3, () => document.getElementById('share').classList.contains('postcard-mode'), null, 10000) && await p3.evaluate(() => ({
+    native: document.getElementById('btnShareNative').checkVisibility() && document.getElementById('btnShareNative').textContent, nativePrimary: document.getElementById('btnShareNative').classList.contains('primary'),
+    copy: document.getElementById('btnShareCopy').textContent }));
+  check('postcard: a phone: "Share postcard…" first, then "Copy link"', ph && ph.native === 'Share postcard…' && ph.nativePrimary && ph.copy === 'Copy link', JSON.stringify(ph));
+  if (shotDir) await p3.screenshot({ path: path.join(shotDir, 'postcard-phone.png'), fullPage: true });
+  check('postcard: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close(); await phone.close();
+}
+
+// The BASIC program as a tape (Session.programTape; Share's program mode, "More ways to share"): Download .CAS and
+// .WAV beside Download .bas, the name on tape (cleaned as it is typed), the note per family, the files' names (.C10 on
+// the MC-10), what they hold, the snapshot mode without them, and the command box's "Save program as .CAS/.WAV".
+async function programTapeChecks(browser, base, check) {
+  const Emu = require('../tests/load')();
+  const { build } = require('../tests/fixtures/basic-standin');
+  const romsOf = (id) => Object.fromEntries(Object.entries(build(Emu, id)).map(([k, v]) => [k, [...v]]));
+  const PROG = '10 PRINT "TAPE"\n20 GOTO 10';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const boot = async (id) => {
+    await page.goto(`${base}?machine=${id}`);
+    await linkIn(page);
+    await page.evaluate((roms) => { const m = window.emu.session.shownMachine; m.setRoms(Object.fromEntries(Object.entries(roms).map(([k, v]) => [k, new Uint8Array(v)]))); m.reset(true); }, romsOf(id));
+    return waitFor(page, () => window.emu.session.bootStatus().state === 'ok', null, 20000);
+  };
+  const openShare = async () => {
+    await page.evaluate(() => document.getElementById('btnShare').click()); await page.waitForSelector('#share', { state: 'visible' });
+    await waitFor(page, () => !!document.getElementById('shareLink').value);
+  };
+  const vis = (ids) => page.evaluate((list) => list.filter((id) => document.getElementById(id).checkVisibility()), ids);
+  check('programTape: the stand-in BASIC boots on a Dragon 64', await boot('dragon64'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#shareMore > summary');
+  check('programTape: the moment (snapshot mode) offers no tape', (await vis(['btnProgramCas', 'btnProgramWav', 'programTapeName'])).length === 0);
+  await page.click('#btnProgramMode');
+  const ui = await page.evaluate(() => {
+    const bar = document.getElementById('btnProgramBas').parentElement;
+    return { row: [...bar.children].filter((b) => b.checkVisibility()).map((b) => b.textContent), name: document.getElementById('programTapeName').value,
+      note: document.getElementById('programTapeNote').textContent, label: document.querySelector('label[for="programTapeName"]').textContent };
+  });
+  check('programTape: program mode, More ways: "Download .CAS" and "Download .WAV" beside "Download .bas"; the name on tape starts as PROGRAM; the note for Dragon BASIC',
+    ui.row.join() === 'Download .bas,Download .CAS,Download .WAV' && ui.name === 'PROGRAM' && ui.label === 'Name on tape'
+    && ui.note === 'For Dragon BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', JSON.stringify(ui));
+  await page.fill('#programTapeName', '');
+  await page.type('#programTapeName', 'my game!x');
+  check('programTape: the name is cleaned as it is typed (upper case, letters and digits, 8 at most)', await page.inputValue('#programTapeName') === 'MYGAMEX');
+  const [cas] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const casBytes = new Uint8Array(fs.readFileSync(await cas.path()));
+  const d = Emu.formats.identify(cas.suggestedFilename(), casBytes);
+  const want = await page.evaluate(() => Array.from(window.emu.session.basicProgramBytes()));
+  check('programTape: Download .CAS: MYGAMEX.CAS, one tokenised BASIC file holding the program', cas.suggestedFilename() === 'MYGAMEX.CAS' && d.kind === 'cas' && d.files.length === 1
+    && d.files[0].name === 'MYGAMEX' && d.files[0].fileType === 0 && Buffer.from(d.files[0].data).equals(Buffer.from(want)), cas.suggestedFilename());
+  const [wav] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramWav')]);
+  const back = Emu.wavToCas(new Uint8Array(fs.readFileSync(await wav.path())));
+  check('programTape: Download .WAV: MYGAMEX.WAV, which decodes to the same tape', wav.suggestedFilename() === 'MYGAMEX.WAV' && back.badBlocks === 0 && Buffer.from(back.bytes).equals(Buffer.from(casBytes)), wav.suggestedFilename());
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'program-tape.png'), fullPage: true });
+  // the command box: "Save program as .CAS/.WAV" opens the Share screen in program mode at the name
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  await page.keyboard.press('Enter');
+  check('programTape: the command box\'s "Save program as .CAS/.WAV": the Share screen in program mode, at the name on tape',
+    await waitFor(page, () => document.getElementById('share').classList.contains('program-mode') && document.activeElement.id === 'programTapeName', null, 10000));
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  // the MC-10: a .C10, and its note
+  check('programTape: the stand-in BASIC boots on an MC-10', await boot('mc10'));
+  await page.evaluate((p) => window.emu.session.loadBasic(p), PROG);
+  await openShare();
+  await page.click('#btnProgramMode');
+  await page.click('#shareMore > summary');
+  const [c10] = await Promise.all([page.waitForEvent('download'), page.click('#btnProgramCas')]);
+  const dm = Emu.formats.identify(c10.suggestedFilename(), new Uint8Array(fs.readFileSync(await c10.path())));
+  check('programTape: an MC-10: PROGRAM.C10, a BASIC file, and the note for MC-10 BASIC', c10.suggestedFilename() === 'PROGRAM.C10' && dm.kind === 'cas' && dm.files[0].fileType === 0
+    && await page.textContent('#programTapeNote') === 'For MC-10 BASIC: CLOAD it in another emulator, or play the WAV into a real machine\'s cassette port.', c10.suggestedFilename());
+  // no program: the command is muted, saying why
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await boot('dragon64');
+  check('programTape: (a fresh Dragon 64 at OK: no program in memory)', await page.evaluate(() => !window.emu.session.basicProgramBytes()));
+  await page.keyboard.press('Control+k');
+  await waitFor(page, () => !document.getElementById('cmdBox').hidden);
+  await page.keyboard.type('save program');
+  const muted = await waitFor(page, () => [...document.querySelectorAll('#cmdList [aria-disabled="true"]')].some((r) => /Save program as \.CAS\/\.WAV/.test(r.textContent) && /No BASIC program/.test(r.textContent)), null, 5000);
+  check('programTape: no program in memory: the command is listed muted, "No BASIC program"', muted);
+  await page.keyboard.press('Escape');
+  check('programTape: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// "Share your program and its source" (js/source-share.js; the Assembler's Share…, js/ui/share.js's source mode,
+// js/ui/arrival.js): Share… only after a successful assemble; the Share screen's source mode (heading, caption, note, its
+// screen or its first lines); the short link sealed as kind 4 through the Worker; the recipient's card, nothing run until
+// Run, Show source, Run building and starting it; a tampered link never run; a newer one refused.
+async function sourceShareChecks(browser, base, site, check) {
+  const { pathToFileURL } = require('url');
+  const Emu = require('../tests/load')();
+  const W = await import(pathToFileURL(path.join(__dirname, '../shortlink/worker.js')).href);
+  const { MemoryBucket, memoryLimiter } = await import(pathToFileURL(path.join(__dirname, '../shortlink/memory-bucket.js')).href);
+  const local = site.replace(/\/$/, '');
+  const env = { BUCKET: new MemoryBucket(), RATE_IP: memoryLimiter(100), RATE_ALL: memoryLimiter(1000), DAILY_CAP: '100', ALLOWED_ORIGINS: `${local},https://cloadm.dev`, REPORT_EMAIL: 'abuse@example.com' };
+  const serve = (ctx) => ctx.route('https://s.cloadm.dev/**', async (route) => {
+    const r = route.request(), u = new URL(r.url()), origin = r.headers().origin;
+    if (u.pathname.startsWith('/api/')) {
+      const res = await W.default.fetch(new Request(r.url(), { method: r.method(), headers: r.headers(), body: ['GET', 'HEAD'].includes(r.method()) ? null : r.postDataBuffer() }), env, {});
+      return route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
+    }
+    const cors = origin && env.ALLOWED_ORIGINS.split(',').includes(origin) ? { 'access-control-allow-origin': origin } : {};
+    const o = env.BUCKET.objects.get(decodeURIComponent(u.pathname.slice(1)));
+    if (!o) return route.fulfill({ status: 404, headers: cors, body: 'Not Found' });
+    return route.fulfill({ status: 200, headers: Object.assign({ 'content-type': 'application/octet-stream' }, cors), body: Buffer.from(o.bytes) });
+  });
+  const FILL = '        ORG     $7000\nSTART   LDX     #$0400\n        LDA     #$41\nLOOP    STA     ,X+\n        CMPX    #$0600\n        BNE     LOOP\nDONE    BRA     DONE\n        END     START\n';
+  const ARRIVED = 'Someone sent you a program with its source: fill.asm, 9 lines. It\'s open in the Assembler; press Run to build and start it.';
+  const errors = [];
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  await serve(ctx);
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  const screenA = (p) => p.evaluate(() => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41));
+  await page.goto(`${base}?machine=dragon64`);
+  await linkIn(page);
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#asmSource', { state: 'visible' });
+  await page.fill('#asmSource', FILL);
+  await page.evaluate(() => { document.getElementById('asmName').textContent = 'fill.asm'; });
+  check('sourceShare: Share… is off until the source has assembled', await page.isDisabled('#btnAsmShare'));
+  // Save .BIN assembles without running: Share… comes on, and its picture is the first lines
+  const [bin] = await Promise.all([page.waitForEvent('download'), page.click('#btnAsmSave')]);
+  check('sourceShare: ... and on once it has (Save .BIN assembled it)', !!bin && await page.isEnabled('#btnAsmShare'));
+  await page.click('#btnAsmShare');
+  await page.waitForSelector('#share', { state: 'visible' });
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  const want = Emu.frameToRGBA(Emu.textScreenFrame(Emu.listingRows(FILL.toUpperCase())));
+  const sm = await page.evaluate(() => {
+    const c = document.getElementById('sharePicture'), px = new Uint32Array(c.getContext('2d').getImageData(0, 0, c.width, c.height).data.buffer);
+    const vis = (id) => document.getElementById(id).checkVisibility();
+    return { h1: document.getElementById('shareHeading').textContent, note: document.getElementById('shareNote').textContent, caption: document.getElementById('shareName').textContent,
+      prefix: vis('sharePrefix'), card: document.getElementById('sourceCard').innerText.replace(/\s+/g, ' ').trim(), copy: !document.getElementById('btnShareCopy').disabled,
+      px: Array.from(px), w: c.width, h: c.height, hidden: ['btnShareShot', 'btnShareClip', 'btnShareGif', 'btnShareDownload', 'previewSwitch', 'shareForum', 'shareRom'].filter(vis),
+      long: document.getElementById('shareLink').value };
+  });
+  check('sourceShare: source mode: "Share your program and its source", the caption "fill.asm · 9 lines of 6809 source", the note, Copy on',
+    sm.h1 === 'Share your program and its source' && sm.caption === 'fill.asm · 9 lines of 6809 source' && !sm.prefix && sm.copy
+    && sm.note === 'They get the source and build it themselves; nothing runs until they press Run.' && sm.card === 'Your program and its source · 9 lines · Share the whole moment instead',
+    JSON.stringify(Object.assign({}, sm, { px: undefined, long: undefined })));
+  check('sourceShare: not run: the picture is its first lines in the machine\'s font, pixel for pixel', sm.w === 256 && sm.h === 192 && sm.px.every((v, i) => v === want[i]), `${sm.w}x${sm.h}`);
+  check('sourceShare: the moment\'s other ways give way', sm.hidden.length === 0, sm.hidden.join());
+  const longCard = await new Emu.Session({ welcomeMenu: false }).sources.read(sm.long.slice(sm.long.indexOf('#'))).catch((e) => e);
+  check('sourceShare: the long link holds the source (#z=, byte 0 = 4)', longCard && longCard.source === FILL && longCard.name === 'fill.asm', sm.long.slice(0, 80));
+  if (shotDir) await page.screenshot({ path: path.join(shotDir, 'source-share.png'), fullPage: true });
+  await page.click('#btnShareCopy');
+  const made = await waitFor(page, () => !document.getElementById('shortMade').hidden, null, 15000);
+  const url = await page.inputValue('#shareShort');
+  const m = /^https:\/\/s\.cloadm\.dev\/([A-Za-z0-9_-]{8})#([A-Za-z0-9_-]{22})$/.exec(url) || [];
+  const sealed = m[1] && env.BUCKET.objects.get(`${m[1]}.bin`);
+  const html = m[1] ? env.BUCKET.text(m[1]) || '' : '';
+  check('sourceShare: Copy makes the short link: sealed (version 1, kind 4), no picture; the arrival page says "A program and its source for the Dragon 64"',
+    made && !!sealed && sealed.bytes[0] === 1 && sealed.bytes[1] === 4 && !env.BUCKET.objects.has(`${m[1]}.png`) && html.includes('A program and its source for the Dragon 64, CLOADM'), url);
+  // run, then Share…: its picture is its screen now
+  await page.click('#shareBack'); await page.waitForSelector('#share', { state: 'hidden' });
+  await page.evaluate(() => document.getElementById('navDebugger').click());
+  await page.waitForSelector('#btnAsmRun', { state: 'visible' });
+  await page.click('#btnAsmRun');
+  await waitFor(page, () => window.emu.session.readByte(0x5FF) === 0x41, null, 10000);
+  await page.click('#btnAsmShare');
+  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  check('sourceShare: run first: the picture is its screen (the machine\'s frame)', await page.evaluate(() => document.getElementById('sharePicture').width) === 320);
+
+  // the recipient: the short link
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+  await serve(ctx2);
+  const p2 = await ctx2.newPage();
+  p2.on('pageerror', (e) => errors.push(e.message));
+  await p2.goto(`${base}?machine=coco#l=${m[1]}.${m[2]}`);
+  await linkIn(p2);
+  const arr = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow', 'btnArrivalStart', 'btnArrivalBack', 'btnPostcardReplay'].filter((id) => document.getElementById(id).checkVisibility()).map((id) => document.getElementById(id).textContent),
+    machine: window.emu.machine.id, source: document.getElementById('asmSource').value, name: document.getElementById('asmName').textContent, hash: location.hash }));
+  await p2.waitForTimeout(500);
+  check('sourceShare: the recipient: the card (exact words), [Run] [Show source], a Dragon 64, the source in the Assembler', arr && arr.text === ARRIVED && arr.buttons.join() === 'Run,Show source'
+    && arr.machine === 'dragon64' && arr.source === await Promise.resolve(arr.source) && arr.source.replace(/\r/g, '') === FILL && arr.name === 'fill.asm' && arr.hash === '', JSON.stringify(Object.assign({}, arr, { source: arr && arr.source.length })));
+  check('sourceShare: nothing runs until Run', !await screenA(p2) && await p2.evaluate(() => window.emu.session.readByte(0x7000) !== 0x8E));
+  if (shotDir) await p2.screenshot({ path: path.join(shotDir, 'source-arrival.png') });
+  await p2.click('#btnSourceShow');
+  check('sourceShare: Show source opens the Assembler with it', await waitFor(p2, () => location.hash === '#debugger' && document.getElementById('asmSource').checkVisibility(), null, 5000));
+  await p2.evaluate(() => history.back());
+  await waitFor(p2, () => location.hash === '', null, 5000);
+  await p2.click('#btnSourceRun');
+  check('sourceShare: Run builds it and starts it: the screen fills; the card goes', await waitFor(p2, () => Array.from({ length: 0x200 }, (_, i) => window.emu.session.readByte(0x400 + i)).every((b) => b === 0x41)
+    && document.getElementById('arrival').hidden, null, 10000));
+  // a tampered link (the crc changed): never run
+  const tampered = Object.assign({}, longCard, { crc: (longCard.crc ^ 1) >>> 0 });
+  await p2.goto(`${base}?machine=coco3#z=${Buffer.from(await Emu.encodeSourceLink(tampered)).toString('base64url')}`);
+  await linkIn(p2);
+  const bad = await waitFor(p2, () => !document.getElementById('arrival').hidden, null, 15000) && await p2.evaluate(() => ({ text: document.getElementById('arrivalText').textContent,
+    buttons: ['btnSourceRun', 'btnSourceShow'].filter((id) => document.getElementById(id).checkVisibility()), source: document.getElementById('asmSource').value.length }));
+  check('sourceShare: a tampered link: "This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.", Show source alone',
+    bad && bad.text === 'This source builds differently in this CLOADM, so it won\'t run here. The code is in the Assembler to read.' && bad.buttons.join() === 'btnSourceShow' && bad.source === FILL.length && !await screenA(p2), JSON.stringify(bad));
+  // a newer source format: refused, said
+  const z = `#z=${Buffer.concat([Buffer.from([4]), require('zlib').deflateRawSync(Buffer.from(JSON.stringify({ format: 'cloadm-asm', version: 2, machine: 'dragon64', config: {}, name: 'a.asm', source: 'X', crc: 1 })))]).toString('base64url')}`;
+  await p2.goto(`${base}?machine=dragon32${z}`);
+  await linkIn(p2);
+  check('sourceShare: a newer source format: refused, "made by a newer CLOADM"', await waitFor(p2, () => /made by a newer CLOADM/.test(document.getElementById('toast').textContent), null, 10000));
+  // the source's Share screen with the person's ROMs stored (stand-ins built from this project's own programs, as the
+  // shortLink group's are, never real ROMs) and the browser offline: the source holds no code of the ROMs, so the
+  // moment's "short links are only for moments that run without ROMs" note is not said, and the reason for the long link
+  // is the offline one
+  {
+    const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+    await serve(ctx3);
+    const p3 = await ctx3.newPage();
+    p3.on('pageerror', (e) => errors.push(e.message));
+    const ours = Buffer.concat(['liza.bin', 'welcome.bin', 'demo.bin', 'chat.bin'].map((f) => fs.readFileSync(path.join(ROOT, 'examples', f))));
+    const standIn = (seed) => [...Array(0x4000)].map((_, i) => ours[(i * 3 + seed) % ours.length] ^ ((i >> 8) + seed) & 0xFF);
+    await p3.goto(`${base}?machine=dragon64`);
+    await linkIn(p3);
+    await p3.evaluate(async (r) => { const s = window.emu.session; for (const [k, v] of Object.entries(r)) s.roms.put('dragon64', k, Uint8Array.from(v), `${k}.rom`); s.switchMachine('dragon64'); await s.index.settled(); },
+      { basic: standIn(101), basic64: standIn(138) });
+    await waitFor(p3, () => window.emu.session.romCodeIn() === 'roms', null, 10000);
+    await p3.evaluate(() => document.getElementById('navDebugger').click());
+    await p3.waitForSelector('#asmSource', { state: 'visible' });
+    await p3.fill('#asmSource', FILL);
+    await p3.evaluate(() => { document.getElementById('asmName').textContent = 'fill.asm'; });
+    await Promise.all([p3.waitForEvent('download'), p3.click('#btnAsmSave')]);
+    await ctx3.setOffline(true);
+    await p3.click('#btnAsmShare');
+    await p3.waitForSelector('#share', { state: 'visible' });
+    await waitFor(p3, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+    const off = await p3.evaluate(() => ({ note: document.getElementById('primaryNote').textContent, why: document.getElementById('primaryWhy').textContent,
+      roms: window.emu.session.romCodeIn(), online: navigator.onLine }));
+    check('sourceShare: with ROMs stored and offline: no "run without ROMs" note under Copy, and the reason is the offline one',
+      off.roms === 'roms' && !off.online && off.note === '' && off.why === "You're offline, so this is the long link: it works without any server.", JSON.stringify(off));
+    await ctx3.close();
+  }
+  check('sourceShare: no page errors', errors.length === 0, errors.join(' | '));
+  await ctx.close(); await ctx2.close();
+}
+
+// The Display tab's "Old TV warm-up" (js/ui/warmup.js; the timeline is js/video/warmup.js, tests/warmup.test.js): off
+// by default; on, it plays over the canvas at the page's start and at Switch off and on, phase after phase, and is gone
+// by 1.1 s; a Reset is no power-on; it never plays in the Sharp view, on a visit from a share link (#z=, #l=) or a
+// program page (start=2048), with the arrival card up, with ?demo=1 or ?embed=1, with Reduce motion, with Save data, or
+// when the picture ran below 45 fps over 2 s; keys go to the machine through it; the canvas under it is the machine's
+// picture, untouched; a screenshot at 300 ms (warmup-300ms.png) to look at.
+async function warmupChecks(browser, base, check) {
+  const errors = [];
+  // a page with the setting on (as the checkbox stores it), and anything else set up before the page's scripts
+  const open = async (query, { ctxOpts = {}, init = null } = {}) => {
+    const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 } }, ctxOpts));
+    await ctx.addInitScript(() => {
+      try { localStorage.setItem('cloadm.oldTvWarmup', '1'); } catch (e) { /* (an opaque origin) */ }
+      // an independent count of the page's animation frames (each one runs the page's frame work once), to hold the
+      // meter's own reading against
+      window.__rafTimes = [];
+      const count = () => { window.__rafTimes.push(performance.now()); if (window.__rafTimes.length > 600) window.__rafTimes.shift(); requestAnimationFrame(count); };
+      requestAnimationFrame(count);
+      // 120 frames over the last 2 s added to the meter (and a known history: its start more than 2 s back), see below;
+      // each one logged, so a later reading can take them out again
+      window.__fed = [];
+      window.__warmupSteady = () => {
+        const r = window.emu.warmup.rate, now = performance.now();
+        r.since = Math.min(r.since == null ? now : r.since, now - 2100);
+        for (let i = 120; i > 0; i--) { const t = now - i * (2000 / 121); window.__fed.push(t); r.tick(t); }
+      };
+      // the meter's reading now, the frames fed to it still in its 2 s window, and the independent count over the same
+      // window (each as frames a second): a meter that counts every real frame reads meter - fed = counted
+      window.__meterCheck = () => {
+        const now = performance.now(), inW = (a) => a.filter((t) => t > now - 2000).length / 2;
+        return { meter: window.emu.warmup.rate.rate(now), fed: inW(window.__fed), counted: inW(window.__rafTimes) };
+      };
+    });
+    if (init) await ctx.addInitScript(init);
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`${query}: ${e.message}`));
+    await page.goto(`${base}${query}`);
+    await waitFor(page, () => window.emu && window.emu.ready && window.emu.warmup && window.emu.started);
+    return { ctx, page };
+  };
+  const state = (page) => page.evaluate(() => window.emu.warmup.state);
+  // The 45 fps rule reads the page's own frame-rate meter (js/video/warmup.js FrameRate), so on a loaded runner (CI at
+  // 25-40 fps) a power-on the check expects to play was refused as 'slow'. Before such a power-on the check adds 60 fps
+  // of frames over the last 2 s to what the meter counted, in the same task as the power-on: the rule itself still
+  // decides (FrameRate's rate and slow, warmupBlocked), and the real frames only add to the count. What the stub can't
+  // show is checked on its own: that the meter counts the page's real frames (its reading against an independent count
+  // of animation frames, at whatever speed the runner draws), and the refusal below 45 fps, on a page whose frames run
+  // at half the display's rate ('a slow picture').
+  // a power cycle, watched from inside the page: the phases in the order they were drawn, when the overlay went, and the
+  // latest it may go: the start of the frame after the first frame that began at least 1.0 s after the power-on (limit,
+  // from the independent frame count: the overlay goes in the first frame drawn 1.0 s into it, whatever the runner's
+  // frame rate) (fast: the meter given its steady 60 fps first, in the same task)
+  const cycle = (page, { fast = false } = {}) => page.evaluate((fast) => new Promise((resolve) => {
+    if (fast) window.__warmupSteady();
+    const box = document.getElementById('warmup'), seen = [];
+    let t0 = 0, t1 = 0;
+    const mo = new MutationObserver(() => {
+      if (!box.hidden && seen[seen.length - 1] !== box.dataset.phase) seen.push(box.dataset.phase);
+      if (box.hidden && t0) {
+        mo.disconnect();
+        const gone = performance.now() - t0;
+        const after = () => window.__rafTimes.filter((t) => t >= t1 + 1000);
+        const wait = () => { const a = after(); if (a.length >= 2) resolve({ seen, gone, limit: a[1] - t0, shown: seen.length > 0 }); else requestAnimationFrame(wait); };
+        wait();
+      }
+    });
+    mo.observe(box, { attributes: true, attributeFilter: ['hidden', 'data-phase'] });
+    t0 = performance.now();
+    document.getElementById('btnHardReset').click();
+    t1 = performance.now();
+    if (!box.hidden) seen.push(box.dataset.phase);
+    // (none: it never showed; the observer has nothing to wait for)
+    setTimeout(() => { mo.disconnect(); resolve({ seen, gone: box.hidden ? null : Infinity, shown: seen.length > 0 }); }, 2500);
+  }), fast);
+
+  // ---- off by default: no overlay at the start or at a power cycle, the checkbox clear ----
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(`default: ${e.message}`));
+    await page.goto(`${base}?machine=dragon64`);
+    await waitFor(page, () => window.emu && window.emu.started && window.emu.warmup);
+    await openTab(page, 'Display');
+    const lab = await page.evaluate(() => ({ label: document.getElementById('chkWarmup').parentElement.textContent.trim(), hint: document.getElementById('warmupHint').textContent.trim() }));
+    check('warmup: the Display tab\'s checkbox and its hint, word for word', lab.label === 'Old TV warm-up'
+      && lab.hint === 'A one-second warm-up when the machine is switched on. Never on shared links, with Reduce motion, or when the picture runs slow.', JSON.stringify(lab));
+    check('warmup: off by default (unchecked, nothing played at the start)', !(await page.isChecked('#chkWarmup')) && (await state(page)).plays === 0 && (await state(page)).blocked === 'off', JSON.stringify(await state(page)));
+    const c = await cycle(page);
+    check('warmup: off: Switch off and on draws nothing', !c.shown && (await state(page)).blocked === 'off', JSON.stringify(c));
+    // the checkbox turns it on, stores it, and puts it in a settings export
+    await page.check('#chkWarmup');
+    const on = await page.evaluate(() => ({ stored: localStorage.getItem('cloadm.oldTvWarmup'), exp: window.emu.session.exportSettings().settings.oldTvWarmup }));
+    check('warmup: the checkbox turns it on, stored and exported with the settings', on.stored === '1' && on.exp === '1', JSON.stringify(on));
+    await ctx.close();
+  }
+
+  // ---- on: the page's start and a power cycle ----
+  {
+    const { ctx, page } = await open('?machine=dragon64');
+    check('warmup: on: it played at the page\'s start', (await state(page)).plays >= 1, JSON.stringify(await state(page)));
+    await waitFor(page, () => document.getElementById('warmup').hidden);
+    await page.waitForTimeout(2200);   // (2 s of frames measured, so the 45 fps rule has its history)
+    // the meter counts every frame the page draws: its reading is the independent count's, over the same 2 s
+    const meter = await page.evaluate(() => { const now = performance.now();
+      return { meter: window.emu.warmup.rate.rate(now), counted: window.__rafTimes.filter((t) => t > now - 2000).length / 2 }; });
+    check('warmup: the frame-rate meter counts the page\'s real frames (its reading within 2 fps of an independent count of animation frames)',
+      meter.meter != null && meter.counted > 0 && Math.abs(meter.meter - meter.counted) <= 2, JSON.stringify(meter));
+    const c = await cycle(page, { fast: true });
+    check('warmup: Switch off and on: the overlay, a dot, then the opening line, then the fade', c.shown && c.seen.join() === 'dot,open,fade', JSON.stringify(c));
+    check('warmup: gone at 1.0 s: not before it, and by the start of the frame after the first frame that began at least 1.0 s after the power-on',
+      c.gone != null && c.limit != null && c.gone >= 1000 && c.gone <= c.limit, JSON.stringify(c));
+    // a Reset is not a power-on
+    const plays = (await state(page)).plays;
+    await page.click('#btnReset');
+    await page.waitForTimeout(200);
+    check('warmup: a Reset plays nothing', (await state(page)).plays === plays && !(await state(page)).playing, JSON.stringify(await state(page)));
+    // a machine switch is a power-on
+    // the meter read against the real frames again, after the power cycle and the Reset: it still counts every frame
+    // (the frames fed before the power cycle that are still in its window taken out); then the switch, in the same task
+    const sw = await page.evaluate(() => { const m = window.__meterCheck(); window.__warmupSteady(); window.emu.session.switchMachine('coco'); return { m, s: window.emu.warmup.state }; });
+    check('warmup: after a power-on and a Reset the meter still counts every real frame (its reading, less the frames fed to it, within 2 fps of the independent count)',
+      sw.m.meter != null && sw.m.counted > 0 && Math.abs(sw.m.meter - sw.m.fed - sw.m.counted) <= 2, JSON.stringify(sw.m));
+    check('warmup: a machine switch plays it', sw.s.plays === plays + 1 && sw.s.playing, JSON.stringify(sw.s));
+    await waitFor(page, () => document.getElementById('warmup').hidden);
+    await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
+    await waitFor(page, () => window.emu.session.welcomeRunning && document.getElementById('warmup').hidden);
+    // held at 300 ms: the over-bright opening line, over the canvas and the same size; the screenshot to look at
+    await page.evaluate(() => window.emu.warmup.freeze(300));
+    const at = await page.evaluate(() => {
+      const b = document.getElementById('warmup').getBoundingClientRect(), c = document.getElementById('screen').getBoundingClientRect();
+      const x = c.left + c.width / 2, y = c.top + c.height / 2;
+      return { phase: window.emu.warmup.state.phase, same: Math.abs(b.left - c.left) < 1 && Math.abs(b.top - c.top) < 1 && Math.abs(b.width - c.width) < 1 && Math.abs(b.height - c.height) < 1,
+        hit: document.elementFromPoint(x, y).id, events: getComputedStyle(document.getElementById('warmup')).pointerEvents };
+    });
+    check('warmup: at 300 ms the line is opening, laid exactly over the canvas, taking no pointer', at.phase === 'open' && at.same && at.hit === 'screen' && at.events === 'none', JSON.stringify(at));
+    if (shotDir) { await page.waitForTimeout(100); await page.locator('#monitor').screenshot({ path: path.join(shotDir, 'warmup-300ms.png') }); }
+    // the canvas under it is the machine's own picture: what was presented is the frame, not the overlay (a share
+    // card, a GIF and a screenshot are made from the frames, so none of them can hold it)
+    const pic = await page.evaluate(() => { const p = window.emu.presented(); let lit = 0; for (let i = 0; i < p.length; i += 4) if (p[i] + p[i + 1] + p[i + 2] > 60) lit++; return lit; });
+    check('warmup: the canvas under the overlay still holds the machine\'s picture', pic > 1000, String(pic));
+    // a key goes to the machine through it: 1 on the welcome menu talks to LIZA
+    await page.focus('#screen');
+    await page.keyboard.press('1');
+    check('warmup: a key passes through the overlay to the machine (1 on the menu: LIZA)', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.evaluate(() => window.emu.session.screenText().join('|')));
+    check('warmup: the focus stayed on the screen', await page.evaluate(() => document.activeElement.id) === 'screen');
+    await page.evaluate(() => window.emu.warmup.freeze(null));
+    // the Sharp view: none
+    await page.evaluate(() => window.emu.session.setDisplay({ view: 'sharp' }));
+    const sharp = await cycle(page);
+    check('warmup: never in the Sharp view', !sharp.shown && (await state(page)).blocked === 'view', JSON.stringify(sharp));
+    await page.evaluate(() => window.emu.session.setDisplay({ view: 'crt' }));
+    // the arrival card up: none (a shared moment's card, as js/ui/arrival.js shows it)
+    await page.evaluate(() => { window.emu.session.arrivedFromLink = { machine: 'dragon64' }; document.getElementById('arrival').hidden = false; });
+    check('warmup: never while the arrival card is up', !(await page.evaluate(() => window.emu.warmup.play())) && (await state(page)).blocked === 'arrival', JSON.stringify(await state(page)));
+    await ctx.close();
+  }
+
+  // ---- each excluded visit: nothing at the start, nothing at a power cycle ----
+  const excluded = [
+    ['a shared moment (#z=)', '?machine=dragon64#z=AAAA', {}, 'shared-link'],
+    ['a short link (#l=)', '?machine=dragon64#l=abc.def', {}, 'shared-link'],
+    ['a program page (start=2048)', '?start=2048', {}, 'program-page'],
+    ['?demo=1', '?machine=dragon64&demo=1', {}, 'demo'],
+    ['?embed=1', '?machine=dragon64&embed=1', {}, 'embed'],
+    ['Reduce motion', '?machine=dragon64', { ctxOpts: { reducedMotion: 'reduce' } }, 'reduced-motion'],
+    ['Save data', '?machine=dragon64', { init: () => { Object.defineProperty(navigator, 'connection', { configurable: true, get: () => ({ saveData: true }) }); } }, 'save-data'],
+    // below 45 fps: the page's animation frames run on every other display frame (about 30 a second)
+    ['a slow picture (30 fps)', '?machine=dragon64', { init: () => {
+      const raf = window.requestAnimationFrame.bind(window);
+      let pending = [], odd = false;
+      window.requestAnimationFrame = (fn) => { pending.push(fn); return pending.length; };
+      raf(function drive(t) { odd = !odd; if (!odd) { const q = pending; pending = []; for (const fn of q) fn(t); } raf(drive); });
+    } }, 'slow'],
+  ];
+  for (const [name, query, opts, why] of excluded) {
+    const { ctx, page } = await open(query, opts);
+    const first = await state(page);
+    if (why === 'slow') await page.waitForTimeout(2300);
+    const c = await cycle(page);
+    const s = await state(page);
+    // (the slow page's start had no 2 s of history: only the power cycle after it is measured)
+    check(`warmup: never with ${name}`, (why === 'slow' || first.plays === 0) && !c.shown && s.blocked === why && s.plays === first.plays, JSON.stringify({ first, c, s }));
+    await ctx.close();
+  }
+  check('warmup: no page errors', errors.length === 0, errors.join(' | '));
+}
+
+// "Suggest questions with Claude" (js/ui/claude-features.js, js/ui/ask.js; the rules are tests/claude-suggest.test.js):
+// the setting under Claude features (hidden while Off; disabled with "Needs your API key" without a key; the note's two
+// texts), no request while it is off, on a graphics screen or from the line under the screen; exactly one as the panel
+// opens on an empty chat (Haiku, 150 tokens, the screen's text and the machine's name), the page's own questions at
+// once and Claude's in their place under "Suggested by Claude" when they arrive; a tap fills the box and sends nothing;
+// a 3 s timeout or an invalid answer keeps the page's own; the key in no console line, memory, snapshot or export.
+async function askSuggestChecks(browser, base, check) {
+  const KEY = 'sk-ant-SUGGEST-CHECK-KEY-0123456789';
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
+  const QS = ['What is the built-in firmware?', 'How do I add my ROMs?', 'What can I load here?'];
+  const json = (text) => JSON.stringify({ id: 'msg', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', content: [{ type: 'text', text }], stop_reason: 'end_turn' });
+  const NOTE = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude either way until you ask.';
+  const NOTE_SUGGEST = 'Off hides Ask Claude, Claude in the command box and Chat with Claude. Nothing goes to Claude until you ask, or open an empty chat with Suggest questions on.';
+  const errors = [], consoleLines = [];
+  // a page, its requests to the API, and how the API answers: { body, delay }
+  const open = async (answerWith, { key = true, suggest = true } = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const requests = [];
+    await ctx.route('https://api.anthropic.com/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      requests.push({ body: JSON.parse(req.postData()), headers: req.headers() });
+      const a = answerWith();
+      if (a.delay) await new Promise((r) => setTimeout(r, a.delay));
+      try { await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: a.body }); } catch (e) { /* the page gave up on it */ }
+    });
+    await ctx.addInitScript(([k, s]) => { if (k) localStorage.setItem('cloadm.anthropicKey', k); if (s) localStorage.setItem('cloadm.claudeSuggest', '1'); }, [key ? KEY : null, suggest]);
+    const page = await ctx.newPage();
+    page.on('pageerror', (e) => errors.push(e.message));
+    page.on('console', (m) => consoleLines.push(m.text()));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    return { ctx, page, requests };
+  };
+  const qs = (page) => page.evaluate(() => ({ set: document.getElementById('askSuggest').dataset.set, qs: [...document.querySelectorAll('#askSuggest button')].map((b) => b.textContent),
+    by: !document.getElementById('askSuggestBy').hidden, strip: [...document.querySelectorAll('#askStripQs button')].map((b) => b.textContent) }));
+  const openPanel = async (page) => { await page.click('#btnAsk'); await waitFor(page, () => !document.getElementById('ask').hidden && document.querySelectorAll('#askSuggest button').length > 0, null, 5000); };
+  const closePanel = async (page) => { await page.click('#btnAskClose'); await waitFor(page, () => document.getElementById('ask').hidden, null, 5000); };
+
+  // ---- the setting: its words and its states ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)) }), { key: false, suggest: false });
+    await openTab(page, 'Machine');
+    const st = () => page.evaluate(() => ({ box: document.getElementById('claudeSuggestBox').checkVisibility(), dis: document.getElementById('chkClaudeSuggest').disabled,
+      checked: document.getElementById('chkClaudeSuggest').checked, nokey: document.getElementById('claudeSuggestNoKey').checkVisibility(),
+      nokeyText: document.getElementById('claudeSuggestNoKey').textContent, label: document.getElementById('chkClaudeSuggest').parentElement.textContent.trim(),
+      hint: document.getElementById('claudeSuggestHint').textContent, note: document.getElementById('claudeFeaturesNote').textContent,
+      after: document.getElementById('claudeFeaturesNote').nextElementSibling.id }));
+    const a = await st();
+    check('askSuggest: the setting directly after the Claude features note, word for word', a.after === 'claudeSuggestBox' && a.label === 'Suggest questions with Claude'
+      && a.hint === 'When you open an empty chat, sends the screen\'s text to Claude to suggest questions. Uses your API key.', JSON.stringify(a));
+    check('askSuggest: off by default; no key: shown, disabled, "Needs your API key" beside it', a.box && !a.checked && a.dis && a.nokey && a.nokeyText === 'Needs your API key', JSON.stringify(a));
+    check('askSuggest: off: the note is unchanged', a.note === NOTE, a.note);
+    await page.click('#btnClaudeOff');
+    check('askSuggest: Claude features Off: the setting is hidden', !(await st()).box);
+    await page.click('#btnClaudeOn');
+    await page.evaluate((k) => window.emu.session.setClaudeKey(k), KEY);
+    await page.evaluate(() => window.emu.session.setClaudeFeatures(true));   // (a sync: the key is not an event of its own)
+    const b = await st();
+    check('askSuggest: with a key: enabled, no "Needs your API key"', b.box && !b.dis && !b.nokey, JSON.stringify(b));
+    await page.check('#chkClaudeSuggest');
+    const c = await st();
+    check('askSuggest: on: stored, and the note says an empty chat sends too, word for word', c.checked && c.note === NOTE_SUGGEST
+      && await page.evaluate(() => localStorage.getItem('cloadm.claudeSuggest')) === '1', c.note);
+    await page.uncheck('#chkClaudeSuggest');
+    check('askSuggest: off again: the note as it was', (await st()).note === NOTE);
+    // Off: no request as the panel opens
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: the setting off: no request as the panel opens on an empty chat', requests.length === 0 && !(await qs(page)).by, String(requests.length));
+    const sends = await page.textContent('#askSendsLine');
+    check('askSuggest: off: the what-is-sent line does not mention suggested questions', !/Suggested questions/.test(sends), sends);
+    await ctx.close();
+  }
+
+  // ---- on: one request, the page's own questions first, Claude's in their place ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)), delay: 800 }));
+    // the line under the screen (the panel closed) never asks Claude
+    await page.waitForTimeout(1200);
+    const strip = await qs(page);
+    check('askSuggest: the line under the screen: the page\'s own questions, no request', requests.length === 0 && strip.strip.length > 0 && !strip.strip.some((q) => QS.includes(q)), JSON.stringify(strip));
+    await openPanel(page);
+    const first = await qs(page);
+    check('askSuggest: the panel opens with the page\'s own questions at once', first.qs.length === 3 && first.set !== 'claude' && !first.by && !first.qs.some((q) => QS.includes(q)), JSON.stringify(first));
+    const swapped = await waitFor(page, () => document.getElementById('askSuggest').dataset.set === 'claude', null, 5000);
+    const after = await qs(page);
+    check('askSuggest: Claude\'s questions replace them on arrival, under "Suggested by Claude"', swapped && after.by && JSON.stringify(after.qs) === JSON.stringify(QS)
+      && await page.textContent('#askSuggestBy') === 'Suggested by Claude', JSON.stringify(after));
+    if (shotDir) await page.locator('#ask').screenshot({ path: path.join(shotDir, 'ask-suggest-claude.png') });
+    check('askSuggest: exactly one request', requests.length === 1, String(requests.length));
+    const r = requests[0] || { body: {}, headers: {} }, content = (r.body.messages || [{}])[0].content || '';
+    const screen = await page.evaluate(() => window.emu.session.screenText().map((l) => l.trimEnd()).join('\n').trim());
+    check('askSuggest: the request: Haiku, 150 tokens, the machine\'s name and the screen\'s text only', r.body.model === 'claude-haiku-5-5' && r.body.max_tokens === 150
+      && JSON.stringify(Object.keys(r.body).sort()) === '["max_tokens","messages","model","system"]' && content === `Machine: Dragon 64\nScreen text:\n${screen}`
+      && r.headers['x-api-key'] === KEY, JSON.stringify({ content, screen }));
+    const sends = await page.textContent('#askSendsLine');
+    check('askSuggest: on: the what-is-sent line adds the suggested questions', sends.endsWith(' Suggested questions: the screen\'s text, when you open an empty chat.'), sends);
+    // a tap fills the message box, and sends nothing
+    await page.click(`#askSuggest button:text-is("${QS[1]}")`);
+    await page.waitForTimeout(800);
+    check('askSuggest: a tap fills the message box and sends nothing', await page.inputValue('#askInput') === QS[1] && requests.length === 1
+      && await page.evaluate(() => !window.emu.session.chat || !window.emu.session.chat.messages.length), String(requests.length));
+    await page.fill('#askInput', '');
+    // closed and opened again on the same screen: the strip has the page's own; no second request
+    await closePanel(page);
+    const strip2 = await qs(page);
+    check('askSuggest: closed: the line under the screen has the page\'s own questions, never Claude\'s', !strip2.strip.some((q) => QS.includes(q)) && !strip2.by, JSON.stringify(strip2));
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: opened again on the same screen: no second request', requests.length === 1, String(requests.length));
+    // the key: in no console line, the machine's memory, a snapshot or a settings export
+    const leak = await page.evaluate((k) => {
+      const m = window.emu.machine, bytes = [...k].map((c) => c.charCodeAt(0));
+      let inMem = false;
+      for (let a = 0; a < 0x10000 && !inMem; a++) { let j = 0; while (j < bytes.length && m.peek((a + j) & 0xFFFF) === bytes[j]) j++; if (j === bytes.length) inMem = true; }
+      return { inMem, inSnap: JSON.stringify(m.saveState()).includes(k), inExport: JSON.stringify(window.emu.session.exportSettings()).includes(k) };
+    }, KEY);
+    check('askSuggest: the key is in no console line, memory, snapshot or settings export', !leak.inMem && !leak.inSnap && !leak.inExport && !consoleLines.some((l) => l.includes(KEY)), JSON.stringify(leak));
+    await ctx.close();
+  }
+
+  // ---- no answer in 3 s, and an invalid answer: the page's own stay ----
+  for (const [name, answer] of [['no answer within 3 s', { body: json(JSON.stringify(QS)), delay: 5000 }], ['an invalid answer (four questions)', { body: json('["a?","b?","c?","d?"]') }]]) {
+    const { ctx, page, requests } = await open(() => answer);
+    await openPanel(page);
+    const first = await qs(page);
+    await page.waitForTimeout(name.startsWith('no') ? 4000 : 1500);
+    const later = await qs(page);
+    check(`askSuggest: ${name}: the page's own questions stay`, requests.length === 1 && !later.by && later.set !== 'claude' && JSON.stringify(later.qs) === JSON.stringify(first.qs), JSON.stringify({ n: requests.length, first, later }));
+    await ctx.close();
+  }
+
+  // ---- a graphics screen: the page's own only ----
+  {
+    const { ctx, page, requests } = await open(() => ({ body: json(JSON.stringify(QS)) }));
+    // (written until it holds: a menu start that lands after stubPrompt sets the text mode again)
+    check('askSuggest: (setup) the screen is in a graphics mode', await waitFor(page, () => {
+      const m = window.emu.machine; m.write(0xFF22, 0xF8); for (const a of [0xFFC0, 0xFFC3, 0xFFC5]) m.write(a, 0);
+      return window.emu.session.suggestInput() === null;
+    }, null, 10000));
+    await openPanel(page);
+    await page.waitForTimeout(1500);
+    check('askSuggest: a graphics screen: no request, the page\'s own questions', requests.length === 0 && !(await qs(page)).by && (await qs(page)).qs.length === 3, String(requests.length));
+    await ctx.close();
+  }
+  check('askSuggest: no page errors', errors.length === 0, errors.join(' | '));
 }
 
 const GROUPS = (base, site) => [
@@ -23791,6 +25558,7 @@ const GROUPS = (base, site) => [
   ['tape', (b) => tapeChecks(b, base, check)],
   ['layout', (b) => layoutChecks(b, base, check)],
   ['display', (b) => displayChecks(b, base, check)],
+  ['warmup', (b) => warmupChecks(b, base, check)],
   ['glLoss', (b) => glLossChecks(b, base, check)],
   ['pageLoop', (b) => pageLoopChecks(b, base, check)],
   ['landing', (b) => landingChecks(b, site, check)],
@@ -23813,6 +25581,7 @@ const GROUPS = (base, site) => [
   ['escChat', (b) => escChatChecks(b, base, check)],
   ['claude', (b) => claudeChecks(b, base, check)],
   ['ask', (b) => askChecks(b, base, check)],
+  ['askSuggest', (b) => askSuggestChecks(b, base, check)],
   ['commands', (b) => commandsChecks(b, site, check)],
   ['askFollowup', (b) => askFollowupChecks(b, base, check)],
   ['askStatus', (b) => askStatusChecks(b, base, check)],
@@ -23826,6 +25595,9 @@ const GROUPS = (base, site) => [
   ['share', (b) => shareChecks(b, base, site, check)],
   ['shortLink', (b) => shortLinkChecks(b, base, site, check)],
   ['basicShare', (b) => basicShareChecks(b, base, site, check)],
+  ['postcard', (b) => postcardChecks(b, base, site, check)],
+  ['programTape', (b) => programTapeChecks(b, base, check)],
+  ['sourceShare', (b) => sourceShareChecks(b, base, site, check)],
   ['favicon', (b) => faviconChecks(b, site, check)],
   ['closedViews', (b) => closedViewsChecks(b, base, check)],
   ['uiModel', (b) => uiModelChecks(b, base, check)],
@@ -23834,8 +25606,10 @@ const GROUPS = (base, site) => [
   ['menuWords', (b) => menuWordsChecks(b, base, check)],
   ['needsBasic', (b) => needsBasicChecks(b, base, check)],
   ['noRomChrome', (b) => noRomChromeChecks(b, base, check)],
+  ['romOnce', (b) => romOnceChecks(b, base, check)],
   ['romNotRom', (b) => romNotRomChecks(b, base, check)],
   ['toastOffScreen', (b) => toastOffScreenChecks(b, base, check)],
+  ['layoutBugs', (b) => layoutBugsChecks(b, base, check)],
   // (required when the group runs: the shard planner's copy of this file runs --list-groups without it)
   ['connector', (b) => require('./connector-check').connectorChecks(b, check, { shots: shotDir })],
 ];
@@ -23911,8 +25685,8 @@ const GROUPS = (base, site) => [
   }
 })();
 
-// The ROM state tells one story. Three surfaces say what the machine is doing: the side card ("Running with no
-// ROMs."), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
+// The ROM state tells one story. Three surfaces say what the machine is doing: the side card (none without ROMs,
+// "Running without your ROMs." with them in but unused), the screen (the welcome menu's option 3) and, on Your ROMs, the list of other machines that are "Also
 // ready to run BASIC". They used to disagree: with an unrecognised ROM loaded the card still said "no ROMs", and
 // after "Run without ROMs" the menu still offered "3 ADD YOUR ROMS FOR BASIC" when the ROMs were already in the
 // sockets. Measured on our own NOP image (a socket's usual name, the right size, not a known dump), so no real ROM
@@ -23942,8 +25716,9 @@ const romTruthChecks = async (browser, base, check) => {
   {
     await menuReady(/^\s*3\s+ADD YOUR ROMS/);
     const c = await card();
-    check('rom states: with no ROMs the side card says so, and the menu offers to add them',
-      !!c && /^Running with no ROMs\./.test(c.text) && /ADD YOUR ROMS/.test(await menuRow3()),
+    // (the link names the machine, so there is no machine question: no card. The menu alone says ROMs are needed)
+    check('rom states: with no ROMs there is no side card, and the menu offers to add them',
+      !c && /ADD YOUR ROMS/.test(await menuRow3()),
       `${c ? c.text.slice(0, 80) : '(no card)'} / menu: ${await menuRow3()}`);
   }
   // an unrecognised ROM: the machine now runs it, so the card must stop saying "no ROMs" (the menu is gone with it)
@@ -23951,8 +25726,8 @@ const romTruthChecks = async (browser, base, check) => {
   const ran = await waitFor(page, () => !window.emu.session.machineRoms('coco').sockets.find((s) => s.id === 'bas').status.startsWith('missing'), null, 15000);
   check('rom states: the unrecognised ROM is loaded (the probe of the other checks)', ran, await romStatus(page, 'coco'));
   await emuFrames(page, 20);
-  // the first visit's own card must SURVIVE the things that fire the same events: a machine picked in its question,
-  // and a Reset. (Regression: refreshCard's 'empty' state hid a 'first' card on 'machine' and 'reset'.)
+  // the first visit's own card is the machine question: answering it takes the card away, and the events that fire with
+  // the answer and a Reset never bring back a no-ROM card (refreshCard never draws 'empty')
   {
     const ctxF = await guardedContext(browser, archive);
     const pf = await ctxF.newPage();
@@ -23962,14 +25737,14 @@ const romTruthChecks = async (browser, base, check) => {
     await pf.goto(base);
     await waitFor(pf, () => !!(window.emu && window.emu.session && window.emu.started === true), null, 40000);
     await emuFrames(pf, 15);
-    const before = await kind();
+    const before = await kind(), asked = await pf.evaluate(() => !!document.querySelector('#welcome #askMachine'));
     await pf.evaluate(() => { const b = document.querySelector('#askMachine [data-machine]'); if (b) b.click(); });
     await emuFrames(pf, 20);
-    check('rom states: the first visit\'s card survives a machine picked in its own question', before === 'first' && (await kind()) === 'first',
-      `${before} -> ${await kind()}`);
+    check('rom states: the first visit\'s card is the machine question, and goes once a machine is picked in it', before === 'first' && asked && (await kind()) === null,
+      `${before} (asked: ${asked}) -> ${await kind()}`);
     await pf.evaluate(() => window.emu.session.personMachine && document.querySelector('[data-action="reset"], #btnReset') && (document.getElementById('btnReset') || { click() {} }).click());
     await emuFrames(pf, 20);
-    check('rom states: ...and survives a Reset', (await kind()) === 'first', String(await kind()));
+    check('rom states: ...and a Reset brings no card back', (await kind()) === null, String(await kind()));
     check('rom states: no page errors (first visit)', errsF.length === 0, errsF.join(' | '));
     await ctxF.close();
   }

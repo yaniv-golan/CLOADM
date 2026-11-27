@@ -4,7 +4,8 @@
  *
  * Detection comes from the Session's and the machine's state, never from pixels: promptState(session) reads it,
  * promptsFor(state) is a pure table lookup, and promptsNow(session) is the two together with the fallback set on any
- * error (never zero chips). Nothing is ever sent to a model to make prompts: the sets are fixed text.
+ * error (never zero chips). Nothing is ever sent to a model to make these: the sets are fixed text. (Claude's own
+ * suggestions, with the setting on, are js/claude/suggest.js; these always show first.)
  *
  * Priority, first match wins:
  *   P1 the Debugger has the machine stopped            stopped

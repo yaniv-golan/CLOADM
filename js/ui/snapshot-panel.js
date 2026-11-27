@@ -2,17 +2,18 @@
  * Opening snapshots: a .cloadm file dropped on the screen or picked with Insert…, or the
  * snapshot a long link carries (#z=; js/ui/share.js writes them) or a short link's moment
  * (#l=<id>.<key>, fetched from s.cloadm.dev and opened with its key here; a short link that holds a BASIC program
- * instead goes to openProgram: js/ui/arrival.js). If it needs ROMs this browser doesn't
+ * instead goes to openProgram, a LIZA postcard to openPostcard, a program's source to openSource: js/ui/arrival.js). If it needs ROMs this browser doesn't
  * have, a card ("This moment needs Dragon 64 BASIC") offers Add ROMs
  * (and the moment opens as soon as they are added) or a look around that machine without them; if it is of
- * another model or config, the usual switch confirmation asks first. The toast that says a snapshot opened offers
+ * another model or config, the usual switch confirmation asks first (a link's moment only when the page holds something
+ * of the person's to lose: Session.switchLoses). The toast that says a snapshot opened offers
  * "Start over" (startOver: the program the moment is of from its beginning, else a power cycle; js/ui/main.js).
  */
 import { Session, SessionError, SnapshotRomsError } from '../session.js';
 import { looksLikeSnapshot } from '../media/snapshot.js';
 import { $, ESC } from './page.js';
 
-export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, openProgram }) {
+export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, openProgram, openPostcard, openSource }) {
   const { session } = page;
   let waiting = null;    // a snapshot waiting for its ROMs
   let waitingOpts = {};  // and how it came (open's options: a link's moment is still one when its ROMs arrive)
@@ -44,8 +45,12 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
     try { session.snapshotRoms(snap); }
     catch (e) { if (e instanceof SnapshotRomsError) { needsRoms(snap, e, opts); return; } throw e; }
     const sw = session.snapshotSwitch(snap);
-    // (its message says what the switch took out, as a switch from the menu does)
-    if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => opened(snap, { shared, link }, said ? `.${said}` : ''));
+    // (its message says what the switch took out, as a switch from the menu does). A link's moment on a page that holds
+    // nothing of the person's (a first visit's welcome menu, a fresh BASIC: Session.switchLoses) opens without asking:
+    // the question is there to protect their work, and there is none to lose. (A question already open, the person's
+    // own switch from the menu asked while the link was fetched, is answered by the link's question instead.)
+    if (sw && link && !session.switchLoses(sw.machine, sw.config) && $('switchConfirm').hidden) { opened(snap, { shared, link }); page.focus(); }
+    else if (sw) confirmSwitch({ name: sw.text, id: sw.machine, config: sw.config }, (taken, said) => opened(snap, { shared, link }, said ? `.${said}` : ''));
     else { opened(snap, { shared, link }); page.focus(); }
   }
   // a file that may be a snapshot: opened (true), or false to load it as anything else
@@ -89,7 +94,7 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
 
   // a short link's moment (#l=<id>.<key>): fetched from the store and opened with the key, which never leaves the page;
   // the fragment is removed either way. Shared, as a long link's is: a moment without ROMs arrives quietly
-  // (Session.sharedMoment: no no-ROM card or "No BASIC" pill beside the arrival card)
+  // (Session.sharedMoment: no side card or "Add ROMs…" beside the arrival card)
   async function takeShortLink(hash, store) {
     let got;
     try { got = await session.readShortLink(hash, store); }
@@ -98,6 +103,10 @@ export function setupSnapshotPanel(page, { confirmSwitch, openRoms, startOver, o
     history.replaceState(null, '', location.pathname + location.search);
     // a program's short link (Share your program): its program arrives as a program link's does
     if (got.program) { openProgram(got.program, { kind: 'short', id: got.id }); return true; }
+    // a LIZA postcard's short link: LIZA starts afresh and the card offers its replay (js/ui/arrival.js)
+    if (got.postcard) { await openPostcard(got.postcard, { kind: 'short', id: got.id }); return true; }
+    // a program's source: the Assembler holds it, nothing runs (js/ui/arrival.js)
+    if (got.source) { await openSource(got.source, { kind: 'short', id: got.id }); return true; }
     open(got.snap, { shared: true, link: { kind: 'short', id: got.id } });
     return true;
   }

@@ -1,0 +1,9 @@
+{
+ "what": "a long link (#z=) holding a program's source",
+ "format": {
+  "linkByte0": 4,
+  "sourceFormat": 1
+ },
+ "machine": "dragon64",
+ "z": "BE2QwW6DMBBEf8Wa5la3ciglwbekRL3QGBEOHLhYDqRIeF2Zppco_145UKV7Wc3T7Iy0F3TOW_0NCTM4fbRPerTg-Gn92DuCXHJYbT57aiFx9PrkKInBYRx1_QnyAvN1hkSyFik4vLaQScwxjgYS5KjFlYO0DfddPwzPU8Hozt4ExuZR5fttL1ZCiIYO1aasGGN5Vt_ww0LEgf_Z82wz83jZUK5UEdShmiivH-_Wt4-iniOS_xHb_W6KUqpoKFOT3JZTRNB3726fsbmgrBoKD_AGMlq_RnEavaTR9Rc"
+}

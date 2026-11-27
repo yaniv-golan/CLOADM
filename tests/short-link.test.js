@@ -54,15 +54,15 @@ function server({ fail: failWith = null } = {}) {
     check('sealing: round trip, with its kind', opened.kind === 1 && Buffer.from(opened.bytes).equals(Buffer.from(msg)));
     const p = await Emu.sealMoment(msg, Emu.SEALED_KIND.program), po = await Emu.openMoment(p.sealed, p.key);
     check('sealing: a program\'s kind is byte 1 = 2, and comes back', p.sealed[0] === 1 && p.sealed[1] === 2 && po.kind === 2 && Buffer.from(po.bytes).equals(Buffer.from(msg)));
-    check('sealing: an unknown kind is refused before anything is sealed', (await rejects(Emu.sealMoment(msg, 3))) instanceof Emu.LinkCryptoError);
+    check('sealing: an unknown kind is refused before anything is sealed', (await rejects(Emu.sealMoment(msg, 5))) instanceof Emu.LinkCryptoError);
     // the header is authenticated: a kind swapped in the clear does not open, even with the key
     const swapped = p.sealed.slice(); swapped[1] = 1;
     check('sealing: the clear header is authenticated (a program re-labelled a moment does not open)', (await rejects(Emu.openMoment(swapped, p.key))) instanceof Emu.LinkCryptoError);
     const newer = a.sealed.slice(); newer[0] = 2;
     const ne = await rejects(Emu.openMoment(newer, a.key));
     check('sealing: a later sealed format says it is from a newer CLOADM', ne instanceof Emu.LinkCryptoError && /newer CLOADM \(sealed format 2; this page reads 1\)/.test(ne.message), ne && ne.message);
-    // under version 1, a kind kept for later (3 to 31) is a newer CLOADM's, so a later kind can be added under version 1
-    for (const k of [3, 31]) {
+    // under version 1, a kind kept for later (past the last kind, to 31) is a newer CLOADM's, so a later kind can be added under version 1
+    for (const k of [5, 31]) {
       const x = a.sealed.slice(); x[1] = k;
       const xe = await rejects(Emu.openMoment(x, a.key));
       check(`sealing: kind ${k} under version 1: from a newer CLOADM, not damaged`, xe instanceof Emu.LinkCryptoError && /newer CLOADM/.test(xe.message) && !/damaged/.test(xe.message), xe && xe.message);

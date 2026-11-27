@@ -28,8 +28,8 @@ import { SessionError } from '../errors.js';
 import { asToolError, toolErrorJson } from './toolerrors.js';
 import { apiMessages } from './history.js';
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
-const API_VERSION = '2026-10-21';
+export const API_URL = 'https://api.anthropic.com/v1/messages';
+export const API_VERSION = '2026-10-21';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
 const MAX_TOOL_ROUNDS = 8;          // a runaway tool loop stops rather than spending without bound
 export const STALL_MS = 60000;      // no bytes for this long ends the request as 'stalled' (see above)

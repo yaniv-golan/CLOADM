@@ -36,6 +36,8 @@ export const COMMANDS = [
   ['Save the tape as .WAV', 'the tape in the deck, or the last recording', 'save tape wav cassette record', 'btnTapeWav', 'Files',
     (page) => (hasTape(page) || (page.tape && page.tape.recorded()) ? null : { state: 'No tape in', why: 'No tape in and nothing recorded yet.' })],
   ['Record to tape', 'CSAVE becomes a .CAS file', 'record tape cas csave save', 'btnRecord', 'Files'],
+  ['Save program as .CAS/.WAV', 'the BASIC program in memory as a tape', 'save program basic tape cas wav c10 cload', (page) => page.share.openProgramTape(), 'Files',
+    (page) => (page.session.basicProgramBytes() ? null : { state: 'No BASIC program', why: 'There is no BASIC program in memory.' })],
   ['Share', 'a share link, a clip, a screenshot', 'share link clip screenshot capture embed', 'btnShare', 'Files'],
   ['Programs', 'the welcome menu, LIZA, the games; what ran here before', 'programs games demos liza run', (page) => page.openPrograms(), 'Views'],
   ['WYRMFIRE', 'a 3D game for the Dragon 64, with the Freedoom level', 'doom game 3d freedoom wyrmfire', (page) => page.wyrmfire.start(), 'Views'],

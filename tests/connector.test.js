@@ -29,7 +29,7 @@ const J = JSON.stringify;
 
 (async () => {
   const build = await imp('connector/build.js');
-  const { createServer, ORIGIN, MIME } = await imp('connector/worker/src/server.js');
+  const { createServer, ORIGIN, MIME, ALLOWED_ORIGINS } = await imp('connector/worker/src/server.js');
   const panel = await imp('connector/view/tools.js');
   const T = await imp('js/mcp/tools.js');
   const { Session } = await imp('js/session.js');
@@ -77,6 +77,17 @@ const J = JSON.stringify;
   const invalid = await post({ id: 1, method: 'ping' });
   const big = await post(null, J({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(70000) } }));
   const method = await post({ jsonrpc: '2.0', id: 8, method: 'prompts/list' });
+  // Origin: absent (a server-side client) and allowed ones pass; any other browser Origin is 403 on every method
+  const withOrigin = async (origin, method = 'POST') => {
+    const r = await worker.fetch(new Request('https://mcp.cloadm.dev/mcp', { method, body: method === 'POST' ? J({ jsonrpc: '2.0', id: 9, method: 'tools/list' }) : undefined,
+      headers: { 'content-type': 'application/json', origin } }));
+    const t = await r.text();
+    return { status: r.status, body: t ? JSON.parse(t) : null };
+  };
+  const allowed = await Promise.all(ALLOWED_ORIGINS.map((o) => withOrigin(o)));
+  const denied = await Promise.all(['https://evil.example', 'http://claude.ai', 'https://claude.ai.evil.example', 'https://evil.claude.ai', 'https://claude.ai:8443',
+    'http://localhost:6274', 'null', '', 'https://CLAUDE.AI'].map((o) => withOrigin(o)));
+  const deniedGet = await withOrigin('https://evil.example', 'GET');
   for (const k of Object.keys(saved)) console[k] = saved[k];
 
   // git as the build runs it; null where it cannot answer (no git binary, or not a checkout: a source archive)
@@ -145,6 +156,12 @@ const J = JSON.stringify;
   check('HTTP: GET 405, other paths 404, a parse error 400, a non-JSON-RPC body 400, a body over 64 KiB 413, an unknown method -32601',
     get.status === 405 && get.headers.get('allow') === 'POST' && other.status === 404 && parse.status === 400 && parse.body.error.code === -32700
     && invalid.status === 400 && big.status === 413 && method.body.error.code === -32601);
+  check('Origin: no Origin header (claude.ai\'s backend, Claude Code, curl) is served', list.status === 200 && list.body.result.tools.length === 2);
+  check('Origin: the allowed ones (claude.ai, claude.com, the Worker\'s own) are served', J(ALLOWED_ORIGINS) === J(['https://claude.ai', 'https://claude.com', 'https://mcp.cloadm.dev'])
+    && allowed.every((r) => r.status === 200 && r.body.result.tools.length === 2), J(allowed.map((r) => r.status)));
+  check('Origin: any other is 403 with a JSON-RPC error that has no id (other scheme, look-alike host, subdomain, port, localhost, "null", empty, not the browser\'s lowercase form), on GET too',
+    denied.every((r) => r.status === 403 && r.body.jsonrpc === '2.0' && !('id' in r.body) && r.body.error.code === -32600 && /Origin/.test(r.body.error.message))
+    && deniedGet.status === 403, J(denied.map((r) => r.status)) + ' GET ' + deniedGet.status);
   check('the Worker writes nothing to the console (no request is logged)', logged.length === 0, J(logged).slice(0, 200));
   const workerSrc = ['server.js', 'index.js'].map((f) => fs.readFileSync(path.join(ROOT, 'connector/worker/src', f), 'utf8')).join('\n');
   const toml = fs.readFileSync(path.join(ROOT, 'connector/worker/wrangler.toml'), 'utf8');

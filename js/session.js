@@ -30,7 +30,7 @@ import { Profiler } from './profiler.js';
 import { disassembleBlock } from './asm/disassembler.js';
 import { formats } from './media/formats.js';
 import { Tape } from './media/tape.js';
-import { casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
+import { buildCas, casBlocks, casToWav, recordingToSamples, samplesToCas, writeWav } from './media/cassette.js';
 import { FAMILY_NAMES, detectMedia } from './media/detect.js';
 import { MediaIndex, LIBRARY_PREFIX, migrateLocalStorage } from './media/library.js';
 import { MediaLibrary, DISK_PREFIX, DW_PREFIX, GAMES_PREFIX, MEDIA_MOVE_WAIT_MS } from './library.js';
@@ -50,6 +50,7 @@ import { BASIC_PROGRAM_TEXT_MAX, loadBasic as loadBasicInto, planBasic } from '.
 import { transcript } from './claude/history.js';
 import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
+import { Suggester } from './claude/suggest.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
 // (one text for every paused state: whether a call waits, typing is held, or Claude only writes its reply,
@@ -86,11 +87,13 @@ import { RomLibrary, identifyRoms, isBootable, isRomPack, looksLikeRom, makeRomP
 import { writeZip } from './media/zip.js';
 import { programPage } from './program-pages.js';
 import { SEALED_KIND, sealMoment, openMoment } from './media/link-crypto.js';
+import { LizaPostcards } from './postcard.js';
+import { SourceShares } from './source-share.js';
 import { encodeIndexedPng } from './media/png.js';
 import { shareCardPicture } from './video/bezel.js';
 import { SNAPSHOT_EXT, SnapshotError, decodeSnapshot, decodeLongLink, encodeSnapshot, encodeLongLink, encodeProgramLink, decodeProgramLink, isProgramLink } from './media/snapshot.js';
 import { DIALECTS, buildProgram, parseProgram, readProgram, uncrunch } from './media/basic.js';
-import { missingImages, restoreRoms, stripRoms } from './media/romrefs.js';
+import { missingImages, restoreRoms, stripRoms, romWindowIn } from './media/romrefs.js';
 import { crc32, hex, registry, toBase64Url, fromBase64Url } from './util.js';
 import { buildUrl, NITROS9_MACHINES } from './config.js';
 import { WYRMFIRE_PIN } from './wyrmfire/pin.js';
@@ -129,9 +132,9 @@ export const WELCOME = Object.freeze({
   // build's line has the room for "CARRY ON WITH MINESWEEPER")
   '6809': Object.freeze({ file: 'welcome.bin', start: 0x6000, event: 0x6003, soundOk: 0x6004, played: 0x6005, greet: 0x6006, carry: 0x6007, romsw: 0x6022, carryMax: 26 }),
   '6803': Object.freeze({ file: null, start: 0x5000, event: 0x5003, soundOk: 0x5004, played: 0x5005, greet: 0x5006, carry: 0x5007, romsw: 0x5020, carryMax: 24 }),
-  // the choices 1-7: keys 1-4 of the menu, its carry-on line (key 5 on the 6803 build, 6 on the 6809 one), and the
-  // 6809 build's games menu (key 5, then 1 or 2)
-  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper']),
+  // the choices 1-8: keys 1-4 of the menu, its carry-on line (key 6), the 6809 build's games menu (key 5, then 1 or
+  // 2), and WYRMFIRE (the 6809 build's games menu key 3; the 6803 build's key 5)
+  events: Object.freeze(['liza', 'demo', 'roms', 'claude', 'carryon', '2048', 'minesweeper', 'wyrmfire']),
   greetings: Object.freeze(['first', 'back', 'bye']),   // greet: 0 the first visit, 1 "WELCOME BACK", 2 "BYE FOR NOW. PICK ANOTHER?"
 });
 // The games (examples/2048.asm, examples/minesweeper.asm): 6809 programs at $3000 that share a fixed header
@@ -154,8 +157,11 @@ export const PROGRAM_CONTROLS = Object.freeze({
   liza: Object.freeze({ input: 'keyboard', extra: Object.freeze([]), joystick: false }),
   // WYRMFIRE's keys (its README, and src/native.c's key scan): the arrows move and turn, Z and X strafe, SPACE fires,
   // E opens a door or uses the exit, 1 to 3 pick a weapon, ENTER skips a cue or restarts. `big`: the two keys the
-  // touch pad gives its big buttons (FIRE and USE)
-  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]) }),
+  // touch pad gives its big buttons (FIRE and USE). `thumb`: the pad's arrows are an 8-way thumb stick, and the
+  // switch is Keys | Pad (the game reads the keyboard, not the joystick). `groups`: the extra keys in labelled groups,
+  // [caption, [[key, label], ...]] (STRAFE ◀ ▶ for Z and X, WEAPON 1 2 3)
+  wyrmfire: Object.freeze({ input: 'arrows', extra: Object.freeze(['Z', 'X', '1', '2', '3']), joystick: false, big: Object.freeze([['SPACE', 'FIRE'], ['E', 'USE']]),
+    thumb: true, groups: Object.freeze([Object.freeze(['STRAFE', Object.freeze([['Z', '◀'], ['X', '▶']])]), Object.freeze(['WEAPON', Object.freeze([['1', '1'], ['2', '2'], ['3', '3']])])]) }),
 });
 // "Your game files" in the media store (Session.saveGameFile): the converted level and what it was converted from
 export const GAME_FILE = Object.freeze({ disk: `${GAMES_PREFIX}wyrmfire-own.vdk`, meta: `${GAMES_PREFIX}wyrmfire-own.json` });
@@ -266,6 +272,8 @@ const SETTINGS = {
   keyboardJoystick: (v) => v === '1' || v === '0',
   tapeSound: (v) => v === '1' || v === '0',
   claudeFeatures: (v) => v === '1' || v === '0',   // Settings -> Claude features: On ('1', the default) / Off ('0')
+  oldTvWarmup: (v) => v === '1' || v === '0',      // Display -> Old TV warm-up: on ('1') / off ('0', the default)
+  claudeSuggest: (v) => v === '1' || v === '0',    // Settings -> Suggest questions with Claude: on ('1') / off ('0', the default)
   'display.settings': (v) => { const o = parseObject(v); return !!o && Object.entries(o).every(([k, x]) => Object.hasOwn(DISPLAY_VALID, k) && DISPLAY_VALID[k](x)); },
 };
 function validSetting(k, v) {
@@ -667,6 +675,10 @@ export class Session {
     // load: touch), another snapshot, a switch, a Reset or a power cycle (leaveSharedMoment). The page's arrival card
     // shows while it is set, and screen-aware prompts can read it.
     this.arrivedFromLink = null;
+    // LIZA postcards (js/postcard.js): the chat LIZA is hearing, and a postcard's replay on arrival
+    this.postcards = new LizaPostcards(this);
+    // a program shared as its source (js/source-share.js)
+    this.sources = new SourceShares(this);
     // The stored-ROM CRCs that did not start BASIC, per machine (Map<Machine, Set<crcs>>): a fresh try is a power-on
     // or a switch, which forgets them (poweredOn clears every machine's; adopt forgets the machine left behind), and
     // another set of ROMs is another key (storedRomsWaiting).
@@ -925,6 +937,7 @@ export class Session {
     m.reset(true);
     this.lastRate = this.cpuRate() && this.cpuRate().rate;
     this.emit('machine');
+    this.emit('poweron');   // (a machine switch switches the new one on: the page's Old TV warm-up, js/ui/warmup.js)
     if (menu) this.offerMenu(offer, 'switch');   // switched on without ROMs: the welcome menu
     return m;
   }
@@ -944,6 +957,17 @@ export class Session {
     for (const d of this.drives.status().drives) out.push({ kind: 'disk', name: d.file, drive: d.drive, stored: d.stored });
     return out;
   }
+  // Would switching the machine on screen to model id (config) lose something of the person's? Their input reached it
+  // or their BASIC session beside the chat (touches: a key, a typed line, a load, an assembled program run, a POKE, a
+  // disk or tape going in; a BASIC program typed or a game played is one), or the switch would take something out
+  // (takenOut). A page just opened, on its welcome menu or a fresh BASIC, holds neither: a link's moment opens on its own
+  // machine without the switch question (js/ui/snapshot-panel.js).
+  switchLoses(id, config = this.savedConfig(id)) {
+    return this.touches() > 0 || this.touches(this.personMachine) > 0 || this.takenOut(id, config).length > 0;
+  }
+  // the file name of the cartridge in machine m's port as the Library shows it, or null when it came without one (a
+  // snapshot's, a Multi-Pak's): the Share screen names it to whoever opens a link that needs the same cartridge
+  cartridgeName(m = this.shownMachine) { return (m && m.cartPort && this.cartFiles.get(m.cartPort)) || null; }
   // Set (or clear) the stub-restart record of machine m (default: the machine in use). Kept per machine: the
   // chat machine and the BASIC session beside it each have their own, and the one on screen reads this.stubRun.
   setStubRun(m, rec = null) {
@@ -1478,6 +1502,8 @@ export class Session {
     m.reset(true);
     this.acc = 0;
     this.poweredOn();
+    // the machine on screen switched off and on: the page's Old TV warm-up (js/ui/warmup.js) may play
+    if (m === this.shownMachine) this.emit('poweron');
     if (menu) this.offerMenu(null, 'reset');
   }
   // ROMs removed from storage while m ran them come out now, at a switch off and on: its sockets are filled again
@@ -1777,6 +1803,10 @@ export class Session {
   // the welcome menu's own item stays, as it is the firmware's. Kept in the store, so it is in a settings export.
   get claudeFeatures() { return this.store.get('claudeFeatures') !== '0'; }
   setClaudeFeatures(on) { this.store.set('claudeFeatures', on ? '1' : '0'); this.emit('claudefeatures', !!on); }
+  // Display -> "Old TV warm-up": off (the default) or on. A look the page draws at a power-on (js/ui/warmup.js), never
+  // the machine's; kept in the store, so it is in a settings export, and no link sets it.
+  get oldTvWarmup() { return this.store.get('oldTvWarmup') === '1'; }
+  setOldTvWarmup(on) { this.store.set('oldTvWarmup', on ? '1' : '0'); this.emit('display'); }
   // settings export: every stored setting except ROMs and stored media files
   exportSettings() {
     const keys = (this.store.keys ? this.store.keys() : []).filter((k) => validSetting(k, this.store.get(k))).sort();
@@ -1925,7 +1955,7 @@ export class Session {
       pictureNote: preview && !png ? 'This screen has too many colours for a preview picture, so the link has none.' : null };
   }
   // a URL's fragment ('#l=<id>.<key>', where a short link's arrival page sends it) -> { snap, id } (or { program, id }
-  // for a program's short link: programShortLink), null when it has
+  // for a program's short link: programShortLink; { postcard, id } for a LIZA postcard's, { source, id } for a source's), null when it has
   // none; SessionError saying why it can't open (removed, damaged, not reachable)
   async readShortLink(hash, store) {
     const m = /^#?l=([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]+)$/.exec(hash || '');
@@ -1940,6 +1970,10 @@ export class Session {
     catch (e) { throw new SessionError(/newer CLOADM/.test(e.message) ? e.message : `This short link can't be opened: ${e.message}`); }
     // the sealed object says what it holds (js/media/link-crypto.js): a program's link bytes (programShortLink), or a
     // moment's .cloadm file; what it holds must be that
+    // a LIZA postcard's link bytes (js/postcard.js)
+    if (kind === SEALED_KIND.postcard) return { postcard: await this.postcards.fromBytes(bytes), id: m[1] };
+    // a program's source (js/source-share.js)
+    if (kind === SEALED_KIND.source) return { source: await this.sources.fromBytes(bytes), id: m[1] };
     if (kind === SEALED_KIND.program) {
       if (!isProgramLink(bytes)) throw new SessionError('This link\'s program is damaged: it was cut short or changed on the way.');
       let prog;
@@ -1977,6 +2011,49 @@ export class Session {
     }
     return same ? { lines: prog.lines.length, text, refusal: null } : { lines: prog.lines.length, text: null, refusal };
   }
+  // ---------------- the BASIC program as a tape ----------------
+  // "Download .CAS" and "Download .WAV" (Share's program mode, "More ways to share"): the BASIC program in memory on the
+  // machine on screen as CSAVE writes it (js/media/cassette.js buildCas: one tokenised BASIC file, its namefile, data
+  // blocks and EOF), and that tape as the signal a player plays (casToWav, a player's gaps). Its bytes are the program
+  // as BASIC keeps it (TXTTAB up to VARTAB), whatever is in it, so a program that can't be shared as text still makes
+  // a tape. Never a byte of a ROM: a program holding a run of the machine's ROMs or a cartridge's is refused.
+  // name: the file's name on the tape (programTapeName cleans it) -> { name: NAME.CAS (NAME.C10 on the MC-10 family) or
+  // NAME.WAV, bytes, family: 'dragon' | 'coco' | 'mc10' }; SessionError when there is no BASIC program in memory.
+  static TAPE_FAMILY_NAMES = Object.freeze({ dragon: 'Dragon', coco: 'CoCo', mc10: 'MC-10' });
+  // a name as a tape file's: upper case, letters and digits only, at most 8; the file's extension and anything else
+  // dropped (a loaded "my game.bas" -> MYGAME), "PROGRAM" when nothing is left
+  static programTapeName(name) {
+    const n = String(name || '').replace(/\.[A-Za-z0-9]{1,4}$/, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return n || 'PROGRAM';
+  }
+  // the name the tape's field starts with: the loaded file's (cleaned), else PROGRAM
+  programTapeDefault() { return Session.programTapeName(this.lastLoaded ? this.lastLoaded.name : ''); }
+  // the program's bytes as BASIC keeps them, or null when the machine on screen has no BASIC program in memory
+  basicProgramBytes(m = this.shownMachine) {
+    const dialect = DIALECTS[m.profile.lineage];
+    if (!dialect || !m.hasRom || this.nitros9On(m)) return null;
+    const rd = (a) => this.readByte(a & 0xFFFF, m), word = (a) => (rd(a) << 8) | rd(a + 1);
+    const p = dialect.pointers, start = word(p.txttab), vartab = word(p.vartab);
+    if (!(start > 0 && start < 0xFFFF)) return null;
+    const prog = readProgram(rd, start, Math.min(0x10000, vartab + 1));
+    if (!prog || !prog.lines.length || prog.end + 1 !== vartab) return null;
+    return Uint8Array.from({ length: vartab - start }, (_, i) => rd(start + i));
+  }
+  programTape(name, { wav = false } = {}, m = this.shownMachine) {
+    const data = this.basicProgramBytes(m);
+    if (!data) throw new SessionError('There is no BASIC program in memory to save as a tape.');
+    const images = m.profile.roms.filter((r) => m.roms[r.id]).map((r) => ({ bytes: m.roms[r.id] }));
+    const cart = m.cartPort && typeof m.cartPort.rom === 'function' ? m.cartPort.rom() : null;
+    if (cart && cart.length) images.push({ bytes: cart });
+    if (images.length && romWindowIn(data, images)) throw new SessionError('Not saved: the program contains bytes of your ROMs.');
+    const family = m.profile.lineage, tape = Session.programTapeName(name);
+    const cas = buildCas([{ name: tape, type: 'basic', data }], { family });
+    if (wav) return { name: `${tape}.WAV`, bytes: casToWav(cas, { family, gaps: 'player' }), family };
+    return { name: `${tape}.${family === 'mc10' ? 'C10' : 'CAS'}`, bytes: cas, family };
+  }
+  // what the tape's note says: which BASIC it is for
+  static programTapeNote(family) { return `For ${Session.TAPE_FAMILY_NAMES[family]} BASIC: CLOAD it in another emulator, or play the WAV into a real machine's cassette port.`; }
+
   // The program as a long link (Share's program mode): this machine's link with the program in the fragment (#z=,
   // js/media/snapshot.js encodeProgramLink: byte 0 is 2, the program link) -> the URL. prog: sharedProgram()'s.
   async programLink(base, prog = this.sharedProgram()) {
@@ -2174,7 +2251,7 @@ export class Session {
   // reported as a boot failure 5 s after it comes back. A later Reset or power-on clears the flag, so the
   // watchdog is armed again for it.
   // shared: the moment came from a share link (#z=, js/ui/snapshot-panel.js). One that runs without ROMs is the
-  // person's arrival on someone else's moment (sharedMoment): the page holds back its no-ROM card and "No BASIC" pill
+  // person's arrival on someone else's moment (sharedMoment): the page holds back its side card and "Add ROMs…"
   // until they leave it (leaveSharedMoment).
   // link: { kind: 'long' | 'short', id } when the moment came from a link (#z= or #l=): arrivedFromLink, the page's
   // arrival card, until the person acts. Any other snapshot opened ends an earlier arrival.
@@ -2515,9 +2592,15 @@ export class Session {
   // run: false types a BASIC listing without the RUN after it (the MCP server's load; the page always runs it)
   // ours: one of the project's own programs (LIZA, the colour demo, the games), which never need BASIC: the "needs
   // BASIC" detector is armed only for the person's own (js/needs-basic.js)
-  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false } = {}) {
+  // noRoms: start it on the built-in firmware, without the person's ROMs, even when they have stored ROMs for this model
+  // (only the page asks, for a program page and the Programs list: js/ui/welcome.js): the program never needs them, and a
+  // moment of it then holds none of their code, so it can have a short link and anyone can open it. Only this run is
+  // without them (stubChosen, as the welcome menu makes it): the stored ROMs are untouched and BASIC still starts on them
+  // ("Use your ROMs for BASIC", or a reload). The MCP load tool and the CLI never ask: they start on the machine as it is.
+  load(name, bytes, { askAddresses = null, remember = true, run = true, ours = false, noRoms = false } = {}) {
     this.loadStarted = true;
     const m = this.loadTarget().m;
+    if (noRoms && !m.useStub && !this.nitros9On(m)) this.runWithoutRoms({ menu: false });
     this.lastLoaded = { name, bytes };   // (js/bugreport.js: its name and SHA-256; set first, so a file that fails to load is named too)
     this.touch(this.shownMachine);   // a load makes a bundled program a moment (untouchedBundledProgram)
     const msg = this.loadMedia(name, bytes, askAddresses, { run });
@@ -2916,6 +2999,32 @@ export class Session {
     return this.readByte(CHAT_STATE.blen, cm) === 0 && this.readByte(CHAT_STATE.blen + 1, cm) === 0 && this.readByte(CHAT_STATE.wait, cm) === 0;
   }
   get hasClaudeKey() { return !!this.keyStore.get(); }
+  // Settings -> "Suggest questions with Claude" (under Claude features; off by default, kept in the store and so in a
+  // settings export). On, opening the Ask panel on an empty chat may ask Claude Haiku once for questions that fit the
+  // screen (js/claude/suggest.js); the page's own questions (js/claude/prompts.js) show first and stay on any failure.
+  get claudeSuggest() { return this.store.get('claudeSuggest') === '1'; }
+  setClaudeSuggest(on) { this.store.set('claudeSuggest', on ? '1' : '0'); this.emit('claudesuggest', !!on); }
+  // What a suggestion request would send: the person's machine's name and its screen's text, or null when there is
+  // none to send (a graphics screen, or no text on it: the page's own questions only). Never while the person's own
+  // WAD's level is loaded (userDataIn / userDiskIn): its screen is not handed out, as with the read-only tools.
+  suggestInput() {
+    const m = this.personMachine;
+    if (!m || this.userDataIn(m) || this.userDiskIn(m)) return null;
+    const r = screenTextTool({ machine: m, readByte: (a) => this.readByte(a, m) });
+    if (!r.text) return null;
+    const screen = r.lines.join('\n').trim();
+    return screen ? { machine: m.profile.name, screen } : null;
+  }
+  // The questions Claude suggests for the screen now, or null: with the setting on, Claude features On, a key saved
+  // and text on the screen, at most one request per distinct screen and one per 30 s (Suggester). fetch is the page's
+  // (a mocked one in the tests); the key goes only into the request's header.
+  async claudeSuggestions(fetch, { now, timeoutMs } = {}) {
+    if (!this.claudeFeatures || !this.claudeSuggest || !this.hasClaudeKey) return null;
+    const input = this.suggestInput();
+    if (!input) return null;
+    if (!this.suggester) this.suggester = new Suggester({ fetch, key: () => this.keyStore.get() || '', ...(now ? { now } : {}), ...(timeoutMs ? { timeoutMs } : {}) });
+    return this.suggester.suggest(input);
+  }
   // Ask Claude: the conversation without the chat machine, shown in the side
   // panel beside the machine in use, which is the BASIC session Claude's tools act on. The same ChatSession moves
   // to full screen (startChat) and back (toSidePanel) without losing anything. Reading (the screen, memory, the
@@ -3344,6 +3453,7 @@ export class Session {
     // the assembler panel is the person's: the program runs on personMachine (inject's default is the machine in
     // use, which with the chat full screen is the chat machine - the sweep's runAssembled row was red on that)
     this.endWelcome(this.personMachine);
+    this.touch(this.personMachine);   // (the person's own program: Session.switchLoses)
     this.inject(res.segments, res.exec, this.personMachine);
     this.labels = res.symbols;                    // the debugger's disassembly shows them (see `debug`)
     if (this.debugger) this.debugger.setSymbols(() => this.labels);
@@ -3385,12 +3495,13 @@ export class Session {
     if (need) throw new SessionError(`LIZA needs ${need.ram}K RAM on this machine, which has ${need.have}K. Switch the RAM option to ${need.ram}K to run it.`);
   }
   // LIZA from its bytes (this.lizaFile's), at once -> the load message
-  runLiza(bytes) {
+  runLiza(bytes, { noRoms = false } = {}) {
     this.checkLiza();
-    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true });
+    const msg = this.load(this.lizaFile, bytes, { remember: false, ours: true, noRoms });
     this.setLastRun('liza', 'LIZA');
     this.watchForMenu('liza', this.personMachine);
     this.markProgramStart('liza', this.personMachine);
+    this.postcards.started(this.personMachine);   // a new chat, heard line by line (a postcard can be sent of it)
     this.emit('program', 'liza');
     return msg;
   }
@@ -3414,10 +3525,10 @@ export class Session {
     const need = this.gameNeeds();
     if (need) throw new SessionError(`${g.name} needs ${need.ram}K RAM or more; this ${m.profile.name} has ${need.have}K. Switch the RAM option to ${need.ram}K or 64K to play it.`);
   }
-  runGame(name, bytes) {
+  runGame(name, bytes, { noRoms = false } = {}) {
     this.checkGame(name);
     const file = this.gameFile(name), m = this.personMachine;
-    const msg = this.load(file, bytes, { remember: false, ours: true });
+    const msg = this.load(file, bytes, { remember: false, ours: true, noRoms });
     // the SAM's memory size as the firmware or BASIC left it, for the game to put back on leaving (the CoCo 3's
     // GIME has no M bits: the header's default stays)
     if (m.sam) m.poke(GAMES.samExit, m.sam.memSize);
@@ -3634,7 +3745,7 @@ export class Session {
   // 'welcome:demo', 'welcome:roms' and 'welcome:claude' after the frame they were pressed in; on the 6809 build key 5
   // opens the games menu, whose 1 and 2 emit 'welcome:2048' and 'welcome:minesweeper'.
   // greeting: 'first', 'back' (a returning visitor) or 'bye' (back from a program); carryOn: a name for the carry-on
-  // option, "CARRY ON WITH <name>" (option 6 on the 6809 build, 5 on the 6803 build; its key emits 'welcome:carryon'), or null
+  // option, "CARRY ON WITH <name>" (option 6 on both builds; its key emits 'welcome:carryon'), or null
   // gen: the welcomeGen a page took (welcomeGenNow) before fetching these bytes. When it is given and something
   // took the machine since, the start does nothing and this returns null: the menu must not take the screen back
   // from what the person started while its bytes were on the way.
@@ -3686,7 +3797,7 @@ export class Session {
     this.emit('welcome');   // (the page's parts that depend on whether the welcome program runs: the quick-save slots)
     this.welcomeQuiet = WELCOME_QUIET.has(why) ? { m, at: m.frameCount } : null;
     if (this.welcomeSoundOn) this.welcomeSound();
-    const last = (carry ? 1 : 0) + (w === WELCOME['6809'] ? 5 : 4);   // the 6809 build has the games too
+    const last = (carry ? 1 : 0) + 5;   // option 5: the 6809 build's games, the 6803 build's WYRMFIRE
     return `Welcome: press 1 to ${last}`;
   }
   // Is the welcome program running on the PERSON's machine? personMachine: with the chat full screen this.shownMachine is
@@ -4005,6 +4116,7 @@ export class Session {
       return false;
     }
     this.pumpChat(m);
+    this.postcards.step(m);   // a postcard's replay types its next characters (js/postcard.js)
     this.runBeside(m);
     this.serial.deliver();   // the frame's serial bytes from the person's machine (shown, or beside a full-screen chat)
     return true;
