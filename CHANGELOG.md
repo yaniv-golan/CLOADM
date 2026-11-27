@@ -12,11 +12,12 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
 
 - **For contributors: the changelog guard skips fenced code blocks and names a "####" heading with no name.** A fence
   shows an example, so a `#### Fixed` quoted twice in one is no longer counted as a duplicate subsection, and a quoted
-  `### Fixed`, `#### Upgrading` or stray `D` is no longer read as this section's. A fenced example that quotes a
-  boundary line does not end the section, a duplicated `## [Unreleased]` heading does not hide what is below it, and
-  only a balanced pair of fences counts -- so one stray "```" left by a merge hides no real duplicate, stray letter or
-  bogus kind. A "####" or "###" heading written with nothing after it (what a keystroke or a merge leaves) is reported
-  by line instead of passing unmentioned -- and `####   ` no longer reads as a kind called " ". (`tests/changelog-guard.js`)
+  `### Fixed`, `#### Upgrading` or stray `D` is no longer read as this section's. An example quoting `## [Unreleased]`
+  or a release heading does not move the start of the section or end it, a duplicated `## [Unreleased]` heading does
+  not hide what is below it, and a bare fence running across a release heading (what a merge leaves) cannot carry the
+  scan into a released section. A "####" or "###" heading written with nothing after it (what a keystroke or a merge
+  leaves) is reported by line instead of passing unmentioned -- and `####   ` no longer reads as a kind called " ".
+  (`tests/changelog-guard.js`)
 
 ### 0.4.1
 

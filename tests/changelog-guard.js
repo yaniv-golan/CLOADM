@@ -94,6 +94,7 @@ function oddSubsections(text, allow = []) {
 // green (an H3 "### Fixed" was written here once for exactly that reason). This is the same rule the released-section
 // comparison keeps, SECTION_BOUNDARY below, so the two cannot disagree about where a section stops.
 const UNRELEASED_BOUNDARY = /^(?:#{1,2} |### \d)/;
+const RELEASE_HEADING = /^### \d/;
 
 // A fenced code block is an example the file shows, not its structure: a heading, a release heading or a stray letter
 // on a line inside one is none of those, so each [Unreleased] scan skips fenced lines, and the [Unreleased] region does
@@ -124,40 +125,55 @@ const isUnreleasedHeading = (line) => /^## \[Unreleased\]/i.test(line);
 // fence line with an info string re-anchors there; that is the only shape it affects.
 function fencePairs(lines, after, limit = lines.length) {
   const pairs = [];
-  let open = -1, ch = null, len = 0;
+  let open = -1, ch = null, len = 0, info = false;
   for (let i = after + 1; i < limit; i++) {
     const line = lines[i].replace(CR, '');
     const m = FENCE_OPEN.exec(line);
     if (open < 0) {
       // a backtick fence's info string may not contain a backtick, so "```js`x" is prose, not a fence
       if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;
-      open = i; ch = m[1][0]; len = m[1].length;
+      open = i; ch = m[1][0]; len = m[1].length; info = !!m[2].trim();
     } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(line)) {
-      pairs.push([open, i]); open = -1; ch = null;
-    } else if (m && m[2].trim()) {
-      open = i; ch = m[1][0]; len = m[1].length;          // an info-string fence cannot close: it re-anchors
+      pairs.push({ open, close: i, info }); open = -1; ch = null;
+    } else if (m && m[2].trim() && m[1][0] === ch) {
+      // an info-string fence of the SAME character cannot close anything, so it re-anchors the pair there. This is
+      // what stops a stray opener from pairing with a legitimate later "```md" example. A tilde line does not re-anchor
+      // a backtick fence (Markdown keeps it inside), so the character is checked.
+      open = i; len = m[1].length; info = true;
     }
   }
   return pairs;
 }
 
-// [Unreleased]'s lines: `from` is its heading (the first one), `to` the line after its last content. `to` is the
-// first release heading or level 1-2 heading after `from` that is NOT inside a fence, or the end of the file.
-// `from` is -1 when the file has no [Unreleased] heading.
+// [Unreleased]'s lines: `from` is its heading and `to` the line after its last content. `from` is the first
+// "## [Unreleased]" heading that is not itself inside a whole-file fence (a fenced one is an example). `to` is the
+// first release heading or level 1-2 heading after `from` that is not inside a region fence.
+//
+// A region fence hides a boundary line inside it unless it is a BARE fence spanning a release heading ("### 0.1.0").
+// A fence that carries an info string is an example whatever it quotes. A bare fence is one a merge leaves unfinished,
+// and one that runs across a release heading is the merge-debris shape: letting it carry the region past that heading
+// would either hide a real duplicate above it or read a released section as [Unreleased]. It may still hold a quoted
+// level-1/level-2 heading, which is ordinary prose in a fenced example.
 //
 // Iterative because a fence changes where the region ends and the region changes which fences are balanced: a pair
-// that closes past a boundary line only counts once the region is cut at or before it. Two or three passes settle any
-// file; the loop is bounded so a pathological one cannot spin.
+// that closes past a boundary line only counts once the region is cut at or before it. Measured to settle in at most
+// two passes on every shape tried; the loop is bounded so a pathological one cannot spin.
 function unreleasedRegion(lines) {
   let from = -1;
+  const whole = new Set();
+  for (const p of fencePairs(lines, -1)) for (let j = p.open + 1; j < p.close; j++) whole.add(j);
   for (let i = 0; i < lines.length; i++) {
-    if (isUnreleasedHeading(lines[i])) { from = i; break; }
+    if (isUnreleasedHeading(lines[i]) && !whole.has(i)) { from = i; break; }
   }
   if (from < 0) return { from, to: from };
   let to = lines.length;
   for (let pass = 0; pass < 8; pass++) {
     const inside = new Set();
-    for (const [a, b] of fencePairs(lines, from, to)) for (let j = a + 1; j < b; j++) inside.add(j);
+    for (const p of fencePairs(lines, from, to)) {
+      const spansRelease = lines.slice(p.open + 1, p.close).some((l) => RELEASE_HEADING.test(l));
+      if (!p.info && spansRelease) continue;                  // merge debris: it may not carry the region past it
+      for (let j = p.open + 1; j < p.close; j++) inside.add(j);
+    }
     let next = lines.length;
     for (let i = from + 1; i < lines.length; i++) {
       if (inside.has(i) || isUnreleasedHeading(lines[i])) continue;    // a later [Unreleased] heading is not an end
@@ -174,7 +190,7 @@ function unreleasedRegion(lines) {
 function fencedLines(lines, from, to) {
   const out = new Array(lines.length).fill(false);
   if (from < 0) return out;
-  for (const [a, b] of fencePairs(lines, from, to)) for (let j = a; j <= b; j++) out[j] = true;
+  for (const p of fencePairs(lines, from, to)) for (let j = p.open; j <= p.close; j++) out[j] = true;
   return out;
 }
 

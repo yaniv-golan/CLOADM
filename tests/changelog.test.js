@@ -199,6 +199,28 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     check('...and a duplicated "## [Unreleased]" heading does not hide what is below it',
       duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').join() === 'Fixed: line 3 and line 9' &&
       bareLetterLines('## [Unreleased]\n\n#### Fixed\n\n- a\n\n## [Unreleased]\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D');
+    // A BARE fence (no info string) that runs across a release heading is what a merge leaves, not an example: if it
+    // could carry the region past that heading, a real duplicate above it would vanish, or a released section would be
+    // read as [Unreleased]. Either way the region stops at the heading.
+    check('...and a bare fence spanning a release heading does not hide a real duplicate above it',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n#### Fixed\n\n- b\n\n### 0.1.0\n\n- old\n\n```\n\n### 0.0.9\n').join() === 'Fixed: line 3 and line 9',
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n#### Fixed\n\n- b\n\n### 0.1.0\n\n- old\n\n```\n\n### 0.0.9\n')));
+    check('...and it does not read the released section below it as [Unreleased] (no false duplicate)',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n### 0.1.0\n\n- an old entry\n\n```\n\n#### Fixed\n\n- shipped in 0.1.0\n\n### 0.0.9\n').length === 0,
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- a\n\n```\n\n### 0.1.0\n\n- an old entry\n\n```\n\n#### Fixed\n\n- shipped in 0.1.0\n\n### 0.0.9\n')));
+    // ...but a bare fence holding only a quoted level-1 heading is ordinary prose, and does not end the section
+    check('...while a bare fence holding a quoted "# " line does not end the section',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a heading in an example\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n').join() === 'Fixed: line 3 and line 13',
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a heading in an example\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n')));
+    // a fenced [Unreleased] heading is an example, so it must not move the region's START either
+    check('...and a fence above the real heading that quotes "## [Unreleased]" does not move the start',
+      duplicateUnreleasedKinds('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- a real duplicate\n').join() === 'Fixed: line 8 and line 12' &&
+      bareLetterLines('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- b\n\nD\n').map((x) => x.text).join() === 'D',
+      JSON.stringify(duplicateUnreleasedKinds('```md\n## [Unreleased]\n### 0.4.0\n```\n\n## [Unreleased]\n\n#### Fixed\n\n- a\n\n#### Fixed\n\n- a real duplicate\n')));
+    // a fence of one character inside a fence of another does not re-anchor it (Markdown keeps it inside)
+    check('...and a "~~~md" line inside a backtick fence does not re-anchor it',
+      duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a tilde fence looks like this:\n\n~~~md\n\nexample\n\n~~~\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n').join() === 'Fixed: line 3 and line 19',
+      JSON.stringify(duplicateUnreleasedKinds('## [Unreleased]\n\n#### Fixed\n\n- one\n\n```\n\n# a tilde fence looks like this:\n\n~~~md\n\nexample\n\n~~~\n\n```\n\n#### Fixed\n\n- a real duplicate\n\n### 0.4.0\n')));
   }
 
   // A "####" heading with no name: no rule that reads headings by name can report it (there is no name to report), so
