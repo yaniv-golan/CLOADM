@@ -6108,6 +6108,8 @@ async function phoneChecks(browser, base, check) {
     // The drawer's 364 is a text measure, its widest unbreakable line: 363.86 px in this container's fonts, under 363.5
     // on CI's (measured 363 there, and its left 1042), 364 on a Mac -- within the 1 px the comparison allows. A layout
     // change still fails it: the heights, widths and the formula's constants are asserted.
+    // The box the formula derives from is itself asserted (L0 0, W 1440 or 1425), or a layout change that moved everything
+    // would move the expectations with it.
     // The layout box and the rects come from ONE evaluate (a scrollbar that appeared between two round-trips would
     // otherwise be read before and measured after).
     const layoutAt = await p.evaluate(() => {
@@ -6116,6 +6118,7 @@ async function phoneChecks(browser, base, check) {
         rects: ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }) };
     });
     const { left: L0, width: W } = layoutAt;
+    const layoutBoxOk = L0 === 0 && (W === 1440 || W === 1425);
     const mainW = W - 40 - 364 - 20;
     const baseline = [[Math.round(L0 + 20 + (mainW - 900) / 2), 849, 900, 254], [Math.round(L0 + W - 20 - 364), 88, 364, 891]];
     const before = { rects: layoutAt.rects, order: await order() };
@@ -6133,7 +6136,7 @@ async function phoneChecks(browser, base, check) {
     // pixel, so it is matched within 1 px; before and after here are the same page and must be exactly equal)
     const near = before.rects.every((r, i) => r.every((v, j) => Math.abs(v - baseline[i][j]) <= 1));
     check('desktop: .slots and the drawer where they were before the phone layout (1440 x 900, within 1 px of the measure taken then); after the touch keys on (the controls moved into the sheets) and off, back in place exactly and in their order, and a moved button still works',
-      near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
+      layoutBoxOk && near && movedIn && JSON.stringify(after) === JSON.stringify(before) && works === 'Resume',
       JSON.stringify({ layout: { left: L0, width: W }, baseline, before, movedIn, after, works }));
     const dup = await p.evaluate(() => { const seen = new Set(), d = []; for (const e of document.querySelectorAll('[id]')) { if (seen.has(e.id)) d.push(e.id); seen.add(e.id); } return d; });
     check('desktop: no duplicate ids anywhere', dup.length === 0, dup.join());
