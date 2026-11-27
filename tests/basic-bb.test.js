@@ -16,7 +16,9 @@
 //  * the cassette: tape fixtures (tools/basic-bb/tapes.js: well formed, our own, corrupt), the lint's tape rules
 //    (fixtures exist, CLOADM only of a fixture's machine code into memory set aside), #tape, #tape-blank,
 //    #tape-rewind and #tape-blocks end to end on our ROM (the summary's blocks and motor runs, no raw bytes),
-//    compare's tape summaries and the typing sheet's tape steps.
+//    compare's tape summaries and the typing sheet's tape steps;
+//  * the printer: the bytes the printer port received, recorded only when there are any, and compare's exact check of
+//    them; a field the first record lacks (printer, a tone's first level) is not compared.
 const { lintCase } = require('../tools/basic-bb/lint.js');
 const { compare, cursorOnly } = require('../tools/basic-bb/compare.js');
 const { buildBasic, tokensInc } = require('../tools/build-basic.js');
@@ -272,7 +274,8 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   // measures only: no list of levels or times ever leaves (decision 5)
   const keys = (o) => Object.keys(o).sort().join(',');
   check('sound: the window holds measures only', keys(soundMeasures(square(0, 1000, 8), { end: { enabled: true, mux: 0 } })) === 'cycles,end,heard,sha256,tones,writes');
-  check('sound: a tone holds measures only', keys(t1) === 'high,length,levels,low,period,periods,start,writes');
+  check('sound: a tone holds measures only', keys(t1) === 'first,high,length,levels,low,period,periods,start,writes', keys(t1));
+  check('sound: a tone\'s first level is its first event\'s', t1.first === 0 && soundMeasures(square(100, 1000, 40, 63, 0)).tones[0].first === 63 && sw.tones[0].first === 0);
   const ev2 = square(0, 1000, 40); ev2[10] = { ...ev2[10], v: 62 };
   check('sound: the hash tells apart two runs the measures do not', soundMeasures(ev2).sha256 !== one.sha256 && soundMeasures(square(100, 1000, 40)).sha256 === one.sha256);
 
@@ -288,8 +291,43 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   check('compare sounds: a different number of tones is reported', compareSounds(win([tone()]), win([tone(), tone({ start: 50000 })])).some((l) => /tones/.test(l)));
   check('compare sounds: a longer silence between tones is reported', compareSounds(win([tone(), tone({ start: 30000 })]), win([tone(), tone({ start: 60000 })])).some((l) => /silence/.test(l)));
   check('compare sounds: the state at the end is compared', compareSounds(win([tone()]), win([tone()], { enabled: true, mux: 1 })).some((l) => /end/.test(l)));
+  // the wave's shape (first level, distinct levels, writes): compared only when the first record's tone has `first`
+  const shaped = (o) => tone({ first: 0, ...o });
+  check('compare sounds: with first levels, identical shapes pass', compareSounds(win([shaped()]), win([shaped()])).length === 0);
+  check('compare sounds: a different first level is reported', compareSounds(win([shaped()]), win([shaped({ first: 63 })])).some((l) => /first level 0 vs 63/.test(l)));
+  check('compare sounds: a different number of distinct levels is reported', compareSounds(win([shaped()]), win([shaped({ levels: 3 })])).some((l) => /2 vs 3 distinct levels/.test(l)));
+  // writes: 40 in 20000 cycles, so a field (17,784 cycles) is ceil(35.6) = 36 writes, plus one: 37
+  check('compare sounds: writes within a field\'s worth plus one pass, more do not', compareSounds(win([shaped()]), win([shaped({ writes: 77 })])).length === 0
+    && compareSounds(win([shaped()]), win([shaped({ writes: 3 })])).length === 0
+    && compareSounds(win([shaped()]), win([shaped({ writes: 78 })])).some((l) => /40 vs 78 writes \(more than 37 apart\)/.test(l)));
+  check('compare sounds: a first record without first levels (made before them) leaves the shape uncompared', compareSounds(win([tone()]), win([shaped({ first: 63, levels: 5, writes: 400 })])).length === 0);
+  check('compare sounds: a second record without first levels is reported', compareSounds(win([shaped()]), win([tone()])).some((l) => /first level 0 vs undefined/.test(l)));
   const r1 = { case: 'q', status: 'ok', transcript: ['OK'], sounds: win([tone()]) }, r2 = { ...r1, sounds: win([tone({ period: 1100 })]) };
   check('compare: a case whose sound differs is not identical', compare(new Map([['q', r1]]), new Map([['q', r2]])).same === 0 && compare(new Map([['q', r1]]), new Map([['q', r1]])).same === 1);
+}
+
+// ---- the printer: the bytes the printer port received (runCase's printer; run.js writes it; compare.js compares it) ----
+{
+  const { runCase } = require('./basic/harness.js');
+  const { comparePrinter } = require('../tools/basic-bb/compare.js');
+  // ours has no LLIST yet (?FC ERROR): the port is strobed by POKE (PIA1 PA1, $FF20, high then low), each strobe
+  // printing what PIA0 port B holds; BASIC's BREAK check between statements leaves the keyboard columns all high, so
+  // each byte is $FF. (A harness test, never linted or run on the real ROM.)
+  const r = runCase(built.rom, '10 FOR I=1 TO 6:POKE 65312,2:POKE 65312,0:NEXT\nRUN\n');
+  check('printer: six strobes give six bytes, recorded as length and hex', r.status === 'ok' && JSON.stringify(r.printer) === JSON.stringify({ length: 6, hex: 'ff'.repeat(6) }), JSON.stringify(r.printer));
+  const quiet = runCase(built.rom, 'PRINT 1\n');
+  check('printer: a case that prints nothing has no printer field (older records unchanged)', quiet.status === 'ok' && !('printer' in quiet));
+  const llist = runCase(built.rom, '10 REM\nLLIST\n');
+  check('printer: LLIST on ours (?FC ERROR) prints nothing', llist.transcript.includes('?FC ERROR') && !('printer' in llist));
+  const P = (hex) => ({ length: hex.length / 2, hex });
+  check('compare printer: identical bytes pass', comparePrinter(P('31320d'), P('31320d')).length === 0);
+  check('compare printer: a byte that differs is reported, with where', comparePrinter(P('31320d'), P('31330d')).some((l) => /3 vs 3 bytes, first difference at byte 1/.test(l)));
+  check('compare printer: a missing byte is reported', comparePrinter(P('31320d'), P('3132')).some((l) => /3 vs 2 bytes/.test(l)));
+  check('compare printer: printed in the first record, nothing in the second', comparePrinter(P('31'), undefined).some((l) => /1 bytes vs none/.test(l)));
+  check('compare printer: a first record without the field is not compared', comparePrinter(undefined, P('31')).length === 0);
+  const pr = (printer) => ({ case: 'p', status: 'ok', transcript: ['OK'], ...(printer ? { printer } : {}) });
+  check('compare: a case whose printer bytes differ is not identical, one whose first record lacks them is', compare(new Map([['p', pr(P('41'))]]), new Map([['p', pr(P('42'))]])).same === 0
+    && compare(new Map([['p', pr(null)]]), new Map([['p', pr(P('42'))]])).same === 1);
 }
 
 // #wav, #joy and graphics on our ROM, driven through the PIAs and the SAM with POKE (these cases are not linted:

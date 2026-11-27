@@ -67,6 +67,10 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   and `cas-errors` (BREAK during a search, with a bounded wait).
   Printing no longer counts the cursor's countdown (`$008F`) down: on the original only the keyboard wait does.
   BREAK no longer ends a cassette search, as on the original; a black-box case can expect a timeout (`#expect-timeout`).
+  A black-box record now holds the bytes the printer port received (`printer`, only when the case printed: what its own
+  `LLIST` and `PRINT #-2` sent), and each tone of a `#wav` its first level; `compare.js` compares the printer's bytes
+  exactly and, for records that have first levels, each tone's first level and number of levels exactly and its writes
+  within a field's worth (records made before these fields keep their verdicts).
   `LIST` prints no empty row after a line that fills its last row and shows at most 249 characters of a line, a
   loaded program ends at its end marker, and `DRAW` passes over spaces before a number: with these, the listings of
   all 33 listed programs in the 36-program corpus match the original's.

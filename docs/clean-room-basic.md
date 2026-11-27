@@ -403,11 +403,22 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
   lowest and highest level; a run splits into tones where two periods in a row differ by more than 3% from the current
   tone's median (one odd period, an interrupt in the tone loop, does not split it; the period that spans the change
   counts in neither tone). For each tone: its start and length in cycles, its period (the median of its periods),
-  how many periods and writes, how many distinct levels, the lowest and highest level. For the window: its length,
+  how many periods and writes, how many distinct levels, the lowest and highest level, and its first level (where its
+  wave starts: one level a tone, like the lowest and highest, never the levels in order). For the window: its length,
   the DAC writes and those heard, a SHA-256 of every event (to tell runs apart) and the sound switch at `#wav-stop`.
   `compare.js` compares the periods within 0.5%, the lengths and the silences between tones within one field (17,784
-  cycles), the lowest and highest levels and the end state exactly; the number of levels and writes (the wave's shape,
-  which is ours: P2 decision 3) and the hash are not compared.
+  cycles), the lowest and highest levels and the end state exactly. When the first record's tones have a first level
+  (records made since that field was added), also each tone's first level and number of distinct levels exactly (the
+  wave's own, wherever in a field the note starts) and its writes within a field's worth of them plus one
+  (ceil(writes / length x 17,784) + 1, from the first record's tone: a tone's length may differ by a field, where the
+  field interrupt ends the note's count, and the writes come at the tone's rate); in an older record, made when the
+  wave's shape was ours alone (P2 decision 3), none of the three is compared, so its verdict stays as it was. The hash
+  is not compared.
+* **The printer:** a record holds `printer`, `{ length, hex }`, the bytes the machine's printer port received since
+  the clean start (the Dragon's parallel port: PIA0 port B at each strobe of PIA1 PA1), only when the case printed:
+  what its own `LLIST` and `PRINT #-2` sent. `compare.js` compares them exactly when the first record has the field;
+  a first record without it (nothing printed, or made before the field) is not compared. Our ROM sends nothing to the
+  printer yet (section 13).
 * **The cassette** (`tapeDeck` in `tests/basic/harness.js`): `#tape NAME` puts in, at its start, the tape the
   fixture `tests/basic/tapes/NAME.json` makes (`tools/basic-bb/tapes.js`: the files for `buildCas`, each `lines` of
   text ended by carriage returns or `data` as a string or bytes, and an optional `corrupt` list that flips a data byte
@@ -439,8 +450,9 @@ node tools/basic-bb/compare.js real.jsonl ours.jsonl [--shots DIR]
 * **Output** (one JSON object per line):
   `{"case":"fp-print-01","machine":"dragon64","rom":"<crc32 of the ROM file>","frames":412,"status":"ok",
   "transcript":["PRINT 1/3"," .333333333","OK"],"screen":["...16 lines..."],"flags":[]}`.
-  It holds nothing but screen text, the pictures (`shots`) and sound measures (`sounds`) a case asked for, and the
-  ROM's CRC (to tell runs apart); no ROM bytes.
+  It holds nothing but screen text, the pictures (`shots`) and sound measures (`sounds`) a case asked for, the tape
+  summaries (`tapes`), the printer's bytes when the case printed (`printer`: its own program and output, as BASIC sent
+  them), and the ROM's CRC (to tell runs apart); no ROM bytes.
 * **The token probe** (`tests/basic/cases/probe-tokens.bas`): one program line per keyword (after `END:`, so never
   run), then a program that searches RAM below `$8000` for a marker it placed in a `REM` and prints each following
   line's number, bytes in hex and whether its link points at the next line. This gives
