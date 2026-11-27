@@ -8,6 +8,18 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Fixed
+
+- **A shared program, postcard or source asks before it switches.** A short link's program, LIZA postcard or program
+  with its source opened on the sender's machine even when something on screen would be lost: a key typed while the
+  link's payload was in flight, a BASIC session beside the chat, a disk or tape in a drive, or work on a machine
+  switched to while the link was fetched. Each now goes through the same `Session.switchLoses` test and question a
+  shared moment does, asked of the machine on screen when the payload arrives: on a first visit, with nothing of the
+  person's, it still opens directly; with their work there, the switch asks first and holds the focus on **Switch**
+  (a key answers the question rather than typing into the machine), and a question already open is replaced by the
+  link's own. What counts as the person's now says what it includes: their input **or Claude's in-page actions on
+  their behalf** (`type_text`, `poke`, `assemble_and_load`, `press_break`), not only their own keys and POKEs.
+
 ### 0.4.0
 
 #### Added
@@ -129,16 +141,6 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   the machine as it is, as before.
 
 #### Fixed
-
-- **A shared program, postcard or source asks before it switches.** A short link's program, LIZA postcard or program
-  with its source opened on the sender's machine even when something on screen would be lost: a key typed while the
-  link's payload was in flight, a BASIC session beside the chat, a disk or tape in a drive, or work on a machine
-  switched to while the link was fetched. Each now goes through the same `Session.switchLoses` test and question a
-  shared moment does, asked of the machine on screen when the payload arrives: on a first visit, with nothing of the
-  person's, it still opens directly; with their work there, the switch asks first and holds the focus on **Switch**
-  (a key answers the question rather than typing into the machine), and a question already open is replaced by the
-  link's own. What counts as the person's now says what it includes: their input **or Claude's in-page actions on
-  their behalf** (`type_text`, `poke`, `assemble_and_load`, `press_break`), not only their own keys and POKEs.
 
 - **Three layout slips.** On a phone held upright with no API key saved, Ask Claude's opening sentence ("Claude reads only
   this emulated Dragon 64 …") was hidden under the key form; the sheet now scrolls, the sentence first and the form under it.
