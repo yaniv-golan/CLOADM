@@ -15665,25 +15665,30 @@ async function askChecks(browser, base, check) {
       && (await page.textContent('#askEmptyText')) === 'Claude reads only this emulated Dragon 64 (its screen text and memory), never your computer. It types or changes things only if you allow it.', await page.textContent('#askEmptyText'));
     check(`${L}: the footer line about Anthropic is visible`, await vis('#askSendNote') && await page.textContent('#askSendNote') === 'Your messages and what Claude reads from the machine\'s memory (ROM areas included) go to Anthropic with your key.');
     // the empty state follows a machine switch (the panel text updates whether or not the panel is showing)
+    // the setup for the switch below: the panel is open on a live chat, which is the state the switch has to take away.
+    // Without it the check after the switch would pass on a panel that was never open.
+    check(`${L}: (setup) a panel is open with a chat before the switch`, await waitFor(page, () => window.emu.session.claudeView === 'panel'
+      && !!window.emu.session.chat && !document.getElementById('ask').hidden && document.body.classList.contains('ask-open'), null, 5000),
+    await page.evaluate(() => JSON.stringify({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat,
+      hidden: document.getElementById('ask').hidden, open: document.body.classList.contains('ask-open') })));
     await page.evaluate(() => window.emu.session.switchMachine('coco'));
     const named = await waitFor(page, () => /CoCo 1\/2/.test(document.getElementById('askEmptyText').textContent), null, 5000);
     check(`${L}: switching machines updates the name in the empty state`, named && /emulated CoCo 1\/2 \(/.test(await page.textContent('#askEmptyText')), await page.textContent('#askEmptyText'));
     await page.evaluate(() => window.emu.session.switchMachine('dragon64'));
     check(`${L}: and back`, await waitFor(page, () => /Dragon 64/.test(document.getElementById('askEmptyText').textContent), null, 5000));
-    // a machine switch shows the welcome menu and can leave the panel up:
-    // back on the live machine, close whatever is open and open the side panel, checking each step.
+    // a machine switch shows the welcome menu on the machine switched back to.
     // The menu is not on the screen when switchMachine returns: the page fetches its program and starts it when the bytes
     // arrive. stubPrompt ends the menu, so it has to come after the menu started: a start that landed after it (the fetch
     // is slower under load) would run the menu again over the live machine.
     check(`${L}: (setup) the welcome menu has started on the machine switched back to`, await waitFor(page, () => window.emu.session.welcomeRunning, null, 15000));
     await stubPrompt(page);
-    if (await vis('#ask')) {
-      await page.click('#btnAsk');
-      check(`${L}: (setup) the panel left up by the switch closes`, await waitFor(page, () => document.getElementById('ask').hidden, null, 5000));
-    }
+    // the switch took the chat with it, so the panel went with the chat (js/ui/ask.js): nothing is left up to close.
+    check(`${L}: (setup) the switch closed the panel rather than leaving it up behind a dropped chat`,
+      await page.evaluate(() => document.getElementById('ask').hidden));
     await page.click('#btnAsk');
     check(`${L}: (setup) "Ask Claude" opens the side panel again, not the full screen chat`, await waitFor(page, () => window.emu.session.claudeView === 'panel' && !document.getElementById('ask').hidden, null, 5000),
-      await page.evaluate(() => String(window.emu.session.claudeView)));
+      await page.evaluate(() => JSON.stringify({ view: window.emu.session.claudeView, chat: !!window.emu.session.chat,
+        hidden: document.getElementById('ask').hidden, open: document.body.classList.contains('ask-open') })));
     check(`${L}: none of the old wording is on the page`, !(await oldCopy(page)).length, (await oldCopy(page)).join());
     await shot('open-ready');
     // ---- a question and its streamed answer ----

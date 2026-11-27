@@ -164,6 +164,11 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
   too). With your work there, or a switch question already open, the question still asks first. (After a link opens, the address bar
   shows `/play/` on purpose: the fragment that held the moment, and a short link's key, is removed.)
 
+- **Switching machine with the "Ask Claude" panel open closes the panel.** A switch takes the chat with it (the
+  Session drops it), but the panel stayed drawn and open with no conversation behind it. The header button's own rule
+  is "it is open, so close it", so the next press closed that empty panel instead of opening a chat, and a second
+  press was needed. The panel now closes with the chat it was showing, as the full-screen chat already did.
+
 ### 0.3.1
 
 #### Fixed
