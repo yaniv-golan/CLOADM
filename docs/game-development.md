@@ -443,7 +443,8 @@ jobs:
 
 ## Worked examples: 2048 and Minesweeper
 
-The two games on the welcome menu's **5 PLAY A GAME** are larger examples of the same techniques, and of a few more:
+The two games below are the worked examples here, and larger examples of the same techniques: both are on the
+welcome menu's **5 PLAY A GAME**, beside WYRMFIRE:
 [`examples/2048.asm`](../examples/2048.asm), [`examples/minesweeper.asm`](../examples/minesweeper.asm) and the
 routines they share, [`examples/games.inc`](../examples/games.inc) (`INCLUDE "games.inc"`; the command line's `--asm`
 reads includes from the source's folder).
