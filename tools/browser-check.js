@@ -25079,6 +25079,33 @@ async function switchLosesChecks(browser, base, site, check) {
       own && replaced && kept && opened && after.id === 'coco' && after.card, JSON.stringify({ own, replaced, kept, s, after }));
     await closeCtx(c);
   }
+  // 6. an error inside the confirmed callback (postcards.open, sources.open, assembler.setSource) is said as a status,
+  //    not left to throw from the question's click (where it would be an uncaught page error). No real link makes these
+  //    throw, so the throw is put in its place: the opener is wrapped, once, to throw the way a bad build would.
+  {
+    const { c, p } = await fresh();
+    await p.goto(base); await linkIn(p);
+    const typed = await visitorTyped(p);
+    await handIn(p, 'program', links.program);
+    const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 20000);
+    // (the arrival module's opener is Session.openSharedProgram: made to throw the SessionError a bad build does at
+    // Switch. Its class comes from the page's own module graph, so the throw takes the branch that says it as a status
+    // rather than the one that also logs: a plain Error would exercise the wrong branch.)
+    await p.evaluate(async () => {
+      const { SessionError } = await import('./js/errors.js');
+      window.__realOpen = window.emu.session.openSharedProgram.bind(window.emu.session);
+      window.emu.session.openSharedProgram = () => { throw new SessionError('A test build could not be opened.'); };
+    });
+    await p.click('#btnSwitch');
+    const said = await waitFor(p, () => /A test build could not be opened\./.test(document.getElementById('toastText').textContent), null, 10000);
+    const s = await arrivedOrAsked(p);
+    // the question has gone, nothing opened behind it, and the page is still alive (no uncaught error: 'no page errors' below)
+    const clean = await waitFor(p, () => document.getElementById('switchConfirm').hidden, null, 5000);
+    await p.evaluate(() => { window.emu.session.openSharedProgram = window.__realOpen; });
+    check('switchLoses: an error in the confirmed callback is said as a status, and the page goes on',
+      typed && asked && said && clean && !s.card, JSON.stringify({ typed, asked, said, clean, s }));
+    await closeCtx(c);
+  }
   // 6. Cancel: the machine stays, its work stays (the key typed is still its touch), and no card shows - the link's
   //    payload is dropped, not opened behind the answer.
   {

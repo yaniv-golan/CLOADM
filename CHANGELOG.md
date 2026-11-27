@@ -130,9 +130,11 @@ Next version: 0.4.0 (the plugin and extension manifests carry it; `tests/plugin.
 
 - **A shared program, postcard or source asks before it switches.** A short link's program, LIZA postcard or program
   with its source opened on the sender's machine even when something on screen would be lost: a key typed while the
-  link's payload was in flight, a BASIC session beside the chat, a disk or tape in a drive. Each now goes through the
-  same `Session.switchLoses` test and question a shared moment does: on a first visit, with nothing of the person's,
-  it still opens directly; with their work there, the switch asks first, and a question already open is replaced by the
+  link's payload was in flight, a BASIC session beside the chat, a disk or tape in a drive, or work on a machine
+  switched to while the link was fetched. Each now goes through the same `Session.switchLoses` test and question a
+  shared moment does, asked of the machine on screen when the payload arrives: on a first visit, with nothing of the
+  person's, it still opens directly; with their work there, the switch asks first and holds the focus on **Switch**
+  (a key answers the question rather than typing into the machine), and a question already open is replaced by the
   link's own. What counts as the person's now says what it includes: their input **or Claude's in-page actions on
   their behalf** (`type_text`, `poke`, `assemble_and_load`, `press_break`), not only their own keys and POKEs.
 
