@@ -23553,6 +23553,12 @@ async function noRomChromeChecks(browser, base, check) {
   for (const installed of [false, true]) {
     const L = installed ? 'app bar (installed)' : 'app bar';
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    // A PC's platform, pinned before the page loads, so this block asserts the literal "Ctrl K" whatever host runs it.
+    // Before this pin the block asserted whichever platform it happened to run on: on a Mac the page correctly shows
+    // "Commands… ⌘K" (js/ui/command-box.js:151-153 derives it from navigator.platform) and these two failed for nothing.
+    // The Mac side has its own row after this loop; the platform -> key rule keeps its literals in the controlled-
+    // platforms block below.
+    await ctx.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' }));
     // (installed: the page runs as an installed app, display-mode standalone)
     if (installed) await ctx.addInitScript(() => { const mm = window.matchMedia.bind(window); window.matchMedia = (q) => (/display-mode:\s*standalone/.test(q) ? { ...mm(q), matches: true, media: q, addEventListener() {}, removeEventListener() {} } : mm(q)); });
     const page = await ctx.newPage();
@@ -23610,6 +23616,22 @@ async function noRomChromeChecks(browser, base, check) {
       await page.evaluate(() => window.emu.session.setClaudeFeatures(true));
     }
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // the app bar on a Mac: the More ▾ hint says ⌘K there, from the page's own platform rule (js/ui/command-box.js:151-153).
+  // Its own literal, not a copy of the Linux row's: with the platform pinned to Mac, a page that always said "Ctrl K"
+  // fails this row while the Linux rows above still pass, so neither is satisfied by the other.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: 'block' });
+    await ctx.addInitScript(() => Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' }));
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`); await started(page);
+    await page.click('#btnMore');
+    const list = await page.evaluate(() => [...document.getElementById('moreMenu').children].filter((e) => e.checkVisibility()).map((e) => e.innerText.replace(/\s+/g, ' ').trim()));
+    check('app bar (Mac): More ▾ lists "Commands… ⌘K" (the key the page shows for a Mac)', list.includes('Commands… ⌘K'), JSON.stringify(list));
+    check('app bar (Mac): no page errors', !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }
   // The line under the tube once the hints are done (a desktop): the typing line while the screen has the focus, the Ask
