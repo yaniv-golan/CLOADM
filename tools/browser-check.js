@@ -6415,6 +6415,65 @@ async function phoneWyrmPadChecks(browser, base, check) {
     check(`${L}: no page errors`, !errs.length, errs.join('; '));
     await ctx.close();
   }
+  // Sideways sizes the pad has never been hit-tested at: 640-760 wide, 260-360 tall (every 20 px), plus 653x280
+  // exactly. At 653x280 v0.3.1 put FIRE and USE under the picture (no sideways rule placed .padbig, so it
+  // auto-placed into the free middle column: FIRE [183,8,247,104], USE [253,8,317,104], elementFromPoint at
+  // either centre was #screen); 0.4.0's thumb-pad rework fixed the layout (the case above now covers four sizes
+  // rect-wise, but never asks what a TAP on a key would hit). Here every pad key and the thumb stick must be the
+  // element at its own centre -- not the picture over it -- and its box must not cross the picture's box. The
+  // exact state the report came from (?start=wyrmfire, Dragon 64, Pad, touch) is its own named case.
+  {
+    const ctx = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 653, height: 280 }, isMobile: true, hasTouch: true });
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(`${base}?start=wyrmfire`);
+    await started(p);
+    const up = await waitFor(p, () => !!window.emu.session.wyrmfireState && document.getElementById('touchKeys').dataset.mode === 'pad'
+      && document.querySelector('#touchPad .padthumb') && !document.querySelector('#touchPad .padthumb').hidden, null, 30000);
+    await p.waitForTimeout(300);
+    // the tap test: every key of the pad (and the stick) is what a finger at its centre hits, and no key lies on
+    // the picture. -> { fails: ["NAME box=[l,t,r,b] hit=what the centre hit" | "NAME box=[...] intersects the
+    // picture's [..]"], keys: how many were tested (the stick among them), stick: whether the stick showed,
+    // pic: the picture's box }
+    const tap = () => p.evaluate(() => {
+      const shown = (e) => e.checkVisibility() && e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height > 0;
+      const pic = document.querySelector('#screen').getBoundingClientRect();
+      const els = [...document.querySelectorAll('#touchPad button')].filter(shown);
+      const stick = document.querySelector('#touchPad .padthumb'), stickShown = !!stick && shown(stick);
+      if (stickShown) els.push(stick);
+      const fails = [];
+      for (const k of els) {
+        const b = k.getBoundingClientRect(), name = k.classList.contains('padthumb') ? 'stick' : (k.getAttribute('aria-label') || k.textContent.trim() || k.id);
+        const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+        const at = document.elementFromPoint(cx, cy);
+        const box = `[${Math.round(b.left)},${Math.round(b.top)},${Math.round(b.right)},${Math.round(b.bottom)}]`;
+        if (!(at === k || k.contains(at))) fails.push(`${name} box=${box} hit=${at ? (at.id || at.className || at.tagName) : 'nothing'} (a tap at its centre would miss it)`);
+        if (b.left < pic.right - 0.5 && pic.left < b.right - 0.5 && b.top < pic.bottom - 0.5 && pic.top < b.bottom - 0.5)
+          fails.push(`${name} box=${box} lies on the picture [${Math.round(pic.left)},${Math.round(pic.top)},${Math.round(pic.right)},${Math.round(pic.bottom)}]`);
+      }
+      return { fails, keys: els.length, stick: stickShown, pic: [Math.round(pic.left), Math.round(pic.top), Math.round(pic.right), Math.round(pic.bottom)] };
+    });
+    const exact = await tap();
+    check('phone wyrmfire pad 653x280 (the reported state, ?start=wyrmfire, Dragon 64, Pad, touch): every pad key and the stick is what a tap at its centre hits, and none lies on the picture',
+      up && exact.keys > 0 && exact.stick && !exact.fails.length, `at 653x280, ${exact.keys} tested, picture ${JSON.stringify(exact.pic)}: ${exact.fails.join('; ')}`);
+    if (shotDir) await p.screenshot({ path: path.join(shotDir, 'wyrmfire-pad-653x280-tap.png') });
+    // the grid: resize through the sideways sizes (the pad stays up; the media queries re-apply per size). Per
+    // size the stick must show and every key of the 653x280 set must be there (the same count: a key that a size
+    // hides fails that size, and a page that stopped laying out fails them all)
+    const sizes = [];
+    for (const w of [640, 660, 680, 700, 720, 740, 760]) for (const h of [260, 280, 300, 320, 340, 360]) sizes.push([w, h]);
+    for (const [w, h] of sizes) {
+      await p.setViewportSize({ width: w, height: h });
+      await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await p.waitForTimeout(120);
+      const t = await tap();
+      check(`phone wyrmfire pad ${w}x${h}: every pad key and the stick is what a tap at its centre hits, and none lies on the picture`,
+        up && t.keys === exact.keys && t.stick && !t.fails.length, `at ${w}x${h}, ${t.keys} tested (the 653x280 case had ${exact.keys}), stick ${t.stick ? 'up' : 'GONE'}, picture ${JSON.stringify(t.pic)}: ${t.fails.join('; ')}`);
+    }
+    check('phone wyrmfire pad grid (653x280 and 640-760 x 260-360, every 20 px): no page errors', !errs.length, errs.join('; '));
+    await ctx.close();
+  }
 }
 
 async function feedbackModelChecks(browser, base, check) {
@@ -25155,7 +25214,10 @@ async function sourceShareChecks(browser, base, site, check) {
   await page.click('#btnAsmRun');
   await waitFor(page, () => window.emu.session.readByte(0x5FF) === 0x41, null, 10000);
   await page.click('#btnAsmShare');
-  await waitFor(page, () => document.getElementById('share').classList.contains('source-mode'), null, 10000);
+  // the class alone is stale: the first Share… of this group put source-mode on #share and closing the screen leaves it
+  // there (openSource draws and opens only after capture()'s awaits, so this second share has not reached it yet). Wait
+  // for the view to open too, or the picture read is still the first share's 256x192 listing.
+  await waitFor(page, () => location.hash === '#share' && document.getElementById('share').classList.contains('source-mode'), null, 10000);
   check('sourceShare: run first: the picture is its screen (the machine\'s frame)', await page.evaluate(() => document.getElementById('sharePicture').width) === 320);
 
   // the recipient: the short link
