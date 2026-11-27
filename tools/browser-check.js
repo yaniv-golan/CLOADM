@@ -24931,9 +24931,8 @@ async function switchLosesChecks(browser, base, site, check) {
     await c.addInitScript(() => {
       window.__asked = [];
       document.addEventListener('DOMContentLoaded', () => {
-        const q = document.getElementById('switchConfirm'), a = document.getElementById('arrival');
+        const q = document.getElementById('switchConfirm');
         new MutationObserver(() => { if (!q.hidden) window.__asked.push(q.textContent.replace(/\s+/g, ' ').trim()); }).observe(q, { attributes: true });
-        new MutationObserver(() => { if (!a.hidden) window.__arrived = (window.__arrived || 0) + 1; }).observe(a, { attributes: true });
       });
     });
     const p = await c.newPage();
@@ -24945,7 +24944,6 @@ async function switchLosesChecks(browser, base, site, check) {
     const t = (id) => { const e = document.getElementById(id); return e ? e.textContent : null; };
     return { id: window.emu && window.emu.machine ? window.emu.machine.id : null, card: !!document.getElementById('arrival') && !document.getElementById('arrival').hidden,
       asked: window.__asked || [], name: t('switchName'), from: t('switchFrom'), hash: location.hash,
-      said: (window.__said || []).slice(0, 3), q: !!document.getElementById('switchConfirm') && !document.getElementById('switchConfirm').hidden,
       focus: document.activeElement ? document.activeElement.id : null };
   });
   // how the page's link reader hands the payload over (js/ui/arrival.js and js/ui/main.js): the same reader, then the
@@ -25004,11 +25002,9 @@ async function switchLosesChecks(browser, base, site, check) {
       const q = asked && s.name === target && s.from === 'Dragon 64' && s.id === 'dragon64';
       // the focus is on the question's Switch, not on the machine: a key now answers the question, it does not reach the
       // machine (finding 1: openPostcard/openSource took the focus to the screen while the question was still open).
-      // confirmSwitch focuses its own button, so reading once the box is visible could catch the moment before a stray
-      // page.focus() runs: the focus is read again after a beat, and must still be on the button.
       // confirmSwitch focuses its own button, so a read taken the instant the box shows could catch the moment before a
       // stray page.focus() runs. Poll (no bare timer) until the frame count has moved and the focus is read on a later
-      // frame than the box's first: a focus move in that window is then seen rather than raced.
+      // frame than the box's first, so a move in that window is seen rather than raced.
       const f0 = await p.evaluate(() => window.emu.machine.frameCount);
       const focused = s.focus === 'btnSwitch' && await waitFor(p, ([f0]) => window.emu.machine.frameCount > f0
         && document.activeElement && document.activeElement.id === 'btnSwitch', [f0], 5000);
@@ -25137,21 +25133,27 @@ async function switchLosesChecks(browser, base, site, check) {
     const typed = await visitorTyped(p);
     // (the machine is stamped, not held: an object handed back to Node is a copy, so the stamp is what says "the same")
     const before = await p.evaluate(() => { const m = window.emu.session.shownMachine; m.__probe = `m${Date.now()}${Math.random()}`;
-      return { stamp: m.__probe, screen: window.emu.session.screenText().join('\n') }; });
-    await take(p, kind, links[kind]);
+      return { stamp: m.__probe, resetAt: m.resetAt, screen: window.emu.session.screenText().join('\n') }; });
+    // the link goes INTO the address first, as a link does, and is taken from there: a reader handed the string
+    // directly never strips anything, so its "stripped" would be the page's own empty address and prove nothing
+    await p.evaluate((h) => history.replaceState(null, '', location.pathname + location.search + h), links[kind]);
+    const inAddress = await p.evaluate(() => location.hash);
+    await take(p, kind, inAddress);
     const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 20000);
     const stripped = await p.evaluate(() => location.hash);   // the reader took the fragment out before asking
     await p.click('#btnSwitchCancel');
     const gone = await waitFor(p, () => document.getElementById('switchConfirm').hidden, null, 10000);
     const s = await arrivedOrAsked(p);
     const after = await p.evaluate((was) => ({ sameMachine: window.emu.session.shownMachine.__probe === was,
-      frames: window.emu.machine.frameCount, sinceReset: window.emu.machine.framesSinceReset,
+      frames: window.emu.machine.frameCount, resetAt: window.emu.machine.resetAt,
       screen: window.emu.session.screenText().join('\n') }), before.stamp);
-    const stillRunning = after.frames > 0 && after.sinceReset > 0;   // (a power cycle resets framesSinceReset)
+    // not restarted: resetAt (frameCount - framesSinceReset) does not move (framesSinceReset alone is > 0 again one
+    // frame after a power cycle, and the loop shows that frame before the check reads)
+    const stillRunning = after.frames > 0 && after.resetAt === before.resetAt;
     check(`switchLoses: Cancel on a ${kind} link keeps the machine and its work (the same machine, not restarted, the key still on its screen), gives the link back, and shows no card`,
       typed && asked && gone && s.id === 'dragon64' && !s.card && after.sameMachine && stillRunning && after.screen === before.screen
-      && stripped === '' && s.hash === links[kind],
-      JSON.stringify({ typed, asked, gone, s, sameMachine: after.sameMachine, stillRunning, screenSame: after.screen === before.screen, stripped, hash: s.hash }));
+      && inAddress === links[kind] && stripped === '' && s.hash === links[kind],
+      JSON.stringify({ typed, asked, gone, s, sameMachine: after.sameMachine, stillRunning, resetAt: [before.resetAt, after.resetAt], screenSame: after.screen === before.screen, inAddress, stripped, hash: s.hash }));
     await closeCtx(c);
   }
   // 8. a link for a machine this build does not have is said as a status, not thrown: the question's machine comes from
