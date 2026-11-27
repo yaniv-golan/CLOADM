@@ -6058,10 +6058,17 @@ async function phoneChecks(browser, base, check) {
     //   drawer.left = cw - 20 - 364 ; main = cw - 40 - 364 - 20 ; slots.left = 20 + (main - 900) / 2
     // At the old host's cw 1425 this gives 1041 and 71, the pinned values exactly; at 1440 it gives 1056 and 78, what
     // this page measures. A layout change still fails it: the heights, widths and the formula's constants are asserted.
-    const cw = await p.evaluate(() => document.documentElement.clientWidth);
+    // The width and the rects come from ONE evaluate: a scrollbar that appears between two round-trips (a classic 15 px
+    // one does, once the page becomes scrollable -- CI's Chromium has one, a Mac overlay has none) would otherwise be
+    // read at 1440 and measured at 1425, which is exactly how this check failed on CI.
+    const layoutAt = await p.evaluate(() => ({
+      cw: document.documentElement.clientWidth,
+      rects: ['.slots', '.layout > .drawer'].map((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round); }),
+    }));
+    const { cw } = layoutAt;
     const mainW = cw - 40 - 364 - 20;
     const baseline = [[20 + Math.round((mainW - 900) / 2), 849, 900, 254], [cw - 20 - 364, 88, 364, 783]];
-    const before = { rects: await rects(), order: await order() };
+    const before = { rects: layoutAt.rects, order: await order() };
     const setKeys = (v) => p.evaluate((v) => { const s = document.getElementById('selTouchKeys'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
     await setKeys('on');
     const movedIn = await waitFor(p, () => !!document.querySelector('#sheetPower #btnPause') && !!document.querySelector('#sheetSettings #panel-input') && !!document.querySelector('#sheetPrograms #shelf'));
