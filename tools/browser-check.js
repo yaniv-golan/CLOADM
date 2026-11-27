@@ -5681,12 +5681,14 @@ async function phoneChecks(browser, base, check) {
     hiddenNow && chipsWhileHidden && back && await page.evaluate(() => document.getElementById('chipRow').checkVisibility()), JSON.stringify({ hiddenNow, chipsWhileHidden, back }));
   // The screen's height is measured from the panel's own box (--tk-below, js/ui/touch-keys.js): a class change that
   // resizes the panel must update that length in the same task, or the screen keeps the height of the layout that was
-  // there before and the page stands taller than the window until the next frame. A wait cannot see that frame -- by
-  // the time a check reads, the layout has caught up -- so BOTH transitions (Hide keys, Show keys) and the reads
-  // after each happen in ONE page task here, with no await and no second evaluate between a click and its read. A task
-  // boundary is the one thing that lets the ResizeObservers run: measured, with the click and the read split across two
-  // evaluates on a build with the fix reverted, the layout had caught up and the check passed.
-  // (Measured before the fix: scrollHeight 677 in a 659 px window from the Show keys click until the next frame.)
+  // there before. A wait cannot see that frame -- by the time a check reads, the layout has caught up -- so BOTH
+  // transitions (Hide keys, Show keys) and the reads after each happen in ONE page task here, with no await and no
+  // second evaluate between a click and its read: a task boundary is the only thing that lets the ResizeObservers run.
+  // WHAT THIS PROVES, exactly: that fit() runs inside apply(), at the instant the class changes (red 3/3 on clean main,
+  // the first read after each click off by the whole panel: gotDown 330 against the 56 the keys-hidden layout needs).
+  // It does NOT reproduce the 18 px overflow itself, which needs a frame between the two transitions (measured: at the
+  // frame after a Show keys click, not synchronously); the group's own "upright, the page does not scroll" check is
+  // what saw that, intermittently, before the fix.
   await page.tap('#chipPower');                     // (Hide keys is in the Power sheet; the keys are up here)
   await waitFor(page, () => document.getElementById('sheetPower').open && !document.getElementById('touchKeys').hidden);
   const sameTask = await page.evaluate(() => {
