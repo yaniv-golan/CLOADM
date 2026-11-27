@@ -4,20 +4,21 @@
 # second copy is not its output. Variant 3 of 4: X, Y and Z as in the original, but with a CLS before the Z line, so
 # Z is typed on an empty screen while X and Y were typed over the earlier reads. Each ends with CLS, whose pre-clear
 # screen the harness keeps in `clears`. No memory is read or written. Syntax [UM]; the screens [BB].
-# This variant needs the X read, and ours never returns to OK there (it
-# times out at the A$="X" line), so on ours it stops there; the real ROM is where it answers.
-#expect-timeout
 #timeout 180
 #tape-blank
 NEW
 10 PRINT "HI"
 20 GOTO 10
 CSAVE "X",A
+#tape-blocks two-lines
 NEW
 10 END
 CSAVE "Y",A
+#tape-blocks one-line
 NEW
 CSAVE "Z",A
+#tape-blocks empty
+#tape-rewind
 NEW
 10 OPEN "I",#-1,A$
 20 IF EOF(-1) THEN 50

@@ -5,20 +5,21 @@
 # and including the Z line, then CLS at once with nothing typed after: this is the step that produced the two copies in
 # the bb10 record, so it should reproduce them, and the three variants before it say what it depends on.
 # No memory is read or written. Syntax [UM]; the screens [BB].
-# On OURS this stops at the X read (it never returns to OK there, so the Z step below is not reached);
-# the variant exists to run on the real ROM, where the whole sequence is the point.
-#expect-timeout
 #timeout 180
 #tape-blank
 NEW
 10 PRINT "HI"
 20 GOTO 10
 CSAVE "X",A
+#tape-blocks two-lines
 NEW
 10 END
 CSAVE "Y",A
+#tape-blocks one-line
 NEW
 CSAVE "Z",A
+#tape-blocks empty
+#tape-rewind
 NEW
 10 OPEN "I",#-1,A$
 20 IF EOF(-1) THEN 50
@@ -27,19 +28,7 @@ NEW
 50 CLOSE #-1:PRINT "END ";A$
 A$="X":GOTO 10
 #tape-rewind
-NEW
-10 OPEN "I",#-1,A$
-20 IF EOF(-1) THEN 50
-30 LINE INPUT #-1,L$:PRINT LEN(L$);"[";L$;"]";:IF LEN(L$) THEN PRINT ASC(L$) ELSE PRINT
-40 GOTO 20
-50 CLOSE #-1:PRINT "END ";A$
 A$="Y":GOTO 10
 #tape-rewind
-NEW
-10 OPEN "I",#-1,A$
-20 IF EOF(-1) THEN 50
-30 LINE INPUT #-1,L$:PRINT LEN(L$);"[";L$;"]";:IF LEN(L$) THEN PRINT ASC(L$) ELSE PRINT
-40 GOTO 20
-50 CLOSE #-1:PRINT "END ";A$
 A$="Z":GOTO 10
 CLS
