@@ -16,6 +16,7 @@
     "basic-load.test.js": 0.5,
     "bezel.test.js": 0.7,
     "bin-to-tape.test.js": 38.7,
+    "boot-card-cartridge.test.js": 1.0,
     "browser-check-lib.test.js": 2.3,
     "browser-check-shards.test.js": 5.3,
     "bugreport.test.js": 0.6,
