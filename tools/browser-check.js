@@ -25058,6 +25058,8 @@ async function switchLosesChecks(browser, base, site, check) {
   //    `$('switchConfirm').hidden` term from openOrAsk lets the link open DIRECTLY here - the machine changes while the
   //    person's question is still up, and that question goes on naming a machine that is no longer there.
   //    (Nothing of the person's is touched in this case: switchLoses is false, so only the open question makes it ask.)
+  //    Two questions showing is therefore correct and expected here (the person's, then the link's replacing it) - this
+  //    case asserts the SECOND one, and that the machine did not change under the first.
   for (const kind of kinds) {
     const { c, p } = await fresh();
     await p.goto(base); await linkIn(p);
@@ -25065,9 +25067,9 @@ async function switchLosesChecks(browser, base, site, check) {
     await p.click('#machineBtn');
     await p.waitForSelector('#machineMenu:not([hidden])');
     await p.click('#machineMenu button[data-machine="coco3"]');
-    const own = await waitFor(p, () => !document.getElementById('switchConfirm').hidden && document.getElementById('switchName').textContent === 'CoCo 3', null, 20000);
+    const own = await waitFor(p, () => !document.getElementById('switchConfirm').hidden && !!document.getElementById('switchName') && document.getElementById('switchName').textContent === 'CoCo 3', null, 20000);
     await handIn(p, kind, links[kind]);
-    const replaced = await waitFor(p, () => !document.getElementById('switchConfirm').hidden && document.getElementById('switchName').textContent === target, null, 20000);
+    const replaced = await waitFor(p, (want) => !document.getElementById('switchConfirm').hidden && !!document.getElementById('switchName') && document.getElementById('switchName').textContent === want, target, 20000);
     const s = await arrivedOrAsked(p);
     const kept = s.id === 'dragon64' && !s.card;   // the machine is still the person's while the link's question is open
     if (replaced) await p.click('#btnSwitch');
