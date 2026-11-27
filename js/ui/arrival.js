@@ -90,7 +90,9 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
   // switched meanwhile and typed on the new machine has work there too (Session.switchLoses asks about that one).
   // the fragment a link arrived in, while its question waits: Cancel puts it back (the readers strip it before the
   // question, and it is read once, at startup, so nothing re-reads it in this visit - a reload offers the link again,
-  // which is what the person had). Cleared when the question is answered either way.
+  // which is what the person had). One slot, like the question itself: a second link's question replaces the first's,
+  // so its fragment replaces that one too, and Cancel gives back the link being asked about. Cleared when answered
+  // either way (Switch by each opener, Cancel by relink).
   let heldHash = null;
   const relink = () => { if (heldHash) history.replaceState(null, '', location.pathname + location.search + heldHash); heldHash = null; };
   function openOrAsk(to, open, onCancel = null) {
@@ -201,7 +203,7 @@ export function setupArrival(page, { openShare, startOver, reportUrl, openRoms, 
       session.sources.open(card, link, include);
       page.assembler.setSource(card.source, card.name);
       sourceCard = card;
-    }));
+    }), relink);
   }
   async function takeSourceLink(hash) {
     let card;

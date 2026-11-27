@@ -24956,6 +24956,15 @@ async function switchLosesChecks(browser, base, site, check) {
     else if (h.kind === 'postcard') await a.openPostcard(await window.emu.session.postcards.read(h.hash), { kind: 'long' });
     else await a.openSource(await window.emu.session.sources.read(h.hash), { kind: 'long' });
   }, { kind, hash });
+  // the link taken in by its own reader, as the page does at startup (js/ui/main.js: takeProgramLink, takePostcardLink,
+  // takeSourceLink), which is what strips the fragment and keeps it for Cancel. (handIn calls the opener alone, for the
+  // cases about the gate; this is the way in.)
+  const take = (p, kind, hash) => p.evaluate(async (h) => {
+    const a = window.emu.arrival;
+    if (h.kind === 'program') return a.takeProgramLink(h.hash);
+    if (h.kind === 'postcard') return a.takePostcardLink(h.hash);
+    return a.takeSourceLink(h.hash);
+  }, { kind, hash });
   // a visitor on a bare page whose welcoming menu has taken one key, on a machine that is already on screen
   const visitorTyped = async (p) => {
     await waitFor(p, () => window.emu.session.welcomeOnScreen, null, 60000);
@@ -24975,8 +24984,9 @@ async function switchLosesChecks(browser, base, site, check) {
       await p.goto(base + links[kind]); await linkIn(p);
       const ok = await waitFor(p, () => !document.getElementById('arrival').hidden, null, 30000);
       const s = await arrivedOrAsked(p);
-      check(`switchLoses: a first visit opening a ${kind} link to another model: no switch question, it opens on the CoCo`,
-        ok && s.id === 'coco' && s.card && s.asked.length === 0, JSON.stringify(s));
+      // (and the address is clear: the link is read once, and an opened link is not offered again on a reload)
+      check(`switchLoses: a first visit opening a ${kind} link to another model: no switch question, it opens on the CoCo, the address is clear`,
+        ok && s.id === 'coco' && s.card && s.asked.length === 0 && s.hash === '', JSON.stringify(s));
       await closeCtx(c);
     }
     // 2. the person's input on the page first: the question asks first, names the model, and Switch opens the link.
@@ -24996,11 +25006,12 @@ async function switchLosesChecks(browser, base, site, check) {
       // machine (finding 1: openPostcard/openSource took the focus to the screen while the question was still open).
       // confirmSwitch focuses its own button, so reading once the box is visible could catch the moment before a stray
       // page.focus() runs: the focus is read again after a beat, and must still be on the button.
-      // (read once, then again after a beat: confirmSwitch focuses its own button, so a read taken the instant the box
-      // shows could catch the moment before a stray page.focus() runs, and the beat lets it)
-      const focusedOnce = s.focus === 'btnSwitch';
-      await p.waitForTimeout(250);
-      const focused = focusedOnce && await p.evaluate(() => document.activeElement && document.activeElement.id === 'btnSwitch');
+      // confirmSwitch focuses its own button, so a read taken the instant the box shows could catch the moment before a
+      // stray page.focus() runs. Poll (no bare timer) until the frame count has moved and the focus is read on a later
+      // frame than the box's first: a focus move in that window is then seen rather than raced.
+      const f0 = await p.evaluate(() => window.emu.machine.frameCount);
+      const focused = s.focus === 'btnSwitch' && await waitFor(p, ([f0]) => window.emu.machine.frameCount > f0
+        && document.activeElement && document.activeElement.id === 'btnSwitch', [f0], 5000);
       // nothing has switched yet, and no card has shown: the link waits for the answer
       const waited = s.id === 'dragon64' && !s.card;
       // Enter is the answer, because the focus is the question's: with the focus on the machine instead, Enter would be
@@ -25114,27 +25125,33 @@ async function switchLosesChecks(browser, base, site, check) {
       typed && asked && said && clean && !s.card, JSON.stringify({ typed, asked, said, clean, s }));
     await closeCtx(c);
   }
-  // 7. Cancel: the machine stays, ITS WORK stays, and no card shows - the link's payload is dropped, not opened behind
-  //    the answer. "Its work" is read from the machine itself, not from the touch counter (which only ever rises, so a
-  //    Cancel that power-cycled the machine would leave it looking untouched): the key typed is still on the screen, and
-  //    the machine is the same object, with the same program still in memory.
-  {
+  // 7. Cancel, for EVERY kind: the machine stays, ITS WORK stays, the link comes back, and no card shows - the payload
+  //    is dropped, not opened behind the answer. "Its work" is read from the machine itself, not the touch counter (which
+  //    only rises, so a power cycle would look untouched): the same machine, not restarted, the key still on its screen.
+  //    Every kind, because each reader hands its fragment over separately - the source path was the one that did not,
+  //    and Cancel then lost the link (and left its slot set for the next question to restore). Cancel gives the link
+  //    back, asserted on the address: with the fragment stripped that is the only way back to it.
+  for (const kind of kinds) {
     const { c, p } = await fresh();
     await p.goto(base); await linkIn(p);
     const typed = await visitorTyped(p);
     // (the machine is stamped, not held: an object handed back to Node is a copy, so the stamp is what says "the same")
     const before = await p.evaluate(() => { const m = window.emu.session.shownMachine; m.__probe = `m${Date.now()}${Math.random()}`;
-      return { stamp: m.__probe, frames: m.frameCount, screen: window.emu.session.screenText().join('\n') }; });
-    await handIn(p, 'program', links.program);
+      return { stamp: m.__probe, screen: window.emu.session.screenText().join('\n') }; });
+    await take(p, kind, links[kind]);
     const asked = await waitFor(p, () => !document.getElementById('switchConfirm').hidden, null, 20000);
+    const stripped = await p.evaluate(() => location.hash);   // the reader took the fragment out before asking
     await p.click('#btnSwitchCancel');
     const gone = await waitFor(p, () => document.getElementById('switchConfirm').hidden, null, 10000);
     const s = await arrivedOrAsked(p);
     const after = await p.evaluate((was) => ({ sameMachine: window.emu.session.shownMachine.__probe === was,
-      stillRunning: window.emu.machine.frameCount > 0, screen: window.emu.session.screenText().join('\n') }), before.stamp);
-    check('switchLoses: Cancel keeps the machine and its work (the same machine, still running, the key typed still on its screen) and shows no card',
-      typed && asked && gone && s.id === 'dragon64' && !s.card && after.sameMachine && after.stillRunning && after.screen === before.screen,
-      JSON.stringify({ typed, asked, gone, s, sameMachine: after.sameMachine, stillRunning: after.stillRunning, screenSame: after.screen === before.screen, before: before.screen.slice(0, 60), after: after.screen.slice(0, 60) }));
+      frames: window.emu.machine.frameCount, sinceReset: window.emu.machine.framesSinceReset,
+      screen: window.emu.session.screenText().join('\n') }), before.stamp);
+    const stillRunning = after.frames > 0 && after.sinceReset > 0;   // (a power cycle resets framesSinceReset)
+    check(`switchLoses: Cancel on a ${kind} link keeps the machine and its work (the same machine, not restarted, the key still on its screen), gives the link back, and shows no card`,
+      typed && asked && gone && s.id === 'dragon64' && !s.card && after.sameMachine && stillRunning && after.screen === before.screen
+      && stripped === '' && s.hash === links[kind],
+      JSON.stringify({ typed, asked, gone, s, sameMachine: after.sameMachine, stillRunning, screenSame: after.screen === before.screen, stripped, hash: s.hash }));
     await closeCtx(c);
   }
   // 8. a link for a machine this build does not have is said as a status, not thrown: the question's machine comes from
