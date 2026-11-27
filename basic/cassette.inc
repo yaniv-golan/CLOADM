@@ -23,11 +23,11 @@ CLNDLY  EQU     130             ; a text line going in: the original's time a li
 *                                 never fewer, [BB bb8 cas-multi: the motor's stops between LONG's blocks])
 CTDLY   EQU     36              ; a character to the tape: about 300 cycles more, the original's pace [BB bb4 cas-files,
 *                                 cas-save-load csave-a, bb8 cas-data2: the motor's stop between namefile and data]
-MOTDLY  EQU     55245           ; MOTOR ON's wait for a motor that was off: about 24.9 fields (MOTOR)
+MOTDLY  EQU     57000           ; MOTOR ON's wait for a motor that was off: about 24.9 fields (MOTOR)
 MOTONV  EQU     $3C             ; PIA 1 control register A: CA2 output high (motor on), or low
 MOTOFV  EQU     $34
 
-* MOTOR ON / MOTOR OFF [UM]. ON waits for a motor that was off, for MOTDLY [BB bb4 cas-motor-audio: MOTOR ON, an
+* MOTOR ON / MOTOR OFF [UM]. ON waits, whether the motor was off or on, for MOTDLY [BB bb4 cas-motor-audio: MOTOR ON, an
 * empty FOR of 500 passes and MOTOR OFF on one line make a run of 54.02 fields, an empty run of about 28.3]
 MOTOR   CMPA    #T_ON
         BEQ     MOT1
@@ -35,9 +35,10 @@ MOTOR   CMPA    #T_ON
         LBNE    SNERR
         JSR     CASOFF
         BRA     MOT2
-MOT1    LDX     #MOTDLY
-        BSR     CMSTX
-        ANDCC   #$AF
+MOT1    LDA     #MOTONV         ; the motor on, interrupts left on: TIMER counts through the wait, and a motor
+        STA     PIA1CA          ; already running waits again [BB bb10 time-motor]
+        LDX     #MOTDLY
+        BSR     CW0
 MOT2    JMP     <ZCHRGET
 * CMSTX: a motor that was off is started (CASON: interrupts off) and given time to get up to speed (X passes of 8
 * cycles), Z set; a motor already running, Z clear. Keeps B.

@@ -130,10 +130,14 @@ FTRUNC  JSR     ROUND
         BHS     FTR9            ; 2^32 and up: whole already
         CMPA    #129
         BHS     FTR1
-        INC     <FRACNZ         ; below 1
+        INC     <FRACNZ         ; below 1: 0, after a wait as the original's [BB bb10 time-int: INT(.5)]
+        LDA     #INTB1
+        BSR     FTRW
         JMP     FZERO
 FTR1    LDB     #160
-        SUBB    <FACEXP         ; bits to clear, 1-31
+        SUBB    <FACEXP         ; bits to clear, 1-31: a wait of 23 cycles each, as the original's INT takes [BB
+        TFR     B,A             ; bb10 time-int: INT of 3.5, 1000.5, 1E6+.5 and 1E9+.5]
+        BSR     FTRW
         LDX     #FACM+3
 FTR2    CMPB    #8
         BLO     FTR3
@@ -159,15 +163,22 @@ FTR5    PULS    A
         ANDA    ,X
         STA     ,X
 FTR9    RTS
+INTB1   EQU     19
+RNDDLY  EQU     25
+* FTRW: a wait of A x 19 cycles (A not 0). Keeps B.
+FTRW    PSHS    D
+        PULS    D
+        DECA
+        BNE     FTRW
+        RTS
 * FINT: FAC rounded down (INT)
 FINT    BSR     FTRUNC
         TST     <TRSGN
         BPL     FTR9
         TST     <FRACNZ
         BEQ     FTR9
-        JSR     <ZFPRUN
-        FCB     F_ADD+K_M1,0
-        RTS
+        LDX     #FPM1
+        JMP     FADDX
 
 * INT(x), FIX(x), ABS(x), SGN(x)
 INT     JSR     <ZFNARGN
@@ -415,7 +426,10 @@ RNDF    TST     <FACEXP         ; (RNDF: RND of FAC)
         LDD     <FACM+2
         STD     SEED+2
         CLR     <FACEXP         ; then as RND(0) [BB bb8 rnd-seq]
-RN1     JSR     <ZFPRUN
+RN1     LDB     #RNDDLY         ; RND's wait [BB bb9 rnd-timing]
+RNW     DECB
+        BNE     RNW
+        JSR     <ZFPRUN
         FCB     F_STO+5,0
         LDD     SEED            ; seed x $40E64DAB: FMUL's 64-bit product
         STD     <FACM
@@ -447,7 +461,7 @@ RN1     JSR     <ZFPRUN
         JSR     <ZFPRUN         ; f, rounded; n
         FCB     F_STO+4,F_LD+5,0
         JSR     FTRUNC          ; INT(n)
-        JSR     <ZFPRUN         ; x f, + 1
-        FCB     F_MUL+4,F_ADD+K_ONE,0
+        JSR     <ZFPRUN         ; x f (f the right operand: the product's time hangs on its bits, as the original's
+        FCB     F_STO+5,F_LD+4,F_MUL+5,F_ADD+K_ONE,0     ; [BB bb9 rnd-timing]), + 1
         JMP     FTRUNC
 RN9     RTS

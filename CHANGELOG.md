@@ -170,6 +170,17 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   sign's place and keeps the exponent (`".##^^^^";999999999` is `.10E+10`, `"#.##^^^^"` gives `1.00E+09`), as on the
   original. Both bb9 cases now match their records (`tests/basic-bb9-expr-using.test.js`). The ROM is 66 bytes larger
   (15,905).
+  From the bb10 timing probes, ours now takes the original's time, or a little more, by the original's own costs
+  rather than by delays fitted to a few loops: a digit of a number by the number so far and the digit's bits (in a
+  constant, `VAL`, `READ` and `INPUT` alike), a 0 and a digit after the point their own; a product by the bytes and
+  bits of its right operand (it was the left one's); `INT` by the places it drops; `AND` alike for any operands;
+  `RND` by its seed. `MOTOR ON` leaves the interrupts on, so `TIMER` counts through its wait, and waits again when the
+  motor already runs, as on the original. Where that made ours faster than the original, ours was first made faster
+  still (relations, normalising, shifting, finding a line), so none of it got slower than it had to; no result
+  changed. Every loop of `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` and `rnd-timing`, the eight
+  of `ram-pointers2`, `cas-cloadm2`'s spans and `snd-timer`'s typed loop now takes the original's count of fields or more, at most 7.4% more
+  (`RND(.5)`; most within 3%), where 36 of those 71 loops were faster before; `tests/basic-timing.test.js` checks the probes, with
+  mutants of the model. The ROM is 171 bytes larger (16,080).
 
 ### 0.3.1
 

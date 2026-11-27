@@ -3,12 +3,7 @@
 * IF expression THEN statements | line [ELSE statements | line]; IF expression GO TO / GO SUB line [UM].
 * A number that is not 0 is true. When it is false the line goes on after its ELSE (ELSEs pair with the IFs
 * between, innermost first), or ends.
-IFDLY   EQU     242             ; IF's delay, 5 cycles a step: ours would be faster than the original otherwise
-*                                 [BB ram-pointers2, 2026-11-26: 999 passes of I=I+1:IF I<1000 THEN 80 take 516 fields]
-IFST    LDB     #IFDLY
-IFD1    DECB
-        BNE     IFD1
-        JSR     <ZEVNUM         ; (leaves the character after the expression in A)
+IFST    JSR     <ZEVNUM         ; (leaves the character after the expression in A)
         CMPA    #T_GO
         BEQ     IF1
         LDB     #T_THEN
@@ -100,6 +95,7 @@ FOR5    LDA     ,-X
 
 * NEXT [variable [, variable ...]]: add the step; while the variable has not passed the limit (above it for a
 * step of 0 or more, below it for a negative one) go round again, else close the loop and go on
+NXDLY   EQU     9
 NEXT    PULS    U
         STU     <NXRET
 NXA     JSR     CHRGOT          ; (called straight, as MOVMF below: NEXT's own time counts in every loop)
@@ -130,7 +126,13 @@ NX4     LEAS    ,X              ; the loops inside are gone
         LEAX    3,S
         JSR     MOVAM
         JSR     FADD
-        LDX     <FORVAR
+        LDA     <FACEXP         ; a variable below 256 waits: the original's NEXT takes longer there [BB bb2
+        CMPA    #128+9          ; snd-timer: 500 empty passes, 29 fields, against ram-pointers2's 2000 in 113]
+        BHS     NXW1
+        LDB     #NXDLY
+NXW     DECB
+        BNE     NXW
+NXW1    LDX     <FORVAR
         JSR     MOVMF
         LEAX    8,S             ; against the limit
         BSR     NXCMP

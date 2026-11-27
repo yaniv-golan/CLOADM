@@ -67,7 +67,11 @@ RIGHTS  BSR     STRARG
         CLRB
 RS1     STB     <SBSTRT
         BRA     SUBEND
+MIDDLY  EQU     1
 MIDS    BSR     STRARG
+        LDB     #MIDDLY         ; MID$'s wait [BB ram-pointers2: B$=MID$("HELLO",2,2)+"X"]
+MID1    DECB
+        BNE     MID1
         BSR     COMBYT
         TSTB
         LBEQ    FCERR           ; the first character is 1

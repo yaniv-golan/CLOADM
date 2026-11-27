@@ -136,7 +136,7 @@ These are hard rules for everyone who works on this ROM.
     (`FONINE` keeps the scaling for `PRINT USING`'s exponent form, which reads all nine digits). Where that left
     ours faster than the original, a counted delay brings it back, as `GSDLY` did: `IFDLY` in `IF`, `ADDDLY` before
     an addition or subtraction in an expression, `MULDLY` before a product, `FOIDLY` in `FOUT`'s whole-number path,
-    11 cycles before a quotient, and `GSDLY` is now 39 steps. The own case `expr-levels` holds the expression
+    11 cycles before a quotient, and `GSDLY` is now 39 steps (all since refitted or replaced by the cost model below). The own case `expr-levels` holds the expression
     levels to it (a signed operand after a relation, an operator after a `NOT`'s operand, `NOT` after `AND` and
     `OR`; a `NOT` straight after a relation or another operator, `1<NOT 0`, was `?SN ERROR` on ours, before and
     after this change: the original takes it, [BB bb9 expr-not], and ours now does, section 11 row 52; with row 53's `PRINT USING`
@@ -155,34 +155,83 @@ These are hard rules for everyone who works on this ROM.
     paced alike on both: for A, from the `S` a `CLOADM`'s search shows to the screen the next `CLOADM` clears (or from
     the start, less the 63 or so fields every bb5-bb8 case starts later on the original); for B, from `BIGMC`'s last
     top-row flag to the case's end; for C, the whole case less the 62 fields of every bb3 case. Ours was short by
-    324-326, 186 and 328 fields: about 5,630, 5,515 and 7,850 cycles a pass. (The `cloadm-big` tape summary does not
-    time B: its four runs are `CLOADM "MCX",512`'s and `CLOADM "BIGMC"`'s, so its third run's start times loop A.)
-    A pass of each has 8, 8 and 11 digits that are not 0, come before any point and follow a digit that was not 0
-    (`32767` and `28928` four each, `112`, `114` and `131` two, `88` one): 704, 689 and 714 cycles a digit, one cost
-    within 4% for all three. No mix of costs for `AND`, `OR`, `PEEK`, a relation, an addition or a false `IF`'s skip
-    fits them: B has no `IF`, no `OR` and no relation, yet is short by as much a digit as A and C, and an addition's
-    or an `IF`'s cost is already held by `X=I+2.5` and `IF I<1000`. The eight loops say which digits: a 0 waiting
-    would put `IF I<1000` 118 fields over, a digit after the point `X=I+2.5` and `X=I*2.5` 20, and first digits (`3`,
-    `2`, `1`) have no room. So `FPNX10` waits `FIDLY` (135 steps of 5 cycles; 699 cycles with its tests) before
-    such a digit; a first digit takes 13 cycles more, a 0 five, a digit after the point 22. A takes the original's
-    time or a field or two more (+1 and +2 fields on 1887 and 1874), B 6 fields more (1.1% of the loop), C within
-    two fields of the original's (bb3 cases start 61 to 63 fields later on it); `tests/basic-ram.test.js` checks A and B (at least
-    the original's span, at most 1% more). The tests' cycles were not taken from `IFDLY`, `ADDDLY` or `MULDLY`, so no
-    statement got faster: of the eight loops `X=I+2.5`, `X=I*2.5`, `X=I/3`, the `IF` loop and the `MID$` loop take
-    0.99, 0.99, 0.37, 2.31 and 0.44 fields more (206, 225, 177, 518, 139: each still within two of the original).
-    16 bytes (15,828). Open: bb8 `rnd-seq` reads `PEEK(J AND 32767)` 7,290 times and now takes about 194 fields
-    longer than on the original (it took 807 fewer), so either ours is slower than the original elsewhere in it (its
-    2,170 `STR$` of a byte each wait `FOIDLY`'s 5,000 cycles, fitted to `A$=STR$(I)`, where the string assignments
-    may be what the original spends them on) or a digit's cost is not one constant; and bb9's `rnd-long` (840,000
-    such digits) no longer finishes on ours within its `#timeout`: if the original's run finishes, the cost is
-    smaller in it. The batch that would decide: loops differing only in a constant (`X=1`, `X=11`, `X=10`, `X=111`,
-    `X=11111`, `X=1.1`, `X=11.1`), `X=PEEK(I)` against `X=I`, `X=I AND 1` against `X=I+1`, `A$=STR$(I)` against
-    `L=LEN(STR$(I))`, and loop B typed as a program line. Also open, and in that batch: "a digit that was not 0
-    before it" is tested as the number so far having its low 16 bits not 0, so after an inner 0 (`105`: the 5) a
-    digit waits, and a digit after a value that is a multiple of 65536 does not; no recorded constant has an inner
-    0 or reaches 65536, so neither is evidenced (`X=105`, `X=1005`, `X=655361`). The wait is in `FIN`, so `VAL`,
-    `READ` and `INPUT` of a number wait as a constant does; no record times them (`X=VAL("32767")`, `READ X` of
-    `DATA 32767`).
+    324-326, 186 and 328 fields: about 700 cycles a digit. That first wait (`FIDLY`, one cost for a digit that is not
+    0, before the point, after a digit that was not 0) was a guess the bb10 probes below replace.
+  * **The original's cost model** ([BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor`; bb9
+    `rnd-timing`). Each probe is loops of 500 or 1000 passes that differ in one item, each started just after a field
+    begins, counted in fields of 17,784 cycles (one field is 18 cycles a pass in 1000 passes, so a difference of two
+    counts is good to about 25 cycles). Fitted to them, in cycles, with the residuals:
+
+    | Item | The original's cost | Residual | Evidence |
+    |---|---|---|---|
+    | A digit that is not 0, the number so far not 0 | 906 + 102 for each byte of the number so far + 66 for each place the digit is below 8 (1: three, 2-3: two, 4-7: one, 8-9: none) | 33 at most over six differences (11, 111, 11111, 655361 against 1; `VAL` and `READ` of 32767 against 1) | `time-literals`, `time-ops` |
+    | A 0 after a digit | 925 (`X=10`), 971 (`X=105`), 1001 (`X=1005`, each of two) | | `time-literals` |
+    | The same in `VAL` and `READ` | `VAL("32767")` and `READ` of `DATA 32767` both 257 fields over the same with 1: 4,570 cycles for the four digits, as constants' digits | | `time-ops` |
+    | The point and a place | 3,202 (`X=1.1` against 11), 3,290 (`X=11.1` against 111); about 700 less where the quotient has few 1s (`X=I+2.5` of `ram-pointers2`: 2.5's quotient by 10 has 2, 1.1's 20) | | `time-literals`, `ram-pointers2` |
+    | `Y*Z` | 1,440 + 328 for each byte of Z (the right operand) that is not 0 + 43 for each bit of it set; Y does not count | 21 at most over five operands; each pair both ways round within 2 fields when Z is the same | `time-mul` |
+    | `INT` | 835 + 23 for each place it drops (3.5, 1000.5, 1E6+.5, 1E9+.5: 30, 22, 12 and 2 places); 1,191 below 1; 195 more for a negative number with a fraction | 43 | `time-int` |
+    | `AND` | 2,720 (`X=I AND 1` against `X=I`), about the same with 32767: its operands' size does not count | | `time-ops` |
+    | `PEEK(...)` against `(...)` | 836 | | `time-ops` |
+    | `MOTOR ON` | about 25.4 fields, interrupts on (`TIMER` reads 25 after it), and as long again for a second `MOTOR ON` (51); `MOTOR OFF` of a motor that is off takes nothing (0); ten `MOTOR ON:MOTOR OFF` 254; the motor runs 25.44, 50.72 and 25.31 fields | | `time-motor` |
+
+    Two of the probes' items do not fit ours' own structure, and the waits were fitted to all the loops at once
+    (each wait's effect on a loop is its steps times the passes, so the fit is linear): the zero digit's cost in `X=10` and
+    `X=105` against `ram-pointers2`'s `IF I<1000`, and `READ 32767` and `X=655361` against `cas-cloadm2`'s loop B,
+    which hold each other within a field of their bounds. What ours does now, by the same items: `FPNX10` waits
+    nothing beyond `FIFST` steps (of 5 cycles) for the first digit and stores it as it is; for another it waits
+    `FIDLY` less `FIBYT` for each byte at the top of the number so far that is 0, plus `FINRM` for each place the
+    digit is below 8, `FIDP` less after the point, and `FIZERO` for a 0. A quotient while a number's places are read
+    waits 14 cycles more for each 1 bit (`FDIV`, the point's flag `FPDP` set). `MULMAN` makes a row of the product for
+    each byte of FAC, the right operand, that is not 0 (it was ARG's), each waiting `MBDLY` steps and `MBIT` more for
+    each bit set, and a product waits `MULDLY` (`RND`'s seed is FAC there: its time hangs on the seed's bytes and bits,
+    as the original's, `rnd-timing`); `RND(n)`'s product has f as its right operand. `FTRUNC` waits 19 cycles for each
+    place it drops, `INTB1` x 19 for a number below 1; `QINT`, the conversion to an integer (`AND`, `OR`, `NOT`, an
+    address, `GETBYT`, `STR$`), 17 cycles for each place under 16 bits (0 at once); `AND` waits `ANDDLY` (`OR` does
+    not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.9 fields). Waits
+    the model made unnecessary are gone: `ADDDLY`, `IFDLY`, the 11 cycles before a quotient, `FIN`'s 29-cycle pad. Where
+    that left ours faster than the original, ours was made faster still first, so no loop got slower than it had to
+    (no result changed: the same bits, screens and records): a relation's -1 or 0 is loaded from a constant, `NORM`
+    shifts a number below 65536 in D, `FIN` puts a number below 256 at the top before normalising and stores a first
+    digit without multiplying, `SHFTR` makes 6 or 7 places a byte and 2 or 1 back, `FNDLIN` compares in D, `EVAL`'s
+    stack check is inline. Then a counted wait for a loop of its own where one was still short: `DIVDLY` (a quotient,
+    `X=I/3`), `MIDDLY` (`MID$`), `GSDLY` (52), `FOIDLY` (625), `RNDDLY` (`RND`), and `NXDLY` in `NEXT` for a variable
+    below 256 (bb2 `snd-timer`'s 500 empty passes take 29 fields on the original against `ram-pointers2`'s 2000 in 113:
+    its early passes cost more; with `SHFTR`'s shorter way ours had them cheaper, 28).
+
+    Every timed loop, before (this pass) and now, against the original, in fields (`tests/basic-timing.test.js` checks
+    the probes: the original's count or up to 8% more, never fewer; `tests/basic-ram.test.js` the eight loops, up to
+    two more, and `cas-cloadm2`'s spans, up to 1% more):
+
+    | Loop | The original | Ours before | Ours now |
+    |---|---|---|---|
+    | empty (1000); bb2 `snd-timer`'s typed 500 | 56; 29 | 57; 29 | 56; 29 |
+    | `X=1`, `X=11`, `X=10`, `X=111`, `X=11111` | 150, 216, 202, 285, 427 | 163, 216, 177, 270, 381 | 150, 220, 206, 289, 440 |
+    | `X=105`, `X=1005`, `X=655361`, `X=1.1`, `X=11.1` | 265, 323, 486, 396, 470 | 231, 257, 400, 357, 414 | 265, 332, 486, 412, 486 |
+    | `X=I`, `X=PEEK(I AND 32767)`, `X=(I AND 32767)`, `X=I AND 1`, `X=I+1` | 128, 593, 546, 281, 213 | 136, 553, 511, 251, 245 | 134, 604, 559, 281, 216 |
+    | `A$=STR$(I)`, `L=LEN(STR$(I))` (500) | 285, 314 | 293, 318 | 292, 317 |
+    | `VAL("32767")`, `VAL("1")`, `READ` 32767, `READ` 1 | 476, 219, 429, 172 | 456, 240, 400, 184 | 481, 226, 429, 173 |
+    | `X=Y`; `Y*Z` with Z = 2, 255, all 32 bits, alternate bits, the first and last (Y = Z) | 133; 236, 251, 365, 325, 255 | 142; 269, 266, 313, 311, 280 | 140; 244, 258, 377, 335, 259 |
+    | `Y*Z` the other pairs (2·F, F·2, 255·F, F·255, 2·.3, .3·2, 255·.3, .3·255, 2·M, M·2, F·M, M·F) | 367, 236, 363, 251, 325, 236, 322, 251, 256, 236, 253, 365 | 268, 305, 267, 303, 268, 304, 267, 303, 268, 280, 305, 279 | 369, 243, 368, 259, 329, 243, 327, 259, 259, 243, 258, 370 |
+    | `X=Y`; `INT` of .5, 3.5, 1000.5, 1E6+.5, 1E9+.5, -1000.5 | 132; 199, 217, 208, 197, 180, 219 | 140; 183, 193, 192, 189, 187, 216 | 138; 200, 223, 213, 199, 186, 231 |
+    | `MOTOR`: typed ON then `TIMER`, ON:ON, ON:T=TIMER:OFF; in a program A, B, C, D, E | 26, 50, 25; 25, 51, 0, 254, 1 | 1, 1, 1; 1, 1, 0, 10, 1 | 26, 51, 26; 26, 52, 0, 259, 1 |
+    | `RND` (500) of 0, 6, 1E9, .5, -1, -3, -1.99999999 | 162, 299, 276, 217, 115, 116, 178 | 133, 208, 209, 168, 131, 132, 138 | 163, 308, 280, 233, 118, 120, 185 |
+    | `ram-pointers2`: FOR, ADD, MUL, DIV, STR, GOSUB, IF, MID | 113, 205, 224, 177, 174, 83, 516, 137 | 113, 206, 225, 177, 175, 83, 518, 139 | 114, 207, 225, 177, 175, 83, 517, 138 |
+    | `cas-cloadm2` spans A1, A2, B | 1887, 1874, 2396 | 1889, 1877, 2399 | 1893, 1879, 2418 |
+
+    Nothing is faster than the original. The slowest against it: `RND(.5)` 7.4% (its `INT(.5)` and `INT` of 1 wait
+    for the places as `INT` does), `INT(-1000.5)` 5.5% (ours adds the -1 slower), `X=Y` and `X=I` 5.3% and 4.7% (ours
+    reads a variable and assigns slower: no wait in it to take back), `X=1.1` 4.0%. 171 bytes (16,080, the code
+    ending at `$BFC2`); by module: `fp.inc` +57, `fpconv.inc` +67, `mathfn.inc`
+    +24, `expr.inc` +13, `flow.inc` +6, `strfunc.inc` +5, `cassette.inc` +3, `program.inc` -4, `interp.inc` 0. Open, for bb11: whether a 0 at a number's end costs less than one inside it (`X=10`,
+    `X=100`, `X=1000`, `X=1001`, `X=10001`), which would let `IF I<1000` and `X=105` both sit closer; a digit's cost by
+    its own value alone (`X=12`, `X=13`, `X=14`, `X=18`, `X=19`); a place's quotient by its bits (`X=2.5`, `X=1.5`,
+    `X=1.1`, `X=1.3`, `X=3.7`); `X=I+Y` with Y's exponent 1 to 30 below I's (the addition's alignment, which ours does
+    not model); `OR` alone (`X=I OR 1`, `X=I OR 32767`); a variable read and an assignment (`X=Y` with 1, 5 and 20
+    variables before X and Y, `PRINT` against `X=`); and `MOTOR ON` timed from a field's start to the motor's run.
+    Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
+    `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
+    its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
+    as `snd-play-length`'s above).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -335,7 +384,7 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   | 14 | NEW, CLEAR, RUN, warm reset | `rnd-state`: the seed set by POKE, then read after NEW, CLEAR and as RUN starts | none of them touches `$0115-$0119` (bb9). A warm reset is not asked: the harness has no reset directive | the same | as above |
   | 15, 16, 18 | The five bytes, the guard byte, rounding and normalisation across arguments | every case above prints the five bytes | the 434 values of bb8 `rnd-seq` and the 171 of bb9 `rnd-args` | the same | `tests/basic-rnd.test.js` |
   | 17 | A next state with leading zero bytes, or 0 | `rnd-args`: next states `$00123456`, `$00001234`, `$00000012` and 0 | normalised with the guard byte shifted in: 2.77777753E-04, 1.08521454E-06, 4.33556125E-09 and 3.3651304E-11 (94,20,0,0,0) | the same | `tests/basic-rnd.test.js` |
-  | 19 | Time against seed and argument | `rnd-timing`: 500 passes each of `RND(0)`, `RND(6)`, `RND(1E9)`, `RND(.5)`, and `RND(-1)`, `RND(-3)`, `RND(-1.99999999)` (fixed seeds), in fields | 162, 299, 276, 217, 115, 116, 178 (bb9) | *open*: 133, 208, 209, 168, 131, 132, 135 (before bb9's value fixes 133, 171, 189, 165, 131, 132, 135): faster on five, slower after a reseed. Left until bb10 pins the cost of a product and of `INT` (below) | none yet |
+  | 19 | Time against seed and argument | `rnd-timing`: 500 passes each of `RND(0)`, `RND(6)`, `RND(1E9)`, `RND(.5)`, and `RND(-1)`, `RND(-3)`, `RND(-1.99999999)` (fixed seeds), in fields | 162, 299, 276, 217, 115, 116, 178 (bb9) | 163, 308, 280, 233, 118, 120, 185: the original's or up to 7.4% more (before: 133, 208, 209, 168, 131, 132, 138), from the general cost model bb10 pinned (section 2): the product's time by its right operand's bytes and bits (the seed in the step, f in `RND(n)`'s product), `INT`'s by its places, and one wait of `RND`'s own | `tests/basic-timing.test.js` |
   | 20 | Other RAM or workspace changes | bb8 `rnd-seq` (addresses only); `rnd-state`: address 4 set to 77, then whether `RND(0)` changes it | address 4 is 0 at a cold start and `RND(0)` leaves the 77 (bb9); bb8's change of it came from something else in that case | the same | `rnd-state` replayed |
 
   **Reading a number, as `RND` showed it** (bb9 `rnd-args`, `rnd-neg`). `RND(-x)` seeds from x's mantissa, so it shows
@@ -350,39 +399,30 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   (254,112,189,194,29), which it prints as `8E+37` and ours as `8.00000001E+37` (open: `FOUT` of numbers from 1E17 up). `tests/basic-fp.test.js` holds `FIN` to the rule exactly: the five readings as fixed [BB bb9]
   entries, and every random text and every printed number read back to the five bytes `finTen` gives.
 
-  **Its time: open** (bb9 `rnd-timing`, 500 passes, in fields, each loop started just after a field begins). Ours is
-  not changed for it yet: that waits for bb10's probes of the original's product and `INT`, not for a model fitted to
-  seven loops. What the seven say: the original's step costs more the more of the seed's bytes and bits are not 0.
-  `RND(-1)`, `RND(-3)` and `RND(-1.99999999)` seed `$80000000`, `$C0000000` and `$FFFFFFEA` (1, 1 and 4 bytes; 1, 2
-  and 29 bits) and take 115, 116 and 178 fields, `RND(0)` from the cold-start sequence (4 bytes and 16 bits on
-  average) 162. With the loop's own time taken as ours (3,229 cycles a pass, the same within 18 cycles in all seven,
-  from ours' fields less `RND`'s cycles counted on the CPU), that fits about 410 cycles a byte that is not 0 and 36 a
-  bit set, 320 more for each call and 90 for a reseed (each figure good to a field's 36 cycles a pass). `RND(n)`
-  adds about 4,870, 4,060 and 1,960 cycles for n = 6, 1E9 and .5: a product whose time hangs on f's bytes and bits
-  in the same way (some 1,070 for a random f) and `INT`s that take about 16 cycles a place they drop (`RND(6)`'s two
-  drop about 59 places, `RND(1E9)`'s five, so `RND(1E9)` is the faster although its n has more bits), plus about
-  200; `RND(.5)` (n made 0) has no product. Scanning n instead of f in the product does not fit: `RND(.5)` would need
-  a negative constant. A trial build that waited so (the seed in `MULMAN`'s skipped-row operand, waits for each byte
-  and bit of the seed and of f and for each place `INT` drops) took 163, 303, 279, 219, 116, 119 and 181 fields: the
-  original's or up to 3% more on all seven. Its constants are as many as the loops for `RND(n)`, so nothing checks
-  them beyond those loops.
+  **Its time** (bb9 `rnd-timing`, 500 passes, in fields, each loop started just after a field begins). What the seven
+  said: the original's step costs more the more of the seed's bytes and bits are not 0 (`RND(-1)`, `RND(-3)` and
+  `RND(-1.99999999)` seed `$80000000`, `$C0000000` and `$FFFFFFEA`: 115, 116 and 178 fields), and `RND(n)` adds a
+  product whose time hangs on f's bytes and bits and two `INT`s whose time hangs on the places they drop (`RND(.5)`,
+  n made 0, has no product). bb10 measured those costs outside `RND` (section 2, the original's cost model: `X=Y*Z` by
+  Z's bytes and bits, Y not counting; `INT` by places), and ours now has them everywhere rather than in `RND` alone:
+  `MULMAN`'s rows are the right operand's bytes, each waiting for its bits (the seed is that operand in the step, and
+  f in `RND(n)`'s product, now `n x f` with f on the right: the same bits), and `FTRUNC` waits for each place. `RND`
+  itself waits `RNDDLY`, for what is left of `RND(0)`.
 
-  | Loop (500 passes) | The original | Ours before bb9 | Ours now | The trial build (not kept) |
+  | Loop (500 passes) | The original | Ours before bb9 | Before | Now |
   |---|---|---|---|---|
   | `R=RND(0)` | 162 | 133 | 133 | 163 |
-  | `R=RND(6)` | 299 | 171 | 208 | 303 |
-  | `R=RND(1E9)` | 276 | 189 | 209 | 279 |
-  | `R=RND(.5)` | 217 | 165 | 168 | 219 |
-  | `R=RND(-1)` | 115 | 131 | 131 | 116 |
-  | `R=RND(-3)` | 116 | 132 | 132 | 119 |
-  | `R=RND(-1.99999999)` | 178 | 135 | 135 | 181 |
+  | `R=RND(6)` | 299 | 171 | 208 | 308 |
+  | `R=RND(1E9)` | 276 | 189 | 209 | 280 |
+  | `R=RND(.5)` | 217 | 165 | 168 | 233 |
+  | `R=RND(-1)` | 115 | 131 | 131 | 118 |
+  | `R=RND(-3)` | 116 | 132 | 132 | 120 |
+  | `R=RND(-1.99999999)` | 178 | 135 | 138 | 185 |
 
-  ("Now" is slower for `RND(n)` than before only because `INT(n)` and the + 1 before `INT` are new steps.) The bb10
-  probes that would pin the original's general cost, all 500 passes in fields as `rnd-timing`: `X=A*B` with A and B
-  of 1, 2, 3 and 4 bytes not 0 and of few and many bits set, both ways round (which operand is scanned, and whether
-  `FMUL` costs so outside `RND`); `X=INT(A)` for A of 1.5, 1000.5, 1E6+.5 and 1E9+.5 (a place's cost); `R=RND(4)`,
-  `RND(5)`, `RND(7)`, `RND(255)`, `RND(256)` and `RND(65535)` (the same places, different bits); and `R=RND(A)` with A
-  of -1, -1.5, -1.75 and -1.875 (one more seed bit each).
+  `RND(.5)` is the furthest over (7.4%): its `INT` of .5 and of 1 wait as `time-int`'s `INT`s do, which suggests the
+  original's `RND` takes a shorter way for them. The bb11 probes that would say: `R=RND(4)`, `RND(5)`, `RND(7)`,
+  `RND(255)`, `RND(256)` and `RND(65535)` (the same places, different bits), `R=RND(.25)`, `RND(.75)` (n made 0
+  again), and `R=RND(A)` with A of -1, -1.5, -1.75 and -1.875 (one more seed bit each).
 
   Long runs: `rnd-long` folds the five bytes of 10,000 consecutive `RND(0)` from a cold start, and 2,000 each from
   the seeds 0 and `$FFFFFFFF`, into checksums. The original reached the case's `#timeout` after its first block
@@ -756,8 +796,9 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 52 | `NOT` straight after a relation or another operator is an operand: `NOT` and the relation after it, as at an expression's start, so `1<NOT 0` is 1<(NOT 0), 0; `1=NOT 0` 0; `5+NOT 0` 4; `2*NOT 0` -2; `-NOT 0` 1 (no `?SN ERROR`). `NOT` first still applies to the relation after it (`NOT 0<1` is 0), and `1 AND NOT 0` is 1. Where its operand ends after an operator (`1<NOT 0+1`, ours 1<(NOT 1)) is our inference: no record has an operator after that operand | [BB] bb9 `expr-not` (2026-11-27) |
 | 53 | `PRINT USING`: a fixed field's number of more than 32 bits once scaled to its decimals prints its digits as any other, nine significant then zeros (`"#####.#####";100000.5` is `%100000.50000`, too wide by one; `"######.#####"` gives `100000.50000`, `"#####.#####";99999.5` `99999.50000`); ours takes `FOUT`'s nine digits and zeros up to 20 digits, and from 2^66 on prints `%` and the number scaled to its decimals as `PRINT` has it, without its sign [OWN]. An E field with a sign's place (no `+` or `-`) whose rounding carries out puts the 1 in the sign's place and keeps the exponent: `".##^^^^";999999999` is `.10E+10`, `99999999` `.10E+09`, `"#.##^^^^";999999999` `1.00E+09` (ours renormalised: `.01E+11`, `.01E+10`, `0.10E+10`). A negative number then has no place for its `-` and prints after a `%` (`"#.##^^^^";-999999999`, `%-1.00E+09`), and a field with a `+` or `-` of its own still renormalises: both our inference, not recorded | [BB] bb9 `print-using-odd` (2026-11-27) |
 | 54 | `$0115` is 128 at a cold start; `RND` neither reads nor writes it, and NEW, CLEAR and RUN leave `$0115-$0119` as they are | [BB] bb9 `rnd-state` (2026-11-27) |
-| 55 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours not yet matched: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
+| 55 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours now 162 to 7.4% more: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
 | 56 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads all six so now: open question 11; the old "at most one unit" round-trip bound was our assumption, not a record) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
+| 57 | The interpreter's costs (section 2, the original's cost model): a digit of a number by the number so far and the digit's bits, the same in a constant, `VAL` and `READ`; a 0 about 925-1000 cycles; a product by its right operand's bytes and bits, not its left one's; `INT` 23 cycles a place it drops; `AND` alike for small and large operands; `MOTOR ON` waits about 25.4 fields with `TIMER` counting, and again when the motor already runs; `MOTOR OFF` of a motor that is off takes nothing | [BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -862,14 +903,13 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   records. `CSAVE` writes the program
   from its start to the end link, `CSAVEM` memory from start to end inclusive, `CSAVE ,A` the `LIST` text (the
   character output is sent to the block buffer, written out when full, the motor stopped after each block).
-* **`MOTOR ON`** waits for a motor that was off before going on, as writing does: [BB] bb4 `cas-motor-audio`'s `MOTOR
+* **`MOTOR ON`** waits, as writing does: [BB] bb4 `cas-motor-audio`'s `MOTOR
   ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
   waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
   `CDELAY` of 25.95 fields: that one was fitted, with the leader after it, to the write runs, so the two need not be
-  one), interrupts off as for the tape: 54.02 fields. A motor already running is not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
-  open by `?IO ERROR`) now takes about 2 fields longer on ours than on the original (it took 23 fewer). Open: whether
-  `TIMER` counts during the wait, and whether a second `MOTOR ON` waits (`TIMER=0:MOTOR ON:PRINT TIMER`, and the
-  loop above with `MOTOR ON:MOTOR ON`). 11 bytes (15,839, the code ending at `$BED1`).
+  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (57,000 passes of 8 cycles, with the field interrupts 25.9 fields: `TIMER` 26 and 52, ten `MOTOR ON:MOTOR OFF` 259 fields against 254). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
+  open by `?IO ERROR`) took about 2 fields longer on ours than on the original (it took 23 fewer). 11 bytes (15,839, the
+  code ending at `$BED1`), and 3 more for bb10's.
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what
   they do; bb8 `cas-data2`, `cas-data-errors`]: `OPEN "O",#-1,"NAME"` writes a namefile (type 1, ASCII and gaps
   `$FF`) and stops the motor. It is built in the block buffer, only its name, type and flags set: its exec and load

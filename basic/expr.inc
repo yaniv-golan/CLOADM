@@ -6,7 +6,9 @@
 * its own operation (the FCB $8C before that, CMPX #, skips the two-byte call on the way in).
 
 * EVAL: an expression of either type
-EVAL    JSR     CHKSP
+EVAL    LEAX    -48,S           ; (CHKSP, inline)
+        CMPX    <ARYEND
+        LBLO    OMERR
         JSR     <ZCHRGOT
 * OR
 EVOR    BSR     EVAND
@@ -31,6 +33,9 @@ EA1     CMPA    #T_AND
         JSR     PSHINT
         JSR     <ZCHRGET
         BSR     EVNOT
+        LDB     #ANDDLY         ; AND's wait: ours would be faster than the original [BB bb10 time-ops: X=I AND 1]
+EA2     DECB
+        BNE     EA2
         JSR     POPINT
         ANDA    <INTVAL
         ANDB    <INTVAL+1
@@ -80,16 +85,17 @@ ER8     NEGA                    ; $FF, 0, 1 -> the bit 1, 2 or 4
         INCA
         LDX     #RELBIT
         LDB     A,X
-ER10    ANDB    ,S+
-        BEQ     ER11
-        LDB     #$FF
-ER11    SEX                     ; D = -1 or 0
-        CLR     <VALTYP
-        JSR     GIVABF
+ER10    CLR     <VALTYP         ; -1 (true) or 0, from the constants
+        LDX     #FPM1
+        ANDB    ,S+
+        BNE     ER11
+        LDX     #ZEROV
+ER11    JSR     MOVFM
         BRA     ER0
 * + and -; + also joins strings
-ADDDLY  EQU     53
-MULDLY  EQU     143
+ANDDLY  EQU     83
+DIVDLY  EQU     27
+MULDLY  EQU     35
 EVADD   BSR     EVMUL
         FCB     $8C
 EAD0    JSR     <ZCHRGOT
@@ -115,10 +121,7 @@ EAD2     PSHS    A
 EAD3     CMPA    #T_PLUS
         BEQ     EAD4
         JSR     FNEG            ; -: the negative added
-EAD4    LDB     #ADDDLY         ; a delay (ADDDLY, MULDLY: 5 cycles a step): ours would be faster than the
-EAD5    DECB                    ; original otherwise [BB ram-pointers2, 2026-11-26: 500 passes of X=I+2.5 take
-        BNE     EAD5            ; 205 fields on it, and of X=I*2.5 224]
-        JSR     FADD
+EAD4    JSR     FADD
         BRA     EAD0
 EVRTS2  RTS
 * * and /
@@ -139,13 +142,14 @@ EM2     PSHS    A
         PULS    A
         CMPA    #T_MUL
         BNE     EM3
-        LDB     #MULDLY
+        LDB     #MULDLY         ; a product's wait [BB ram-pointers2: X=I*2.5]
 EM2A    DECB
         BNE     EM2A
         JSR     FMUL
         BRA     EM0
-EM3     MUL                     ; (11 cycles more, as the delays above: 500 passes of X=I/3 take the original
-*                                 177 fields with a third of a field to spare, not a fiftieth)
+EM3     LDB     #DIVDLY         ; a quotient's wait [BB ram-pointers2: X=I/3]
+EM4     DECB
+        BNE     EM4
         JSR     FDIV
         BRA     EM0
 * unary minus and plus

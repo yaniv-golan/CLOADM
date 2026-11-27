@@ -392,7 +392,8 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   check('the cassette statements LIST as typed', eq(listing(b), st), JSON.stringify(listing(b)));
 }
 // MOTOR ON waits, as the cassette does, for a motor that was off [BB bb4 cas-motor-audio: MOTOR ON, an empty FOR
-// of 500 passes and MOTOR OFF on one line, a motor run of 54.02 fields], and not for one already running
+// of 500 passes and MOTOR OFF on one line, a motor run of 54.02 fields], and again for one already running [BB bb10
+// time-motor: MOTOR ON:MOTOR ON:B=TIMER:MOTOR OFF, a run of 50.72 fields, MOTOR ON:A=TIMER:MOTOR OFF 25.44]
 {
   const { runCase } = require('./basic/harness.js');
   const runs = (rom, line) => { const r = runCase(rom, `#tape three-progs\n${line}\n#tape-blocks w\n`); return r.tapes[0].motor.map((x) => x.length); };
@@ -401,8 +402,8 @@ const twoFiles = Emu.buildCas([{ name: 'ONE', type: 'basic', data: ONE }, { name
   const got = near(rom);
   check('MOTOR ON:FOR I=1 TO 500:NEXT:MOTOR OFF: a run of 54.02 fields (within one), as on the original', typeof got === 'number', `${got}`);
   const twice = runs(rom, 'MOTOR ON:MOTOR ON:FOR I=1 TO 500:NEXT:MOTOR OFF');
-  check('... a second MOTOR ON with the motor running does not wait again [OWN]', twice.length === 1 && Math.abs(twice[0] - got) < 0.1, `${twice}`);
-  const mrom = buildBasic({ edit: (f, t) => { if (f !== 'cassette.inc') return t; if (!t.includes('MOT1    LDX     #MOTDLY')) throw new Error('mutant source not found: MOTOR'); return t.replace('MOT1    LDX     #MOTDLY', 'MOT1    LDX     #1'); } }).rom;
+  check('... a second MOTOR ON with the motor running waits again: one wait (about 25.3 fields on the original) longer', twice.length === 1 && twice[0] - got >= 25 && twice[0] - got <= 26.5, `${twice}`);
+  const mrom = buildBasic({ edit: (f, t) => { if (f !== 'cassette.inc') return t; if (!t.includes('        LDX     #MOTDLY\n        BSR     CW0')) throw new Error('mutant source not found: MOTOR'); return t.replace('        LDX     #MOTDLY\n        BSR     CW0', '        LDX     #1\n        BSR     CW0'); } }).rom;
   check('mutant "MOTOR ON does not wait": the run is no longer 54.02 fields', typeof near(mrom) !== 'number', `${near(mrom)}`);
 }
 
