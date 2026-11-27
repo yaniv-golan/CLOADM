@@ -8,6 +8,13 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **The changelog guard refuses a subsection heading written twice under [Unreleased].** Two `#### Fixed` blocks
+  there split one kind's entries in two and read as two releases' worth of fixes in a section not released at all;
+  `tests/changelog.test.js` now fails naming the kind and both line numbers. A repeated heading inside a released
+  section is left to the tag comparison, which already reports it.
+
 #### Changed
 
 - **A phone's Menu is one list, the same either way up.** Held upright (the dropdown under the app bar) and held
@@ -76,8 +83,6 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   the panel. For the one frame between the two, the screen kept the height of the layout before and the page stood
   18 px taller than the window, so it could be scrolled by a hair. It is measured again in the task that changes the
   layout, so there is no such frame.
-
-#### Fixed
 
 - **The Dragons' parallel printer: BUSY, and one byte per strobe.** On the Dragon 64, 200, 200-E, Tano and 64 Plus,
   PIA1 PB0 followed the 6551's RS-232 line, idle high, so a program waiting for the printer's BUSY to go low hung there.
