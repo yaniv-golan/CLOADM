@@ -139,9 +139,10 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
     const m = wav(b, `PLAY "${s}"`), t = m.tones[0], c = fields(L, T, d);
     check(`PLAY "${s}": one tone of ${c} fields`, m.tones.length === 1 && near(t, c), t ? `${(t.length / FIELD).toFixed(2)} fields (period ${t.period})` : 'no tone');
   }
-  // a note of 0 fields: three periods, every one exact
+  // a note of 0 fields: three periods, every one exact, four writes each (the middle, the high, the middle, the low
+  // [BB bb10 snd-play-dac: four writes a period])
   let m = wav(b, 'PLAY "T255L4A"');
-  check('PLAY "T255L4A": 0 fields, three periods, each exact', m.tones.length === 1 && m.tones[0].period === period(33) && m.events.filter((e) => e.dac && e.on).length === 6,
+  check('PLAY "T255L4A": 0 fields, three periods, each exact, 12 writes', m.tones.length === 1 && m.tones[0].period === period(33) && m.events.filter((e) => e.dac && e.on).length === 12,
     `${m.tones[0] && m.tones[0].period}, ${m.events.filter((e) => e.dac && e.on).length} writes`);
   // a dot after a note or a pause: ?FC ERROR, after the note has played
   for (const [s, k] of [['L4A.', 1], ['L4.A.', 1], ['AP8.C', 1]]) {
@@ -189,7 +190,11 @@ const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   check('V1 after V0: levels 30-32', m.tones[0].low === VMID - 1 && m.tones[0].high === VMID + 1, `${m.tones[0].low}-${m.tones[0].high}`);
   m = wav(b, 'PLAY "T2L16V31AP4V15CP4V5E"');
   const lv = [...new Set(m.events.filter((e) => e.dac && e.on).map((e) => e.v))].sort((x, y) => x - y);
-  check('volume changes within a string: only V31\'s, V15\'s and V5\'s levels written, a pause at the low one', m.tones.length === 3 && lv.join() === '0,16,26,36,46,62', lv.join(' '));
+  // (and the middle, 31, which every period writes twice, and a pause holds [BB bb10 snd-play-dac: 3 levels a note];
+  // a pause after a note that ended on 0 rises to the middle, which the measures take as a crossing: the three notes
+  // are the tones of more than two periods)
+  const notes = m.tones.filter((t) => t.periods > 2).map((t) => t.period);
+  check('volume changes within a string: only V31\'s, V15\'s and V5\'s levels written and the middle, a pause at the middle', notes.join() === [period(33), period(24), period(28)].join() && lv.join() === '0,16,26,31,36,46,62', `${notes.join(' ')}; ${lv.join(' ')}`);
 }
 
 // ---- what lasts: from one PLAY to the next, until RUN ----

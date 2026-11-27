@@ -226,14 +226,17 @@ LL2     CMPA    #':'            ; the ':' stored before ELSE and ' is not shown
         BEQ     LL1
 LL2A    BSR     LSTCH
         BRA     LL1
-LL3     LDA     <DEVNUM         ; (to the tape, CSAVE ,A: every line ends with its carriage return)
-        INCA
-        BEQ     LL3A
-        LDA     <CURPOS+1
-        BITA    #31
-        BEQ     LL4
+LL3     LDA     <DEVNUM         ; (to the tape, CSAVE ,A: every line ends with its carriage return, at the
+        INCA                    ; original's pace, LSDLY [BB bb10 cas-ascii-save, cas-timing: the motor's stop
+        BNE     LL3B            ; between the namefile and the text])
+        LDX     #LSDLY
+        JSR     DELAYX
 LL3A    JSR     CRLF
 LL4     PULS    X,PC
+LL3B    LDA     <CURPOS+1
+        BITA    #31
+        BEQ     LL4
+        BRA     LL3A
 * LSTCH: A to the screen, unless 249 characters of the line are out already. Keeps X, U.
 LSTCH   LDB     <LSTCNT
         CMPB    #249

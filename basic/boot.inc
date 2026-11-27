@@ -36,7 +36,7 @@ COLD2   LDA     #$7E            ; a JMP to each address of the list
         STD     <MEMTOP
         LDD     #STRTOP-STRDEF
         STD     <STRBOT
-        LDD     #300            ; the debounce delay [OWN]
+        LDD     #1118           ; the cursor's delay, $045E [BB bb10 scr-prompt-idle: PEEK(151);PEEK(152) 4 94]
         STD     <KEYDLY
         INC     <BLINK          ; the countdown at 1: the first update at the prompt shows the cursor [OWN]
         LDD     #$804F          ; RNDX: 128 [BB bb9 rnd-state]; then RND's seed at a cold start, $4FC75259

@@ -13,7 +13,7 @@
 //    transition toggles bit 6 only and two give the byte back.
 //  * Memory: a new address in $0088-$0089 redirects the next transition [BB]; the countdown's value sets when it
 //    comes; a byte written under the cursor is the one transformed; screen memory (and the display) holds the cursor
-//    byte; PEEK(&H88), PEEK(&H89) is the cursor's address; KEYDLY ($0097-$0098) is the debounce delay a scan waits.
+//    byte; PEEK(&H88), PEEK(&H89) is the cursor's address; KEYDLY ($0097-$0098) is the cursor's delay.
 //  * Keyboard: it blinks while BASIC waits; accepting a key writes $60 to the cursor's cell first and leaves $008F
 //    alone [BB]; moving keeps the countdown.
 //  * Running programs: one that prints nothing (GOTO, PEEK, INKEY$, an empty FOR) never writes the countdown; one
@@ -29,7 +29,7 @@ const { buildBasic } = require('../tools/build-basic.js');
 let fail = 0, n = 0, firstFail = null;
 const check = (name, cond, detail = '') => { n++; if (!cond) { fail++; firstFail = firstFail || name; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
-const CURPOS = 0x88, BLINK = 0x8F, KEYDLY = 0x97, RELOAD = 50, PASSES = 1065;
+const CURPOS = 0x88, BLINK = 0x8F, KEYDLY = 0x97, RELOAD = 50, PASSES = 1118 - 55;
 // the real ROMs, measured as a black box [BB 2026-11-25]: cycles per decrement and per transition (32K mode); ours
 // must be within 1% of each (our delay, PASSES, is chosen for that: our keyboard scan is slower than theirs)
 const BB_DEC = 9177, BB_TURN = 456471, TOL = 0.01;
@@ -149,9 +149,9 @@ function suite(rom, { machine = 'dragon64', quick = false, tag = '' } = {}) {
 
   // ---- the delay, in cycles ----
   // From an update's decrement to the next column write of the scan, with no transition and no interrupt between
-  // them (the smallest gap seen), the CPU runs: BNE 3, LDX # 3, BSR 7, the countdown, RTS 5, JSR 8, and the scan's
-  // start up to its first column write: PSHS B,X,U 10, LDU # 3, LDA # 2, STA < 4, CLR < 6, LDB # 2, STB > 5 (the
-  // MC6809 data sheet's cycle counts): 58 cycles around it.
+  // them (the smallest gap seen), the CPU runs: BNE 3, LDX < 5, LEAX n,X 5, BSR 7, the countdown, RTS 5, JSR 8, and the
+  // scan's start up to its first column write: PSHS B,X,U 10, LDU # 3, LDA # 2, STA < 4, CLR < 6, LDB # 2, STB > 5
+  // (the MC6809 data sheet's cycle counts): 65 cycles around it.
   const gaps = [];
   for (let i = 0; i < 12; i++) {
     const u = upd();
@@ -159,7 +159,7 @@ function suite(rom, { machine = 'dragon64', quick = false, tag = '' } = {}) {
     gaps.push(r.scans.find((t) => t > u.t) - u.t);
   }
   const g = Math.min(...gaps);
-  check(T(`the delay after an update: ${PASSES} passes of 8 cycles`), (g - 58) / 8 === PASSES, `smallest gap ${g} cycles: ${(g - 58) / 8} passes`);
+  check(T(`the delay after an update: ${PASSES} passes of 8 cycles`), (g - 65) / 8 === PASSES, `smallest gap ${g} cycles: ${(g - 65) / 8} passes`);
 
   // ---- keyboard ----
   // blinking while BASIC waits: six seconds of frames
@@ -239,42 +239,36 @@ function suite(rom, { machine = 'dragon64', quick = false, tag = '' } = {}) {
   const pk = log.slice(pi());
   check(T('POKE 143,0: the next update writes 255'), pk[0].v === 0 && pk[1].kind === 'dec' && pk[1].v === 255, pk.slice(0, 2).map((e) => e.v).join(' '));
   r.b.waitOk();
-  // the debounce delay: KEYDLY passes before the key is looked at again (from the first column write to the
-  // second one that drives the key's column, with one key down); POKE a bigger delay and the gap grows by 8 a pass
-  const keyGap = (dly) => {
-    r.b.run(3);                // (the scan sees the last key let go first)
-    quiet();
+  // KEYDLY ($0097-$0098) is the cursor's delay [OWNER-SPEC: 1,118 passes; BB bb10 scr-prompt-idle: 4, 94 at the first
+  // prompt]: POKE a bigger one and the gap after an update grows by 8 cycles a pass (the field interrupt, 104 cycles,
+  // may land in one smallest gap and not the other)
+  const gapWith = (dly) => {
     m.ram[KEYDLY] = dly >> 8; m.ram[KEYDLY + 1] = dly & 0xFF;
-    m.ram[BLINK] = 200;        // (no transition writes the cell meanwhile)
-    r.cellWrites.length = 0;
-    const s0 = r.scans.length;
-    m.setKey('DOWN', true);
-    r.stepUntil(() => r.cellWrites.some((w) => w.a === cur()), 50);
-    m.setKey('DOWN', false);
-    const t = r.scans.slice(s0);
-    let big = 0;
-    for (let i = 1; i < t.length; i++) big = Math.max(big, t[i] - t[i - 1]);
-    return big;
+    const gs = [];
+    for (let i = 0; i < 6; i++) {
+      const u = upd();
+      r.stepUntil(() => r.scans.length && r.scans[r.scans.length - 1] > u.t);
+      gs.push(r.scans.find((t) => t > u.t) - u.t);
+    }
+    return Math.min(...gs);
   };
-  // (both longer than the cursor's delay, so the longest gap is the debounce; the field interrupt may land in one
-  // gap and not the other: one interrupt, 104 cycles, the IRQ handler's whole length (boot.inc, IRQSRV). The bound
-  // was 100, which an interrupt landing in one gap exceeds: a change of the ROM's size moves where it lands)
-  const gA = keyGap(3000), gB = keyGap(4000);
-  check(T('KEYDLY ($0097-$0098, big-endian) is the debounce delay: 1,000 more passes, 8,000 more cycles'), Math.abs(gB - gA - 8000) <= 104, `${gA} ${gB}`);
-  m.ram[KEYDLY] = 300 >> 8; m.ram[KEYDLY + 1] = 300 & 0xFF;
+  const gA = gapWith(1118), gB = gapWith(2118);
+  check(T('KEYDLY ($0097-$0098, big-endian) is the cursor\'s delay: 1,000 more passes, 8,000 more cycles after an update'), Math.abs(gB - gA - 8000) <= 104, `${gA} ${gB}`);
+  m.ram[KEYDLY] = 1118 >> 8; m.ram[KEYDLY + 1] = 1118 & 0xFF;
   return r;
 }
 
 const { rom } = buildBasic();
 suite(rom);
 {
-  // a cold start [OWN]: the countdown set to 1, so the first update shows the cursor; the debounce delay 300
+  // a cold start [OWN]: the countdown set to 1, so the first update shows the cursor; the cursor's delay 1,118 [BB bb10
+  // scr-prompt-idle: PEEK(151);PEEK(152) gives 4 94]
   const b = new Basic(rom), w = [];
   b.m.busTaps.addWriteTap({ start: BLINK, end: BLINK }, (a, v) => w.push(v));
   b.waitOk({ limit: 600, stable: 3 });
   // (cleared, set to 1, then the first update at the prompt takes it to 0 and reloads it)
   check('cold start: the countdown is cleared, set to 1, and reloaded at the first update (writes 0, 1, 0, 50)', w.slice(0, 4).join() === '0,1,0,50', w.slice(0, 4).join());
-  check('cold start: the debounce delay is 300', ((b.m.ram[KEYDLY] << 8) | b.m.ram[KEYDLY + 1]) === 300);
+  check('cold start: the cursor\'s delay at $0097-$0098 is 1,118 ($04 $5E)', ((b.m.ram[KEYDLY] << 8) | b.m.ram[KEYDLY + 1]) === 1118);
 }
 suite(rom, { machine: 'dragon32', tag: 'Dragon 32: ' });   // (every byte 0-255 on the Dragon 64 only: the same code)
 console.log('not applicable: native 64K mode ($AF/$8F blocks): our ROM is the 32K-mode BASIC only');
@@ -286,12 +280,12 @@ const MUTANTS = [
   ['$60 not written on accept', 'keyboard.inc', 'LDB     #$60\n        LDX     <CURPOS\n        STB     ,X', 'LDB     #$60\n        LDX     <CURPOS\n        TST     ,X'],
   ['moving resets the countdown', 'screen.inc', 'CHRDON  STX     <CURPOS', 'CHRDON  STX     <CURPOS\n        LDB     #50\n        STB     <BLINK'],
   ['accepting resets the countdown', 'keyboard.inc', '        STB     ,X\n        PULS    B,X,PC', '        STB     ,X\n        LDB     #50\n        STB     <BLINK\n        PULS    B,X,PC'],
-  ['delay 1,064 passes', 'keyboard.inc', 'LDX     #1065', 'LDX     #1064'],
+  ['delay 1 pass fewer', 'keyboard.inc', 'LEAX    -55,X', 'LEAX    -56,X'],
   ['the cursor address not read from RAM', 'keyboard.inc', '        LDX     <CURPOS\n        LDA     ,X', '        LDX     #SCREEN\n        LDA     ,X'],
   ['a 0 countdown toggles at once', 'keyboard.inc', 'KW1     DEC     <BLINK\n        BNE     KW2', 'KW1     DEC     <BLINK\n        BGT     KW2'],
-  ['debounce delay not from KEYDLY', 'keyboard.inc', 'LDX     <KEYDLY', 'LDX     #300'],
+  ['the cursor\'s delay not from KEYDLY', 'keyboard.inc', 'KW2     LDX     <KEYDLY', 'KW2     LDX     #1118\n        NOP'],
   ['printing counts the countdown down', 'screen.inc', 'CHRPUT  STA     ,X+', 'CHRPUT  STA     ,X+\n        DEC     <BLINK'],
-  ['the delay 10% longer', 'keyboard.inc', 'LDX     #1065', 'LDX     #1170'],
+  ['the delay 10% longer', 'keyboard.inc', 'LEAX    -55,X', 'LEAX    50,X'],
 ];
 for (const [name, file, from, to] of MUTANTS) {
   let used = false;

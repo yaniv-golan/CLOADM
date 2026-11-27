@@ -170,6 +170,19 @@ Next version: 0.3.1 (the plugin and extension manifests carry it; `tests/plugin.
   sign's place and keeps the exponent (`".##^^^^";999999999` is `.10E+10`, `"#.##^^^^"` gives `1.00E+09`), as on the
   original. Both bb9 cases now match their records (`tests/basic-bb9-expr-using.test.js`). The ROM is 66 bytes larger
   (15,905).
+  From the bb10 records (`tests/basic-bb10.test.js`): a block written after the motor starts now has the original's
+  shape, a leader of 256 `$55`, a pause while the checksum is worked out, then the block's own `$55` and `$3C`, so the
+  tape decoder reads the same leader counts as from the original's tapes (1, 2 or 258: the pause splits the leader
+  off a block of 10 bytes or more), and a data byte takes the original's time to write. Reading waits about half a
+  second after the motor starts, so a block whose leader the decoder dropped is missed as on the original. `CSAVE ,A`
+  writes a carriage return before the listing (an empty program writes one CR), every namefile takes its exec and
+  load addresses from the block buffer as it was, characters printed to the tape, lines of `CSAVE ,A` and records
+  read by `INPUT #-1` go at the original's pace, and `OPEN "I"` typed shows the search as `CLOAD` does and reads the
+  first data block. `PLAY` and `SOUND` write the DAC four times a period (the middle, the high, the middle, the low),
+  and a pause writes as often as the original's. `$0097-$0098` holds 1,118 at a cold start, as on the original,
+  and is the cursor's delay (the debounce stays 300 passes). `DLOAD` and `DLOADM` stay `?FC ERROR` where the
+  original waits for the serial port (docs/clean-room-basic.md section 13). Of the 130 recorded cases (all but
+  `rnd-long`), 91 now match the original exactly (83 before). The ROM is 26 bytes larger (15,935).
 
 ### 0.3.1
 

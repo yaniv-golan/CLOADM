@@ -206,7 +206,7 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$D0`: none free below the two-byte calls, 4 below `$68`, 4 at `$99-$9C`, where `RND`'s seed was), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the debounce delay ([section 14](#14-the-cursor)), `$9D-$9E` `EXEC`'s address (`CLOADM`'s exec address), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$D0`: none free below the two-byte calls, 4 below `$68`, 4 at `$99-$9C`, where `RND`'s seed was), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the cursor's delay ([section 14](#14-the-cursor)), `$9D-$9E` `EXEC`'s address (`CLOADM`'s exec address), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
 | `$0100-$01D4` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `BLKBUF`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; `RND`'s seed at `$0116-$0119`, as on the original ([BB] bb8 `rnd-seq`; `$0114-$0115` unused); the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; it ends at `SYSEND` (`$01D5`), which the build keeps at or below `BLKBUF` |
 | `$01DA-$02D8` | `BLKBUF`, the cassette's one block buffer, as on the original ([BB] bb8 `cas-cloadm2`: `CLOADM` leaves the namefile's exec address at 485; `cas-data-errors`: `OPEN "O"` builds its namefile over the last record written): every block read (a namefile, the blocks of a file passed over, a text file's blocks while their lines go in, a data file's records) and the records a data file or `CSAVE ,A` gathers to write; below the line buffer, which a typed `CLOADM` or `SKIPF` is still running from |
 | `$02DC-$03D9` | the line input buffer, as on the original ([BB] `ram-pointers2` (2026-11-26)): the typed line from `$02DD` (250 characters + terminator), and the crunched line written over it from `$02DC`, a byte behind (`CRUNCH` reads ahead of where it writes; `'`, two bytes for one, can only close that gap) |
@@ -415,7 +415,7 @@ All of them run with no ROM, on our ROM assembled at test time.
 * **`tests/basic-pause.test.js`:** the keyboard checks between statements: SHIFT-@ pauses a running program until
   another key, @ alone does not, BREAK stops it (`BREAK IN n`); with mutants of the ROM that must fail it.
 * **`tests/basic-cursor.test.js`:** the cursor ([section 14](#14-the-cursor)): the countdown, the transformation of
-  every byte, the RAM it reads (address, countdown, the byte under it, the debounce delay), the keyboard, the delay
+  every byte, the RAM it reads (address, countdown, the byte under it, the cursor's delay at `$0097-$0098`), the keyboard, the delay
   in cycles, on the Dragon 64 and the Dragon 32, with mutants of the ROM that must fail it.
 * **`tests/basic-editor.test.js`:** the keyboard and screen through the matrix: typing, erasing, SHIFT-0, BREAK during
   a program and during `LIST`, scrolling, `CLS`, the cursor.
@@ -667,11 +667,9 @@ All answered by the project owner and kept here with the decision, except where 
    `cas-data2`, `cas-data-errors`; the fixtures `multi-text`, `bad-then-good`, `mc-big`), as section 12 now describes:
    the motor stops after every namefile read (all files, also while searching or skipping) and after each block of a
    gapped file passed, skipped or loaded, and after every namefile written (`CSAVE` too); a written block's run fits
-   a 256-byte leader, the half second's wait and the original's bit times (ours were shorter); the leader before
-   most of the original's blocks is still not countable from a record (the tape decoder finds 1 or 2 `$55` bytes
-   before them, 258 before an end-of-file block written after a motor restart), so the block summaries' leader
-   counts differ, and so do the runs of a recorded tape read back (bb4 `cas-save-load`'s `cload-motor`: the decoded
-   image of the original's tape holds less leader). A file of several data blocks leaves the letter by their number
+   a 256-byte leader, the half second's wait and the original's bit times (ours were shorter); the leader counts the
+   tape decoder reads (1, 2 or 258) were settled by bb10: a pause before a block of 10 or more bytes splits its
+   leader off (section 12, "Writing"). A file of several data blocks leaves the letter by their number
    (`F LONG`). A
    text file's line without a number is `?DS ERROR` when the next line is begun (at once when more follows in its
    block), the lines before it kept. A bad block in a file passed over is `?IO ERROR` (`SKIPF`, a named `CLOAD`). A
@@ -679,7 +677,7 @@ All answered by the project owner and kept here with the decision, except where 
    open; `CLOAD` and `CLOADM` go ahead; `RUN` closes it (an output file written out), `NEW` and an error do not. In
    a running program `CLOAD`, `CLOADM` and `SKIPF` show nothing (a `CLOAD` of a text program shows the blocks after
    its first, the program then gone) and go on as in direct mode (`CLOAD` to `OK`, the others with the statement);
-   `CLOADM`'s offset moves the exec address too, kept at `$9D`. Data files show nothing, write and read their
+   `CLOADM`'s offset moves the exec address too, kept at `$9D`. Data files show nothing in a program, write and read their
    records in the one block buffer (`$01DA`), `OPEN "O"` keeping the buffer's bytes 11-14 as the namefile's exec and
    load; `INPUT #-1` drops what is left of a record; `OPEN "I"` of machine code or a tokenised program is `?FM
    ERROR`; `OPEN` to `#0` or `#-2` is no error and opens nothing; `EOF` of an output file is `?FM ERROR`.
@@ -736,7 +734,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 32 | `ELSE` and `'` are stored with a `:` before them (`END:ELSE` is `8A 3A 3A 84`, `PRINT'A` is `87 3A 83 41`, `THEN 10 ELSE 20` ends `30 20 3A 84 20 32 30`); ours does not show that `:` in `LIST` [OWN, case `crunch-else`] | [BB] bb1, `probe-tokens` |
 | 33 | `RENUM` follows the line numbers after `GO TO`, `GO SUB`, `THEN`, `ELSE` and in `ON`'s lists; a number after `RUN` or `RESTORE` is left as it is | [BB] bb2, `renum` |
 | 34 | A number's exponent is read into one byte that wraps: `VAL("1E997")` is no error (997 is 229 in a byte, -27 as a signed one: ours reads 1E-27), where `VAL("1E99")` is `?OV ERROR` | [BB] bb2, `str-val-cut` (no error; the value is our inference, not yet observed) |
-| 35 | The cursor's state is in RAM: `$0088-$0089` the address of the cell it is at (big-endian; poking it moves the blinking cell), `$008F` the blink countdown; `$0097-$0098` the keyboard's debounce delay (big-endian) | [BB] black-box observation (2026-11-25) for `$0088-$0089` and `$008F`; [OWNER-SPEC] for `$0097-$0098` |
+| 35 | The cursor's state is in RAM: `$0088-$0089` the address of the cell it is at (big-endian; poking it moves the blinking cell), `$008F` the blink countdown; `$0097-$0098` a delay (big-endian), 1,118 (`$04 $5E`) at the first prompt: the cursor's delay, ours (the specification calls it the keyboard's debounce delay; row 62) | [BB] black-box observation (2026-11-25) for `$0088-$0089` and `$008F`; [OWNER-SPEC] for `$0097-$0098`; its value [BB] bb10 `scr-prompt-idle` (2026-11-27) |
 | 36 | While BASIC waits for a key the countdown is decremented (unsigned: 0 goes to 255 with no blink); the decrement that reaches 0 transforms the cell and the countdown is reloaded with 50, so a countdown of 2 blinks on its second decrement and a transition takes 51 writes of `$008F` (the reload and 50 decrements). About 9,177 cycles per decrement and 456,471 per transition (513 ms) in 32K mode | [BB] black-box observation (2026-11-25) |
 | 37 | In 32K mode (the Dragon 32 and the Dragon 64's 32K mode alike) a transition toggles bit 6 of the byte and keeps the others: $20 and $60, $41 and $01, $FF and $BF | [BB] black-box observation (2026-11-25); that the Dragon 32 is the same, [OWNER-SPEC] |
 | 38 | A key accepted: the first write to the cursor's cell is `$60`, and `$008F` is not touched | [BB] black-box observation (2026-11-25) |
@@ -750,14 +748,20 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 46 | `LIST`: a line that ends at the right edge of the screen (its last row full) is followed by no empty row; at most 249 characters of a line's text are shown (longer lines come only from tapes); written to the tape (`CSAVE ,A`) every line still ends with its carriage return [OWN] | [BB] the real records of the 36 programs in the corpus (2026-11-25): every listing identical to ours with this rule |
 | 47 | `CLOAD`: a program ends at its end marker (the first link of 0); what the tape holds after it is not part of the program and is never listed | [BB] corpus records (two programs with bytes after the marker) |
 | 48 | `DRAW` (and `PLAY`, which reads its string the same way [OWN]): spaces before a number are passed over, so `DRAW "C"+STR$(5)` works | [BB] corpus records (a program whose run goes on, on the original, past such a `DRAW`) |
-| 49 | Cassette data files: `OPEN "O"` writes a type-1 namefile (ASCII and gaps `$FF`, exec and load 0 on a fresh machine), the records go in a data block written at `CLOSE` with an end-of-file block, the motor run for each of the three; a number printed to the tape has no space after it and `;` and `,` end the record (`HELLO`, CR, ` 42`, CR); `OPEN "I"` shows nothing on the screen; `INPUT #-1,A$` takes a whole record with its commas, leading spaces dropped, `LINE INPUT #-1` keeps them; `EOF(-1)` ends the loop after the last record; then `?IE ERROR`; `PRINT #-1` with no file `?NO ERROR`, `INPUT #-1` in direct mode `?ID ERROR`; `CLOSE` closes it (`CLOSE #-1`, `CLOSE -1`); the forms without `#` | [UM] for the statements; [BB] bb4 `cas-files` (2026-11-25: its transcript, block summaries, data hash and motor runs); the rest in row 51 |
+| 49 | Cassette data files: `OPEN "O"` writes a type-1 namefile (ASCII and gaps `$FF`, exec and load 0 on a fresh machine), the records go in a data block written at `CLOSE` with an end-of-file block, the motor run for each of the three; a number printed to the tape has no space after it and `;` and `,` end the record (`HELLO`, CR, ` 42`, CR); `OPEN "I"` in a program shows nothing on the screen (typed: row 60); `INPUT #-1,A$` takes a whole record with its commas, leading spaces dropped, `LINE INPUT #-1` keeps them; `EOF(-1)` ends the loop after the last record; then `?IE ERROR`; `PRINT #-1` with no file `?NO ERROR`, `INPUT #-1` in direct mode `?ID ERROR`; `CLOSE` closes it (`CLOSE #-1`, `CLOSE -1`); the forms without `#` | [UM] for the statements; [BB] bb4 `cas-files` (2026-11-25: its transcript, block summaries, data hash and motor runs); the rest in row 51 |
 | 50 | The motor and the display while reading: the motor stops after every namefile read and starts again 0.13-0.15 field later, and after each block of a gapped file (the last namefile's gap flag) passed, skipped or loaded, not of machine code or a tokenised program; a text program's lines take about a field each between its blocks; a bad block in a file passed over is `?IO ERROR`; a line without a number is `?DS ERROR` when the next line is begun (at once with more in its block), the lines before it kept; in a running program `CLOAD`, `CLOADM` and `SKIPF` show nothing (no clear, no letter, no name, no blink: a text `CLOAD` blinks again for the blocks after its first, the program gone) and `CLOAD` ends at `OK`, the others going on with the statement; `CLOADM`'s exec address at `$9D-$9E`, its offset added, the namefile buffer at `$01DA`; `OPEN`, `CSAVE` and `SKIPF` refuse a file left open with `?AO ERROR`, which leaves it open, while `CLOAD` goes ahead; `EOF(-1)` of the file `?IO ERROR` left open is -1 | [BB] bb8 `cas-multi`, `cas-left-open`, `cas-in-program`, `cas-cloadm2` (2026-11-26: transcripts, `clears`, top-row flags, motor runs) |
-| 51 | Data files: no blink and nothing on the screen, reading or writing; `OPEN "O"` builds its namefile in the block buffer over the last record written (exec and load its bytes 11-14); `RUN` closes an open file as `CLOSE` does, `NEW`, an error and `?AO ERROR` do not; `OPEN` to `#0` or `#-2` is no error and writes nothing; `INPUT #-1` with items left in a record drops them, no `?EXTRA IGNORED`; a bad number `?FD ERROR`; `OPEN "I"` of machine code or of a tokenised program `?FM ERROR`, of a program as text read as records; `EOF` and `INPUT #-1` of a file open for output `?FM ERROR`; a second `OPEN` `?AO ERROR` | [BB] bb8 `cas-data2`, `cas-data-errors` (2026-11-26: transcripts, block summaries with the namefiles' fields, data hashes, motor runs) |
+| 51 | Data files: no blink and nothing on the screen, reading or writing, in a program (typed `OPEN "I"`: row 60); `OPEN "O"` builds its namefile in the block buffer over the last record written (exec and load its bytes 11-14); `RUN` closes an open file as `CLOSE` does, `NEW`, an error and `?AO ERROR` do not; `OPEN` to `#0` or `#-2` is no error and writes nothing; `INPUT #-1` with items left in a record drops them, no `?EXTRA IGNORED`; a bad number `?FD ERROR`; `OPEN "I"` of machine code or of a tokenised program `?FM ERROR`, of a program as text read as records; `EOF` and `INPUT #-1` of a file open for output `?FM ERROR`; a second `OPEN` `?AO ERROR` | [BB] bb8 `cas-data2`, `cas-data-errors` (2026-11-26: transcripts, block summaries with the namefiles' fields, data hashes, motor runs) |
 | 52 | `NOT` straight after a relation or another operator is an operand: `NOT` and the relation after it, as at an expression's start, so `1<NOT 0` is 1<(NOT 0), 0; `1=NOT 0` 0; `5+NOT 0` 4; `2*NOT 0` -2; `-NOT 0` 1 (no `?SN ERROR`). `NOT` first still applies to the relation after it (`NOT 0<1` is 0), and `1 AND NOT 0` is 1. Where its operand ends after an operator (`1<NOT 0+1`, ours 1<(NOT 1)) is our inference: no record has an operator after that operand | [BB] bb9 `expr-not` (2026-11-27) |
 | 53 | `PRINT USING`: a fixed field's number of more than 32 bits once scaled to its decimals prints its digits as any other, nine significant then zeros (`"#####.#####";100000.5` is `%100000.50000`, too wide by one; `"######.#####"` gives `100000.50000`, `"#####.#####";99999.5` `99999.50000`); ours takes `FOUT`'s nine digits and zeros up to 20 digits, and from 2^66 on prints `%` and the number scaled to its decimals as `PRINT` has it, without its sign [OWN]. An E field with a sign's place (no `+` or `-`) whose rounding carries out puts the 1 in the sign's place and keeps the exponent: `".##^^^^";999999999` is `.10E+10`, `99999999` `.10E+09`, `"#.##^^^^";999999999` `1.00E+09` (ours renormalised: `.01E+11`, `.01E+10`, `0.10E+10`). A negative number then has no place for its `-` and prints after a `%` (`"#.##^^^^";-999999999`, `%-1.00E+09`), and a field with a `+` or `-` of its own still renormalises: both our inference, not recorded | [BB] bb9 `print-using-odd` (2026-11-27) |
 | 54 | `$0115` is 128 at a cold start; `RND` neither reads nor writes it, and NEW, CLEAR and RUN leave `$0115-$0119` as they are | [BB] bb9 `rnd-state` (2026-11-27) |
 | 55 | `RND`'s time grows with the seed's bytes and bits that are not 0: 500 passes of `R=RND(A)`, A = 0, 6, 1E9, .5, -1, -3, -1.99999999, take 162, 299, 276, 217, 115, 116, 178 fields (ours not yet matched: section 5) | [BB] bb9 `rnd-timing` (2026-11-27) |
 | 56 | Reading a number: 4294967296 is 2^32 exactly; 1E38, 1E30, 1E-30, 1.00000001 and .999999999 are one or two units above the nearest, as one rounded product or quotient by 10 a place gives (ours reads all six so now: open question 11; the old "at most one unit" round-trip bound was our assumption, not a record) | [BB] bb9 `rnd-args` (`RND(4294967296)`, `RND(1E38)` from 9 seeds), `rnd-neg` (the seed each negative argument leaves) (2026-11-27) |
+| 57 | A block written after the motor started: a leader of 256 `$55`, then a pause that grows with the block's length (the checksum worked out), then the block's own `$55` and `$3C`: the tape decoder reads 258 `$55` before a block of 8 data bytes or fewer, and 1 (2 after an earlier block) before one of 10 or more, the pause splitting the leader off; a data byte takes 36 cycles more than a leader byte to write | [BB] bb10 `cas-timing`, `cas-close-pending`, `cas-ascii-save` (2026-11-27: the block summaries' leaders, the motor's runs); 19 cycles a byte for the pause, and where it is, ours [OWN] |
+| 58 | `CSAVE ,A` writes a carriage return before the listing, each line ended by its own; an empty program writes a data block of one CR; every namefile (`CSAVE`, `CSAVE ,A`, `OPEN "O"`) takes its exec and load addresses from bytes 11-14 of the block buffer as it was; a tokenised program's data does not go through the buffer | [BB] bb10 `cas-ascii-save`, `cas-timing` (2026-11-27: the data blocks' hashes, the namefiles' fields) |
+| 59 | Reading: after the motor starts the original waits before it listens (a block left with 2 `$55` before it by the decoder is missed: `?IE ERROR IN 10`); a record read by `INPUT #-1` takes about 0.11 field more than ours did, a character printed to the tape about 200 cycles less, a line of `CSAVE ,A` about 6,600 cycles more | [BB] bb10 `cas-timing` `data-read`, `data-write`, `csave-ascii`; `cas-close-pending` `open-l-m`; `cas-ascii-save` (2026-11-27: the motor's runs) |
+| 60 | `OPEN "I"` typed shows the search as `CLOAD` does (the screen cleared, `S`, the name, `F`) and reads the file's first data block (the `F` changes); after `?IO ERROR` left a file open, `CLOSE`, `CLOSE #-1`, `RUN` and a `CLOAD` of another file close it, `NEW`, `CLEAR`, an error (`?/0`), `MOTOR` and `SKIPF` (`?AO ERROR`) do not | [BB] bb10 `cas-left-open2` (2026-11-27: the clears and the top-row flags) |
+| 61 | `PLAY` writes the DAC four times a period: the middle level (31), the high, the middle, the low; a note can stop after any of the four, and the next sound starts from the level it stopped at (the first level of a tone is that one, typed or in a program); `O1C-` and `O5B+` are `?FC ERROR`. `SOUND` too writes four times a period with three levels; a pause writes about every 865 cycles | [BB] bb10 `snd-play-dac` (2026-11-27: the tones' writes, levels and first levels); bb2 `snd-sound` (writes and levels, recorded before they were compared), `snd-play-length` `pause4`, `pause8`, `pause16` (the writes); the middle level's length and a pause's level, ours [OWN] |
+| 62 | `$0097-$0098` is 1,118 at the first prompt, and still after a few lines; a key is not taken 1,118 passes later (a debounce of that length makes our typed lines about 7,000 cycles later than the original's: the sound records' starts), so ours keeps its debounce at 300 passes and reads `$0097-$0098` as the cursor's delay, the specification's 1,118 passes (less 55, our scan being slower); the cursor's blink half-cycle is 13 pictures of 2 fields, as ours | [BB] bb10 `scr-prompt-idle` (2026-11-27: the transcript and 100 pictures); bb2, bb10 the sound records' starts; [OWNER-SPEC] the delay's 1,118 passes |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -777,7 +781,10 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   a bad checksum are passed over while searching for a namefile; a file passed over (its namefile met) is read to
   its end-of-file block, and a bad block in it is `?IO ERROR` there, as in the file found ([BB] bb8 `cas-left-open`:
   `SKIPF` over `BAD`, `f BAD`, `?IO ERROR`; `CLOAD "GOOD"` passing it, `S BAD`, `?IO ERROR`).
-* **The motor while reading** (`CRDBLK`; [BB] bb8 `cas-multi`, `cas-cloadm2`, `cas-left-open`: the motor's runs): it
+* **The motor while reading** (`CRDBLK`; [BB] bb8 `cas-multi`, `cas-cloadm2`, `cas-left-open`: the motor's runs): a
+  motor that was off is given `CDELAY`, about half a second, before the leader is listened for ([BB] bb10 `cas-timing`
+  `data-read`: a block left with 2 `$55` before it after a stop is missed, `?IE ERROR IN 10`; a block with a leader
+  of 128 is read, its run ending where the original's does). It
   stops after every namefile read, whatever the file and whether it is wanted, and starts again for the next block
   0.13-0.15 field later (ours: a short wait, `NFDLY`, when nothing is shown, the name's display otherwise, about 0.2
   field); after each block of a gapped file (the gap flag of the last namefile read, kept in `CFGAP`: a search that
@@ -844,24 +851,31 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   plus the offset, kept at `$9D-$9E` ([BB] bb8 `cas-cloadm2`: the bytes `$70 $05` found at 157 and 485, the
   namefile's place in `BLKBUF`; `$72 $05` at 157 after `CLOADM "MCX",512`).
 * **Writing:** each bit one cycle of a square wave on the DAC, high then low (`CH0`, `CH1`: delay passes from the
-  888625 Hz clock: 812 cycles for a 0 and 434 for a 1 with the bit's own work, 44 more a byte); before each block a
-  leader of 256 `$55` bytes, after it one `$55`; a block written with the motor stopped waits about half a second
-  after starting it (`CDELAY`); a block written with the motor running (`CSAVE`'s and `CSAVEM`'s after their first)
-  has a leader of one `$55` ([BB] bb4 `cas-save-load`: the data block and end of file in one run of 111.57 fields,
-  the decoder reading 2 `$55` before the end of file, the data block's last one included); the motor is stopped
-  after every namefile, `CSAVE`'s and `CSAVEM`'s too. Each character sent to the tape (`CSAVE ,A`, `PRINT #-1`)
-  takes about 300 cycles more (`CTDLY`), the original's pace (the motor's stop between the namefile and the data in
-  bb4 `cas-files`, `cas-save-load` and bb8 `cas-data2`: ours as long, within 0.3 field). These fit
-  the original's motor runs of blocks of known bytes (the namefile, the data block, the end of file of bb4
-  `cas-save-load`, `cas-files` and bb8 `cas-data2`, `cas-data-errors`) to within 0.01 field: its bits are longer
-  than ours were, 41.5 fields a block more in all [BB]. The tape decoder finds only 1 or 2 `$55` bytes before most
-  of the original's blocks (258 before an end-of-file block written after a motor restart), so the block summaries'
-  leader counts differ from ours (256 or 257), and so does a recorded tape read back (`#tape-rewind`: the decoded
-  image of the original's tape has about 128 bytes less before each of those blocks than ours, so bb4
-  `cas-save-load`'s `cload-motor` runs are 32 fields shorter on the original): the differences left in those
-  records. `CSAVE` writes the program
-  from its start to the end link, `CSAVEM` memory from start to end inclusive, `CSAVE ,A` the `LIST` text (the
-  character output is sent to the block buffer, written out when full, the motor stopped after each block).
+  888625 Hz clock: 812 cycles for a 0 and 434 for a 1 with the bit's own work, 44 more a byte). A block written with
+  the motor stopped waits about half a second after starting it (`CDELAY`) and writes a leader of 256 `$55`; a block
+  written with the motor running (`CSAVE`'s and `CSAVEM`'s after their first) has none. Then the checksum is worked
+  out (19 cycles a data byte, a pause in the signal), and the block follows: its own `$55`, `$3C`, type, length, data
+  (each data byte 36 cycles slower than the type's and the length's), checksum and one `$55` ([BB] bb10
+  `cas-timing`, `cas-close-pending`, `cas-ascii-save`: the tape decoder reads 258 `$55` before a block written after
+  the motor started when it has 8 data bytes or fewer (the one after the block before, the 256 and the block's own),
+  and 1, or 2 after an earlier block, when it has 10 or more: the pause splits the signal there and the decoder drops
+  the leader, on the original as on ours; the motor's runs: a data byte 36 cycles more than a leader byte, to within
+  0.02 field). So the decoded image of a recorded tape (`#tape-rewind`) has no leader before those blocks, and the
+  tape player gives a namefile and the block after it 128; a later block of a gapped file, its leader gone, is missed
+  while the motor gets up to speed (above), on the original as on ours (bb10 `cas-timing` `data-read`: `?IE ERROR IN
+  10`). The motor is stopped after every namefile, `CSAVE`'s and `CSAVEM`'s too. Each character sent to the tape
+  (`CSAVE ,A`, `PRINT #-1`) takes about 100 cycles more (`CTDLY`), and each line of `CSAVE ,A` about 6,600 more
+  (`LSDLY`, in `LSTLIN`), the original's pace ([BB] bb10 `cas-timing` `data-write`, `cas-close-pending` `open-l-m`:
+  the motor's stop while a program prints 255 characters, ours within 0.3 field; `cas-ascii-save`, `cas-timing`
+  `csave-ascii`: the stop between the namefile and the text, within 0.05 field, never earlier). `CSAVE` writes the
+  program from its start to the end link (from memory, not through the buffer), `CSAVEM` memory from start to end
+  inclusive, `CSAVE ,A` a carriage return, then the `LIST` text, each line ended by its carriage return (an empty
+  program is one CR in a data block of its own) [BB bb10 `cas-ascii-save`: the data blocks' SHA-256]; the character
+  output is sent to the block buffer, written out when full, the motor stopped after each block. Every namefile
+  (`CSAVE`, `CSAVE ,A`, `OPEN "O"`) is built in the block buffer over what it last held: its exec and load addresses
+  are bytes 11-14 of the last block written or read through the buffer ([BB] bb10 `cas-ascii-save`: `CSAVE "Y",A`
+  after `CSAVE "X",A`, `$4849` and `$220D`, `HI"` and CR of X's text; `cas-timing`: `CSAVE "C"` after a text file,
+  `$5422` and `$0D00`), `CSAVEM`'s its own.
 * **`MOTOR ON`** waits for a motor that was off before going on, as writing does: [BB] bb4 `cas-motor-audio`'s `MOTOR
   ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
   waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
@@ -880,11 +894,15 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   motor runs). On the tape a number has no space after it and `;` and `,` each end a record with a carriage return:
   `PRINT #-1,"HELLO";42` writes `HELLO`, CR, ` 42`, CR (the record's data block has the SHA-256 of exactly those
   bytes; what `;` or `,` at the end of the statement and `TAB(` write there is [OWN]). `OPEN "I",#-1,"NAME"` (or
-  `""`, or `-1` without `#`) finds the file as `CLOAD` does but shows nothing: no clear, no `S` or `F`, no name, no
-  blink (the records' screens are untouched and their top rows never change: bb4 `cas-files`, bb8 `cas-data2`; in
-  direct mode too [OWN]). A data file or a program saved as text is read; machine code or a tokenised program is
+  `""`, or `-1` without `#`) finds the file as `CLOAD` does, and reads its first data block; in a program it shows
+  nothing: no clear, no `S` or `F`, no name, no blink (the records' screens are untouched and their top rows never
+  change: bb4 `cas-files`, bb8 `cas-data2`); typed, it shows the search as `CLOAD` does, the first data block changing
+  the `F` ([BB] bb10 `cas-left-open2`: `OPEN "I",#-1,"GOOD"` typed, the screen cleared, `s`, `F GOOD`, `f GOOD`).
+  `EOF(-1)` typed blinks for a block it reads [OWN]. A data file or a program saved as text is read; machine code or a tokenised program is
   `?FM ERROR`, the file not left open (`cas-data2`). Each `INPUT #-1` or
-  `LINE INPUT #-1` takes records (lines ended by a carriage return) where a line would be typed, without a prompt:
+  `LINE INPUT #-1` takes records (lines ended by a carriage return) where a line would be typed, without a prompt, each
+  record about 0.11 field slower than the line's own work (`CRDDLY`, [BB] bb10 `cas-timing` `data-read`: the motor's
+  stops between the blocks):
   `INPUT #-1,A$` gets the whole record, commas and all, leading spaces dropped (`HELLO,42` from the fixture
   `data-file`), `LINE INPUT #-1` keeps them (` 42`). Numbers split at commas as typed ones do and a variable past
   the record's end takes the next record [OWN]; items left in a record when the variables run out are dropped, no
@@ -913,6 +931,7 @@ reproduce. Each is recorded with its black-box case.
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
 | `POKE 111,254` (output to the printer) | output goes to the printer; with none attached it waits for one | output stays on the screen: no printer output is built yet [OWN, open] | `famous-pokes` (its last step) |
+| `DLOAD`, `DLOADM` (no serial link) | waits for the serial port: nothing on the screen after 250 fields, and `BREAK` does not bring `OK` back | `?FC ERROR` at once: no serial loading is built [OWN, open] | `stmt-dload` [BB bb10] |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it) | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp` |
 
 ## 14. The cursor
@@ -926,7 +945,7 @@ functional specification supplied by the maintainer (2026-11-25). Code: `KEYWT` 
 
 **How ours works.** While `LINEIN` waits for a key (`KEYWT`), each pass is one cursor update and then one keyboard
 scan (`KEYIN`). An update decrements `BLINK` (`$008F`); when the result is 0 it stores 50 there, reads the address in
-`CURPOS` (`$0088-$0089`) and toggles bit 6 of the byte at that address; then it runs `DELAYX` with X = 1,065 (`LEAX
+`CURPOS` (`$0088-$0089`) and toggles bit 6 of the byte at that address; then it runs `DELAYX` with X = `KEYDLY` (`$0097-$0098`, 1,118 at a cold start [BB bb10 `scr-prompt-idle`]) less 55, 1,063 (`LEAX
 -1,X` / `BNE`, 8 cycles a pass). With our scan and the field interrupt (104 cycles, as the original's: section 7 of
 `docs/clean-room-basic-p2.md`) a pass averages about 9,178 cycles and a transition about 458,900, each within 1% of
 the real ROM's (the pass count is the one whose pass is nearest the measured 9,177) (the specification gives the delay as 1,118 passes; ours
@@ -934,7 +953,7 @@ is shorter because our scan is slower than the original's, and it is the whole p
 is accepted, `KEYWT` writes `$60` at the address in `CURPOS` and returns; `BLINK` is not touched. `CHROUT` moves the
 cursor by writing `CURPOS` only, and each character it puts on the screen decrements `BLINK` (at 0 it is reloaded
 with 50, the cell not transformed). `INKEY$`, `BREAK` and `SHIFT-@` between statements scan without updates. The
-debounce in `KEYIN` waits `KEYDLY` (`$0097-$0098`) passes of `DELAYX` before it looks at a new key again.
+debounce in `KEYIN` waits 300 passes of `DELAYX` before it looks at a new key again.
 
 **Native 64K mode** (not built: the 64K-mode BASIC is out of scope, open question 7): a transition writes `$8F` if
 the byte is `$AF` and `$AF` otherwise, chosen by the BASIC configuration running, not by the machine or its RAM;
@@ -956,8 +975,9 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 | Chosen by us [OWN] | |
 |---|---|
 | The order in a pass | the update first, then the scan; the delay follows every update, a transition's or not |
-| The delay | 1,065 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce, chosen so the whole pass matches the measured cycles; the tolerance, 1%, covers where the field interrupt falls |
-| The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): `KEYDLY` passes of `DELAYX`, 300 at a cold start (2,400 cycles, as before), 0 meaning 65,536; we have no auto-repeat |
+| The delay | `KEYDLY` less 55 passes of `LEAX -1,X` / `BNE` (8 cycles), in a subroutine (`DELAYX`) shared with the debounce: 1,063 at a cold start, the specification's 1,118 less what our slower scan takes, so the whole pass matches the measured cycles (9,168, 0.1% short); the tolerance, 1%, covers where the field interrupt falls. `KEYDLY` below 56 wraps (a very long delay) |
+| `$0097-$0098` | 1,118 at a cold start [BB bb10 `scr-prompt-idle`: `PEEK(151);PEEK(152)` gives 4 94, at the first prompt and after a few lines]; the specification calls it the keyboard's debounce delay, but a debounce of 1,118 passes makes our typed lines about 7,000 cycles later than the original's (the sound records' starts, bb2 and bb10), and 1,118 is the specification's count for the cursor's delay, so ours reads it as that |
+| The debounce delay | ours is the wait in `KEYIN` before a newly pressed key is read again (a bounce forgets the key): 300 passes of `DELAYX` (2,400 cycles, as before); we have no auto-repeat |
 | Cold start | the direct page is cleared, then `BLINK` is set to 1 (the first update at the prompt takes it to 0, shows the cursor and reloads it); a warm start keeps both values |
 | RAM layout | the direct-page variables are nine regions around the fixed addresses (`DPR1`-`DPR9`), and the system block one more (`SYSR1`); `tools/build-basic.js` fails if a region reaches the fixed address after it |
 
@@ -965,8 +985,8 @@ about 9,885 cycles per decrement and 475,692 per transition [BB].
 |---|---|
 | The editor's echo | whether the characters the line editor echoes count too (ours: no, as no output does) |
 | Update or scan first | whether a key already down when the wait starts is accepted before the first update |
-| Cold-start values | `PEEK(143)` and `PEEK(151)*256+PEEK(152)` right after power-on and after the reset button |
-| The debounce | what the original's delay at `$0097-$0098` times, and its value |
+| Cold-start values | `PEEK(143)` right after power-on, and `PEEK(151)*256+PEEK(152)` after the reset button (1,118 at the first prompt after power-on: bb10) |
+| The debounce | what the original's delay at `$0097-$0098` times (ours: the cursor's delay); a `POKE` of it and the blink's period, or the keys' pace, after it |
 | Where else updates run | whether any other wait (a cassette prompt, `EDIT`, the `SHIFT-@` pause) updates the cursor; ours: only the line editor's wait |
 
 **Entry points (input for P3, not built).** Where ROM-call compatibility is in scope, the specification names these
@@ -997,7 +1017,7 @@ The next step did that for the addresses the black-box records confirmed (sectio
 pointers, `CURLIN`, the output device, the cold-start flag, `TXTPTR`, `TRON`, `TIMER` and the lower-case flag are
 now at the original's places, in nine direct-page regions and one in the system block; the IRQ handler reads
 `TIMER` at `$0112` with an extended `LDX`/`STX` (2 cycles) and drops a `NOP`, so it still takes 104, and the tone
-loop's overhead (`TOVH`) is 56 for the same reason.
+loop's overhead (`TOVH`) is 56 for the same reason (68 since the wave writes its middle level too: P2 section 6).
 
 ## 15. Interface contract: BASIC's pointers in low RAM
 
