@@ -154,6 +154,10 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
     // one that never closes runs to the end of the file, as Markdown renders it, so nothing after it is read
     check('...and a fence that never closes runs to the end (nothing inside it is read)',
       duplicateUnreleasedKinds(fenced(['```', '#### Fixed', '', '#### Fixed'])).length === 0);
+    // a file a Windows editor saved ends every line with "\r": its fence is a fence, and its quoted headings are not read
+    check('...and a CRLF fence is a fence (a file saved with Windows line endings)',
+      duplicateUnreleasedKinds(fenced(['```\r', '#### Fixed\r', '- an example\r', '#### Fixed\r', '```\r'])).length === 0,
+      JSON.stringify(duplicateUnreleasedKinds(fenced(['```\r', '#### Fixed\r', '- an example\r', '#### Fixed\r', '```\r']))));
     // the other [Unreleased] scans skip fenced lines as well: a quoted "### Fixed" is not this section's H3, a quoted
     // "D" is not a stray letter, and a quoted "#### Upgrading" is not one of its kinds
     const QUOTED = fenced(['````md', '### Fixed', 'D', '#### Upgrading', '````', '', '#### Added', '', '- a real entry']);

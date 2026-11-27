@@ -102,16 +102,19 @@ const UNRELEASED_BOUNDARY = /^(?:#{1,2} |### \d)/;
 // one (and [Unreleased] is not part of any release's section, so those scans never reach a fence there).
 // A fence opens with three or more ` or ~ (at most three spaces of indent) and closes with the same character, at
 // least as many of them, and nothing after it but spaces; one that never closes runs to the end, as in Markdown.
+// A CRLF line ends with "\r", which no Markdown fence rule writes and `.` does not match, so it is dropped first: a
+// file a Windows editor saved must not read as one long unfenced document.
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 function fencedLines(lines) {
   const out = new Array(lines.length).fill(false);
   let ch = null, len = 0;
   for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, '');
     if (ch === null) {
-      const m = FENCE_OPEN.exec(lines[i]);
+      const m = FENCE_OPEN.exec(line);
       if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;   // a backtick fence's info string has no backtick
       ch = m[1][0]; len = m[1].length;
-    } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(lines[i])) {
+    } else if (new RegExp(`^ {0,3}${ch}{${len},}\\s*$`).test(line)) {
       ch = null;
     }
     out[i] = true;                                                  // the fence line itself: no heading starts with one
