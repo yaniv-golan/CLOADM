@@ -265,7 +265,11 @@ These are hard rules for everyone who works on this ROM.
     fix, bb10 at `faa2087`, bb11 at `5a71788`). If the original then prints to the printer after `POKE 111,254`,
     ours printing on the screen becomes a difference on a well-known POKE, to be decided with its byte cost. And
     the echo: none of bb12's `cas-echo-1` to `-4` shows `A$="Z":GOTO 10` twice, so it hangs on something they lack
-    (in bb10 the line sat at rows 8-9 of a fuller screen): a probe to come.
+    (in bb10 the line sat at rows 8-9 of a fuller screen). Closed by bb13b `cas-echo-5`: not a behaviour of the ROM.
+    The harness keeps the screen as it was at the last field before a clear, and a field that ends while the screen
+    is moved up a row holds a row twice; the original's pictures show that in 13 of 48 passes and ours in 11, at
+    varying rows. The same record times the passes: ours about 0.8 field (4.6%) faster, which bb13c `time-screen`
+    takes apart.
     Replayed, the records match as before but for two: bb8 `cas-cloadm2` now matches whole, and bb2 `snd-sound`'s
     `SOUND 200,4` no longer does: it starts about 400 cycles later in its field (the two numbers' conversion waits), so
     its length, counted in fields, comes out a field longer and without the original's short first period (a phase,
@@ -1197,9 +1201,12 @@ reproduce. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
-| `POKE 111,254` (output to the printer) | output goes to the printer (the record's wait for one came from an emulator that read the printer's busy line, PIA 1 PB0, as busy: to be recorded again) | output stays on the screen: ours sends to the printer only from LLIST and `PRINT #-2` (the two-byte call `ZCHROUT` pointed at `PRTOUT` for the statement), not from `$6F` [OWN] | `famous-pokes` (its last step) |
+| `POKE 111,254` (output to the printer) | output goes to the printer: "TO THE PRINTER" and its carriage return there, nothing on the screen, until 111 is set to 0 [BB bb13a famous-pokes] | output stays on the screen: ours sends to the printer only from LLIST and `PRINT #-2` (the two-byte call `ZCHROUT` pointed at `PRTOUT` for the statement), not from `$6F` [OWN; to be matched: the freeze list] | `famous-pokes` (its last step) |
 | `DLOAD`, `DLOADM` (no serial link) | waits for the serial port: nothing on the screen after 250 fields, and `BREAK` does not bring `OK` back | `?FC ERROR` at once: no serial loading is built [OWN, open] | `stmt-dload` [BB bb10] |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it); on a fresh machine (bb10 `using-wide12`) `%1000000000E-10`, `%1234500000E-06%-1000000000E-10` for 12345;-1, BASIC still answering | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp`, `using-wide12` |
+| Low RAM that one `RND` changes | 19-24, 44, 48 and more (its own scratch bytes) | 11, 49, 56, 59-63: ours' scratch bytes are where our direct page has them; no program sees a difference but by reading them [OWN: accepted, 2026-11-28] | `rnd-seq` (bb12, line 501) |
+| `CLOAD`'s sixth motor run after passing a file | starts at 442.01 fields | 443.51, a field and a half later (never sooner) [OWN: accepted, 2026-11-28] | `cas-cload-clear` (bb12) |
+| `CLOAD` after `CSAVE` of a program, the fifth motor run | starts at 413.83 fields | 416.01, 2.2 fields later (never sooner) [OWN: accepted, 2026-11-28] | `cas-save-load` |
 
 ## 14. The cursor
 
