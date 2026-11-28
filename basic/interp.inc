@@ -100,6 +100,9 @@ EXFUNC  BSR     CHRGET          ; a function name as a statement: TIMER = n
 EXSN    JMP     <ZSNERR
 EXRTS   RTS
 
+* the statements and functions that come later in this phase, or in P2
+UNIMPL  JMP     <ZFCERR
+
 * CHRGET: the next character after spaces. A = it; Z set at the end of a statement (0 or ':');
 * C set for a digit. Keeps every other register.
 CHRGET  INC     <TXTPTR+1
@@ -333,7 +336,7 @@ RET2    LDD     1,S             ; back after the line number, then on to the end
         PSHS    U
         LBRA    DS1
 RGERR   LDB     #ERR_RG
-        JMP     ERROR
+        JMP     <ZERROR
 
 * CHKSTK: room for another frame (and expression work) between the arrays and the stack, or ?OM ERROR
 CHKSTK  PSHS    D

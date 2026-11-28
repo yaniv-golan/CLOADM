@@ -205,7 +205,7 @@ COLOR   BSR     GETCL0
 * OPTCOL: the same when a ',' follows; B is kept when none does (the caller's default)
 OPTCOL  JSR     <ZCHKCOM
         BNE     GCR
-GETCOL  JSR     COMMA
+GETCOL  JSR     <ZCOMMA
 GETCL0  JSR     <ZGETBYT
         CMPB    #8
         BHI     GFC2
@@ -308,11 +308,11 @@ LSTXY   LDU     #LASTX
         BRA     GETXY
 GXYGET  LDU     #GXY            ; (x,y into GXY
 GETXY   PSHS    U
-        JSR     LPAREN
+        JSR     <ZLPAREN
         LDX     #255
         BSR     GXYPT
         STD     [,S]
-        JSR     COMMA
+        JSR     <ZCOMMA
         LDX     #191
         BSR     GXYPT
         PULS    U

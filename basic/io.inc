@@ -60,7 +60,7 @@ RD2     JSR     NXTOK
         LDD     ,X              ; the end of a line: the next one
         BNE     RD2A
         LDB     #ERR_OD
-        JMP     ERROR
+        JMP     <ZERROR
 RD2A    LDD     2,X
         STD     <DATLIN
         LEAX    4,X
@@ -86,6 +86,13 @@ RD5     LDD     <TXTPTR
         BRA     RD1
 RD6     RTS
 
+* RESTORE: READ starts again from the program's first DATA [UM]. It takes no line number: RESTORE 20 is
+* ?SN ERROR (what follows it is left for the statement runner) [BB bb1 io-data]
+RESTOR  LDD     <TXTTAB
+        SUBD    #1
+        STD     <DATPTR
+        RTS
+
 * INPUT ["prompt";] variable, ...: "? " (after the prompt), then a line typed; items separated by commas;
 * "??" asks for more when the line ran out, ?REDO when a number was badly formed (the whole INPUT again),
 * ?EXTRA IGNORED when there were too many [UM]. Only in a program (?ID ERROR). BREAK stops the program.
@@ -107,7 +114,7 @@ INP0    STB     <INPKND
         JSR     CDEV
         STA     <ITMCOL
         NEG     <INPKND         ; (INPUT $FF: no "? ")
-        JSR     COMMA
+        JSR     <ZCOMMA
         BRA     INP1
 INP0A   CMPA    #'"'
         BNE     INP1

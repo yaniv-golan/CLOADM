@@ -28,7 +28,7 @@ PUTST   CLRB
         LEAS    -4,S
         LEAU    ,S
         JSR     ENDPT
-        JSR     COMMA
+        JSR     <ZCOMMA
         JSR     VNAME
         JSR     <ZCHKNUM
         JSR     GPARY

@@ -80,7 +80,7 @@ GLINE   CMPA    #'('
 GL1     LEAS    -4,S
         LEAU    ,S
         BSR     ENDPT
-        JSR     COMMA
+        JSR     <ZCOMMA
         LDB     <FGCOL
         CMPA    #T_PSET
         BEQ     GL2

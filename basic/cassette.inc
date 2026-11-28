@@ -178,7 +178,7 @@ CE1     CLR     <CLDBAS
         LDA     #$FF            ; (CBTYP the end of file's, nothing in hand)
         STA     <CBTYP
         CLR     <CBLEN
-CE2     JMP     ERROR
+CE2     JMP     <ZERROR
 
 * CFIND: read namefile blocks until one has the name in CNAME (any, when CNLEN is 0); its block stays at BLKBUF.
 * The display [BB bb4, bb5 cas-display, cas-errors]: the screen cleared and S at the top left (blinking, CRBLK);
@@ -401,7 +401,7 @@ SKIPF   BSR     GETNAO
 GETNAO  TST     <CLDBAS
         BPL     GETNAM
         LDB     #ERR_AO
-        JMP     ERROR
+        JMP     <ZERROR
 * GETNAM: an optional file name (a string expression) into CNAME, padded with spaces to 8 (a longer one is cut
 * [OWN]); CNLEN its length, 0 when there is none (any file will do). A file open is forgotten (CLOAD, CLOADM).
 GETNAM  CLR     <CLDBAS
@@ -426,7 +426,7 @@ GN2     STB     <CNLEN
         JSR     CPYXU
 GN3     RTS
 
-CADDR   JSR     COMMA
+CADDR   JSR     <ZCOMMA
         JSR     <ZEVNUM
         JMP     GETADR
 
@@ -558,7 +558,7 @@ CSAVE   CMPA    #'M'
         STA     CFGAP
         JSR     <ZCHRGOT
         BEQ     CS2
-        JSR     COMMA
+        JSR     <ZCOMMA
         CMPA    #'A'
         LBNE    SNERR
         JSR     <ZCHRGET
@@ -651,18 +651,18 @@ OPEN    JSR     EVSTR
         CMPA    #'I'
         LBNE    FMERR
 OP0     PSHS    A
-        JSR     COMMA
+        JSR     <ZCOMMA
         JSR     DEVAR0
         BEQ     OPN1
         CMPD    #1
         BEQ     OP0A
         CMPD    #-1
         LBNE    DNERR
-OP0A    JSR     COMMA           ; the screen, the printer: the name only read
+OP0A    JSR     <ZCOMMA           ; the screen, the printer: the name only read
         JSR     EVSTR
         PULS    A
         JMP     FRESTR
-OPN1    JSR     COMMA
+OPN1    JSR     <ZCOMMA
         JSR     GETNAO
         PULS    A
         CMPA    #'O'
@@ -723,7 +723,7 @@ FILCHK  CMPA    <CLDBAS
         TST     <CLDBAS
         BPL     DVC0
         LDB     #ERR_FM
-DVC0    JMP     ERROR
+DVC0    JMP     <ZERROR
 * DEVARG: [#]device, which must be -1 (?DN ERROR); DEVAR0: D = the device + 1, Z set for -1 (DEVD1: of FAC)
 DEVARG  BSR     DEVAR0
         LBNE    DNERR

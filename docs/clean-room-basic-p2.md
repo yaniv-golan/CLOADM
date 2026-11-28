@@ -153,7 +153,8 @@ countdown: lengths are cycle-counted). The system block (46 bytes free before P2
 `BGCOL`, `GCSS` the colour set x 4, the last point `LASTX`/`LASTY` 16-bit each, `GXY` a point read), the drawing
 statements none, the sound step 9 (section 7), leaving 26. (The second size pass, [clean-room-basic.md](clean-room-basic.md)
 section 2, later moved those 11 graphics bytes into the direct page, where 53 accesses are a byte shorter each, put
-`FOUT`'s nine digits in the system block in their place, and added six two-byte calls at `$D0-$E1`.)
+`FOUT`'s nine digits in the system block in their place, and added six two-byte calls at `$D0-$E1`; a third, three
+more at `$C7-$CF`, moved `GCOLB`, `DRANG`, `DRSCL` and `GXY` into free bytes lower in the direct page.)
 
 ## 4. Modules and size budget
 

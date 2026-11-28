@@ -7,20 +7,8 @@
 * in FAC with 8 guard bits. Each operation first rounds FAC (ROUND: up when the guard byte is $80 or more).
 * tests/basic/fpmodel.js is the bit-exact model these routines are tested against.
 
-* MOVFM: FAC = the packed number at X. MOVAM: ARG = it. Keep X; use D.
-MOVFM   LDD     ,X
-        STA     <FACEXP         ; the exponent
-        SEX
-        STA     <FACSGN         ; the sign: bit 7 of the first mantissa byte
-        ORB     #$80
-        STB     <FACM
-        LDD     2,X
-        STD     <FACM+1
-        LDA     4,X
-        STA     <FACM+3
-        CLR     <FACEXT         ; the guard byte
-        RTS
-MOVAM   LDD     ,X              ; (the same for ARG)
+* MOVAM: ARG = the packed number at X (MOVFM, FAC = it, is in mathfn.inc). Keep X; use D.
+MOVAM   LDD     ,X
         STA     <ARGEXP
         SEX
         STA     <ARGSGN
@@ -473,7 +461,3 @@ FCEQ    RTS
 ABS     JSR     <ZFNARGN
         CLR     <FACSGN
         RTS
-
-* UNIMPL: the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a
-* routine starts at $A000: docs/clean-room-basic.md section 3)
-UNIMPL  JMP     <ZFCERR

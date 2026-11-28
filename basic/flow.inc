@@ -148,7 +148,7 @@ NXDONE  LEAS    FORSIZ,S
         BRA     NXA
 NX6     JMP     [NXRET]
 NFERR   CLRB                    ; ERR_NF
-        JMP     ERROR
+        JMP     <ZERROR
 * NXCMP: FCMPM for NEXT (the limit at X against FAC, just stored, so rounded): A and the flags as FCMP's. Two
 * non-zero numbers of one sign are compared packed; the others go through FCMPM.
 NXCMP   LDA     <FACEXP

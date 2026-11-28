@@ -65,11 +65,12 @@ These are hard rules for everyone who works on this ROM.
   fits all of it in 16 K, so ours must be compact) and for P3's fixed addresses. With the cassette in, and after a
   size pass that changed no behaviour, it is 12,400 bytes: the code ends at `$B162`, 3,728 bytes below the vectors
   (`node tools/basic-size.js`). What the size pass relies on [OWN]:
-  * **Two-byte calls.** Sixteen busy routines each have a `JMP` at the top of the direct page (`ZTRAMP`, `$D0-$FF`),
+  * **Two-byte calls.** Nineteen busy routines each have a `JMP` at the top of the direct page (`ZTRAMP`, `$C7-$FF`),
     so a call is `JSR <ZCHRGET`: two bytes for three, and three cycles more. The first size pass made ten (`CHRGET`,
     `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`, `CHKCOM`, `USCHR`, `EVNUM`, at `$E2-$FF`), the second
     six more below them (`GETBYT`, `SNERR`, `RPAREN`, `FCERR`, `CHKNUM`, `MOVMF`, at `$D0-$E1`); none is called from
-    timed code. The `JMP`s are written at a cold start from a list of addresses in the ROM (`ZINIT`, `boot.inc`), the
+    timed code. A third pass (2026-11-28) made three more (`COMMA`, `LPAREN`, `ERROR`, at `$C7-$CF`), which timed code
+    does call (`LPAREN` in every numeric function): 3 cycles more each, and no recorded loop below the original's. The `JMP`s are written at a cold start from a list of addresses in the ROM (`ZINIT`, `boot.inc`), the
     RAM vectors' with them. `tools/build-basic.js` fails if the direct-page variables reach them.
   * **Scratch bytes shared.** `ON`'s, `RENUM`'s, `DRAW`'s, `PAINT`'s and `GET`/`PUT`'s work uses `PRINT USING`'s
     bytes; `LOG`, `EXP`, `SIN` and `ATN` share one byte; `RND`'s product is in `PROD`. Each is used inside one
@@ -308,6 +309,10 @@ These are hard rules for everyone who works on this ROM.
   16,252, the code ending at `$BF8E`, 97 free; `cas-cloadm2`'s B 2,417. Then 5 more: `BRKTST`'s two ways out share
   the columns' restore (`BRKX`; the same cycles with BREAK up, the `$FF` to the columns 3 cycles later), and
   `FZERO` (into `mathfn.inc`) and `UNIMPL` (into `fp.inc`) change sides of `$A000`: 16,247, `$BF89`, 102 free.
+  Then 29 more: the three two-byte calls above (35 calls); the 9 direct-page bytes they take come from moving `GCOLB`
+  (to `FONINE`'s unused neighbour), `FORVAR`, `DRANG` and `DRSCL` (after `TEMPPT`) and `GXY` (the 4 free bytes after
+  `KEYDLY`). `RESTOR` and `UNIMPL` go back to their modules and `MOVFM` (into `mathfn.inc`) comes below `$A000`:
+  16,218, `$BF6C`, 131 free; `cas-cloadm2`'s B 2,417.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

@@ -31,7 +31,7 @@ FP1E9   FCB     $9E,$6E,$6B,$28,$00
 FPONE   EQU     POWTAB          ; 1
 
 * FNARGN: ( numeric expression )
-FNARGN  JSR     LPAREN
+FNARGN  JSR     <ZLPAREN
         JSR     <ZEVNUM
         JMP     <ZRPAREN
 * FMULX, FADDX: FAC = [X] x FAC, [X] + FAC, for the packed number at X. FDIVX: [X] / FAC. FSUBX: [X] - FAC.
@@ -473,4 +473,19 @@ RN9     RTS
 FZERO   CLR     <FACEXP
         CLR     <FACSGN
         CLR     <FACEXT
+        RTS
+
+* MOVFM: FAC = the packed number at X. Keep X; use D. (fp.inc's, beside MOVAM; here so that a routine starts at
+* $A000: docs/clean-room-basic.md section 3)
+MOVFM   LDD     ,X
+        STA     <FACEXP         ; the exponent
+        SEX
+        STA     <FACSGN         ; the sign: bit 7 of the first mantissa byte
+        ORB     #$80
+        STB     <FACM
+        LDD     2,X
+        STD     <FACM+1
+        LDA     4,X
+        STA     <FACM+3
+        CLR     <FACEXT         ; the guard byte
         RTS

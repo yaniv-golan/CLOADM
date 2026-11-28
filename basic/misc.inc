@@ -70,7 +70,7 @@ DEF1    CMPA    #T_FN
         INC     <VARCRE
         JSR     PTRLKP
         PSHS    X
-        JSR     LPAREN
+        JSR     <ZLPAREN
         JSR     SIMVAR
         PSHS    X
         JSR     <ZRPAREN
@@ -90,7 +90,7 @@ FNCALL  JSR     <ZCHRGET
         CMPX    #ZEROV
         BNE     FNC1
         LDB     #ERR_UF
-        JMP     ERROR
+        JMP     <ZERROR
 FNC1     PSHS    X               ; the definition
         JSR     <ZFNARGN          ; the argument
         LDX     ,S
@@ -129,7 +129,7 @@ FNNAME  JSR     VNAME
         JMP     <ZCHKNUM
 
 * VARPTR(variable): the address of its value
-VARPTR  JSR     LPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
+VARPTR  JSR     <ZLPAREN          ; (a variable that does not exist: ?FC ERROR; making it would move the arrays
         CLR     <VARCRE         ; under an element address the expression may hold)
         JSR     PTRGET
         CMPX    #ZEROV

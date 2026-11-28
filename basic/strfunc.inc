@@ -6,15 +6,15 @@ GIVB    CLRA                    ; (GIVB: B, 0-255)
 GIVNUM  CLR     <VALTYP
         JMP     GIVABF
 * COMBYT: a ',' and an expression 0-255 into B
-COMBYT  JSR     COMMA
+COMBYT  JSR     <ZCOMMA
         JMP     <ZGETBYT
 * STRFN: ( string expression ): X = the string, B = its length (FRESTR)
-STRFN   JSR     LPAREN
+STRFN   JSR     <ZLPAREN
 STRFN1  JSR     EVSTR
         JSR     <ZRPAREN
         JMP     FRESTR
 * STRARG: ( string expression : STRPTR, and the descriptor pushed under the caller's return address
-STRARG  JSR     LPAREN
+STRARG  JSR     <ZLPAREN
         JSR     EVSTR
         PULS    U
         LDX     <STRPTR
@@ -38,7 +38,7 @@ ASC     BSR     STRFN
         LDB     ,X
         BRA     GIVB
 * CHR$(n)
-CHRS    JSR     LPAREN
+CHRS    JSR     <ZLPAREN
         JSR     <ZGETBYT
         PSHS    B
         JSR     <ZRPAREN
@@ -145,7 +145,7 @@ VAL2    PULS    A,X
         RTS
 
 * INSTR([start,] s$, t$): where t$ first appears in s$ from position start, or 0
-INSTR   JSR     LPAREN
+INSTR   JSR     <ZLPAREN
         LDB     #1
         STB     <SBSTRT
         JSR     EVAL
@@ -155,11 +155,11 @@ INSTR   JSR     LPAREN
         TSTB
         LBEQ    FCERR
         STB     <SBSTRT
-        JSR     COMMA
+        JSR     <ZCOMMA
         JSR     EVSTR
 IN1     LDX     <STRPTR
         PSHS    X
-        JSR     COMMA
+        JSR     <ZCOMMA
         JSR     STRFN1          ; t$: X, B
         STX     <TMPPTR
         STB     <SBCNT
@@ -201,10 +201,10 @@ INNO    CLRA
 INGIV   JMP     GIVNUM
 
 * STRING$(n, c) or STRING$(n, c$): n of the character
-STRNGS  JSR     LPAREN
+STRNGS  JSR     <ZLPAREN
         JSR     <ZGETBYT
         PSHS    B
-        JSR     COMMA
+        JSR     <ZCOMMA
         JSR     EVAL
         TST     <VALTYP
         BNE     SG1

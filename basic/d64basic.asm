@@ -158,7 +158,7 @@ LASTY   RMB     2
 FPND    RMB     1               ; FOUT's significant digits (U32DEC counts its digits here)
 FPN     RMB     2               ; &H and &O's integer
 FONINE  RMB     1               ; not 0: FOUT scales a whole number too (PRINT USING's exponent form)
-        RMB     1               ; (not used)
+GCOLB   RMB     1               ; the colour byte the plot routine writes (gfx.inc)
 FPEX    RMB     2               ; FIN's exponent, and its sign
 FPEXS   RMB     1
 FPSGNI  RMB     1               ; FIN's sign
@@ -169,6 +169,9 @@ STRPTR  RMB     2               ; a string value: its descriptor
 ARGSTR  RMB     2               ; the left operand when it is a string
 LEFTTY  RMB     1               ; the left operand's type
 TEMPPT  RMB     2               ; the next free temporary descriptor
+FORVAR  RMB     2               ; FOR, NEXT: the variable's address
+DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
+DRSCL   RMB     1               ; to the next (draw.inc)
 DPR2    RMB     0               ; (at or below CURLIN)
         ORG     CURLIN+2
 DSCTMP  RMB     5               ; a descriptor being built
@@ -211,7 +214,7 @@ INPST   RMB     2
 ITMCOL  RMB     1               ; GETITM: ':' ends an item (DATA)
 DPR7    RMB     0               ; (at or below KEYDLY)
         ORG     KEYDLY+2
-        RMB     4               ; (free: RND's seed is at $0116)
+GXY     RMB     4               ; a point read (x, y; 16-bit each; graphics)
 EXECAD  RMB     2               ; EXEC's address: $9D, where the original keeps CLOADM's [BB bb8 cas-cloadm2]
 INPPTR  RMB     2               ; INPUT: the pointer in the typed line
 CBTYP   RMB     1               ; a block's type and length (CBLEN must follow CBTYP)
@@ -264,21 +267,19 @@ GPRB    EQU     USK
 BASESP  RMB     2               ; the stack the OK prompt and CONT use: frames above it survive a STOP
 FRMSP   RMB     2               ; the stack and the text at the start of the statement running
 STMTXT  RMB     2
-GMENT   RMB     2               ; graphics (gfx.inc): the current mode's GMTAB entry, its start page's address,
-GBEG    RMB     2               ; and the colour byte the plot routine writes
-GCOLB   RMB     1
-DRANG   RMB     1               ; DRAW's angle (0-3 quarter turns) and scale (1-62, in quarters), kept from one DRAW
-DRSCL   RMB     1               ; to the next (draw.inc)
-GXY     RMB     4               ; a point read (x, y; 16-bit each)
-FORVAR  RMB     2               ; FOR, NEXT: the variable's address
+GMENT   RMB     2               ; graphics (gfx.inc): the current mode's GMTAB entry and its start page's
+GBEG    RMB     2               ; address (GCOLB, the colour byte the plot routine writes, is with FONINE)
 DPEND   RMB     0
 
 * Two-byte calls: a JMP to each of the ROM's busiest routines at the top of the direct page, just below the RAM
 * vectors and written with them at a cold start (boot.inc, ZINIT: the same order), so "JSR <ZCHRGET" does for
 * "JSR CHRGET" and "JMP <ZSNERR" for "JMP SNERR"
 * (tools/build-basic.js checks the direct-page variables end below them)
-        ORG     $0100-3*16
+        ORG     $0100-3*19
 ZTRAMP  RMB     0
+ZCOMMA   RMB     3
+ZLPAREN  RMB     3
+ZERROR   RMB     3
 ZCHRGET  RMB     3
 ZCHRGOT  RMB     3
 ZCHROUT  RMB     3

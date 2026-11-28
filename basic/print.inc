@@ -13,7 +13,7 @@ PRINT   BEQ     PRCR
         JSR     CDEV
         INCA                    ; ($FF: the output to the tape until the statement ends)
         STA     <DEVNUM
-        JSR     COMMA
+        JSR     <ZCOMMA
         BSR     PRINT
         CLR     <DEVNUM
         RTS

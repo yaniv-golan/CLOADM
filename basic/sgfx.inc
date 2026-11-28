@@ -6,7 +6,7 @@
 
 * SGXY: (x,y at the text pointer, up to the ')' or the ',' after y -> X = the cell, A = the element's mask
 * (?FC ERROR for x above 63 or y above 31 [BB])
-SGXY    JSR     LPAREN
+SGXY    JSR     <ZLPAREN
         JSR     <ZGETBYT
         CMPB    #63
         BHI     SGFC

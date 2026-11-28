@@ -77,7 +77,7 @@ GS1     TST     <GCDONE
         BSR     GARBAG
         BRA     GS0
 GS2     LDB     #ERR_OS
-GSERR   JMP     ERROR
+GSERR   JMP     <ZERROR
 
 * Invariant: no two descriptors share a string in the string space (STRKEEP copies a variable's string rather than
 * share it), so moving a string updates its one descriptor.
@@ -255,7 +255,7 @@ CONCAT  LDX     <ARGSTR
         ADDB    ,X
         BCC     CC1
         LDB     #ERR_LS
-        JMP     ERROR
+        JMP     <ZERROR
 CC1     JSR     GETSPA
         PSHS    B,X
         LDU     <ARGSTR

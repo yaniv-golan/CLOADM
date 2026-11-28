@@ -66,7 +66,8 @@ RDYJ    JMP     READY
 
 * the two-byte calls' targets (d64basic.asm, ZTRAMP, in its order), then the RAM vectors' handlers: an address
 * each, and COLD2 writes the JMP in front of it
-ZINIT   FDB     CHRGET,CHRGOT,CHROUT,FNARGN,FPRUN,PRTSTR,LINGET,CHKCOM,USCHR,EVNUM
+ZINIT   FDB     COMMA,LPAREN,ERROR
+        FDB     CHRGET,CHRGOT,CHROUT,FNARGN,FPRUN,PRTSTR,LINGET,CHKCOM,USCHR,EVNUM
         FDB     GETBYT,SNERR,RPAREN,FCERR,CHKNUM,MOVMF
         FDB     IRQSRV,FIRQSV,NMISRV,NMISRV,NMISRV,NMISRV       ; the RAM vectors: IRQ, FIRQ, NMI, SWI, SWI2, SWI3
 ZINITE  RMB     0
