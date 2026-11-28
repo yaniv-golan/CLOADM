@@ -8,6 +8,9 @@
 // test/harness/sprites.cjs): eyes 5 units above the floor and the floor line of something z map units away (8 a cell)
 // at row 79 + 640/z. A case pokes the player and ONE monster into RAM, lets the engine draw both screen pages, and
 // compares the page on the screen with the same view with the monster out of range.
+// The per-column checks (the pillar and the nearer wall) compare the engine against its own variables: the monster's
+// span (c0, gW) and depth (tdepth) and each column's wall (rayDistance). The depth-48 check anchors them to the same
+// geometry: 12 cells straight ahead is 96 map units, 48 in the engine's half units.
 //
 //   node tests/wyrmfire-sprites.test.js                                 the pinned engine, with the RAM map below
 //   node tests/wyrmfire-sprites.test.js --engine BIN --sym MAP          another build, with its own link map
