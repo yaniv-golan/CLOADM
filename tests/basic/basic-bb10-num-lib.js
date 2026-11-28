@@ -13,9 +13,6 @@ const records = new Map([...load('bb9-real.jsonl'), ...load('bb10-real.jsonl')])
 const caseText = (c) => fs.readFileSync(path.join(__dirname, 'cases', `${c}.bas`), 'utf8');
 // the open differences, as line numbers of the record's transcript (0-based) with ours' text there
 const OPEN = {
-  // 2^66 and 2^126: the original's ^ is EXP(y LOG x) for these, giving 195,0,0,0,44 and
-  // 255,0,0,0,44; ours multiplies whole powers exactly
-  'num-print-big': { 61: ' 7.37869763E+19 195,0,0,0,0,', 62: ' 8.50705918E+37 255,0,0,0,0,' },
   // EXP(2); SQR of 3 and 1E30, a unit off through EXP (LOG's values are the original's since its reduction was found)
   'fn-last-bit': { 96: ' 5  2 131,108,115,37,199,', 105: ' 6  3 129,93,179,215,68,', 112: ' 6  1E+30 178,99,95,169,47,' },
 };

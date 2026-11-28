@@ -100,11 +100,3 @@ EDSHOW  LDA     ,X
         DECB
         BNE     EDSHOW
 EDSH1   RTS
-* EDPUT: LSTLIN's characters into the line at TMPPTR. Keeps every register.
-EDPUT   PSHS    X
-        LDX     <TMPPTR
-        CMPX    #LINBUF+LINMAX
-        BHS     EDP1
-        STA     ,X+
-        STX     <TMPPTR
-EDP1    PULS    X,PC

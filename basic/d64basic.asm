@@ -204,8 +204,7 @@ DPR5    RMB     0               ; (at or below CURPOS)
         ORG     CURPOS+2
 ATINV   RMB     1
 ATADD   RMB     1
-PWSGN   RMB     1               ; ^ by a whole number
-PWN     RMB     2
+PWSGN   RMB     1               ; ^: the result's sign, a base below 0 to an odd power
 DPR6    RMB     0               ; (at or below BLINK)
         ORG     BLINK+1
 INPKND  RMB     1               ; INPUT 1, LINE INPUT 0

@@ -194,6 +194,12 @@ SGN     CLRA
         LDD     #-1
 SGN1    JMP     GIVABF
 
+* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
+* is not a square root rounded once
+FSQR    JSR     <ZFPRUN
+        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,F_LD+6,0
+        JMP     PW5
+
 * LOG(x): x = m 2^e with m in [1/2, 1); t = 1 - sqrt 2 / (m + sqrt 1/2); log2 m = t P(t^2) - 1/2 (LOGSER, four
 * terms); then (log2 m + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and
 * SQR(65536) 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]; the reduction's - 1/2 cancels near 1, as
@@ -336,59 +342,51 @@ AT4     TST     <FACEXP
         STA     <FACSGN
 AT5     RTS
 
-* FPOWER: FAC = ARG ^ FAC. A whole exponent (below 32768) by repeated squaring; otherwise EXP(e LOG(base)),
-* which needs a base above 0 (?FC ERROR; 0 to a power above 0 is 0)
+* FPOWER: FAC = ARG ^ FAC, always EXP(e LOG |base|), as the original's: its 2^2 is 4 and a unit, 2^-1 just under
+* .5, 2^66 44 units over, while 2^30 and 2^60 come out exact [BB bb13c fn-log-pow, bb10 num-print-big]. A base
+* below 0 takes a whole exponent (else ?FC ERROR) and gives the result's sign by its parity ((-2)^3 is -8 and a
+* unit there; a whole exponent of 32768 or more is taken as even [OWN]); a base of 0 gives 1 to the power 0, ?/0
+* ERROR below 0, else 0 [BB bb13c].
 FPOWER  JSR     <ZFPRUN
         FCB     F_STO+5,0       ; the exponent
         JSR     MOVFA
         JSR     <ZFPRUN
-        FCB     F_STO+6,F_LD+5,0        ; the base
-        JSR     FTRUNC
-        TST     <FRACNZ
-        BNE     PW5
-        LDA     <FACEXP
-        CMPA    #128+15
-        BHI     PW5
-        JSR     INTCNV
-        STA     <PWSGN
-        TSTA
-        BPL     PW1
-        JSR     NEGD
-PW1     STD     <PWN
-        JSR     <ZFPRUN
-        FCB     F_LD+K_ONE,F_STO+1,0    ; the result: 1
-PW2     LDD     <PWN
-        BEQ     PW4
-        LSRA
-        RORB
-        STD     <PWN
-        BCC     PW3
-        JSR     <ZFPRUN
-        FCB     F_LD+1,F_MUL+6,F_STO+1,0        ; result x base
-PW3     LDD     <PWN
-        BEQ     PW4
-        JSR     <ZFPRUN
-        FCB     F_LD+6,F_MUL+6,F_STO+6,0        ; base x base
-        BRA     PW2
-PW4     JSR     <ZFPRUN
-        FCB     F_LD+1,0
-        TST     <PWSGN
-        BPL     PW9
-        JSR     <ZFPRUN         ; a negative exponent: 1 / it
-        FCB     F_DIVX+K_ONE,0
-        RTS
-PW5     JSR     <ZFPRUN
-        FCB     F_LD+6,0
+        FCB     F_STO+6,0       ; the base
+PW5     CLR     <PWSGN          ; (SQR: FPT5 .5, FPT6 and FAC the number)
         TST     <FACEXP
-        BNE     PW6
-        LDX     #FPT5           ; 0 to a power: 0, or ?/0 ERROR below 0
+        BNE     PW1
+        LDX     #FPT5           ; 0 to a power: 1 to 0, ?/0 ERROR below 0, else 0
+        LDA     ,X
+        BEQ     PW0
         TST     1,X
         LBMI    DZERR
         JMP     FZERO
+PW0     JSR     <ZFPRUN
+        FCB     F_LD+K_ONE,0
+        RTS
+PW1     TST     <FACSGN
+        BPL     PW6
+        JSR     <ZFPRUN         ; below 0: the exponent whole, its parity the sign
+        FCB     F_LD+5,0
+        JSR     FTRUNC
+        TST     <FRACNZ
+        LBNE    FCERR
+        LDA     <FACEXP
+        CMPA    #128+15
+        BHI     PW2
+        JSR     INTCNV
+        ANDB    #1
+        STB     <PWSGN
+PW2     JSR     <ZFPRUN
+        FCB     F_LD+6,0
+        CLR     <FACSGN
 PW6     JSR     FLOG
         JSR     <ZFPRUN
         FCB     F_MUL+5,0
-        JMP     FEXP
+        JSR     FEXP
+        TST     <PWSGN
+        BEQ     PW9
+        JMP     FNEG
 PW9     RTS
 
 * RND(x): the next number of the generator, seed = seed x $40E64DAB + $05B0658B (mod 2^32), the original's sequence

@@ -536,14 +536,19 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   `fn-last-bit`'s 13 `LOG` values is the original's bit for bit (its `LOG(1.1)` 27 units from the nearest, `LOG(.9)`,
   and `LOG(.5)` and `LOG(2)` one unit either side of ln 2), and with them `SQR` (x^.5, through `LOG`) of .1, .5 and 2
   and `fn-sqr-bits`' `SQR(.5)*2-1`. The same reduction leaves `LOG(1)` at ln 2 x 2^-32, not 0, and so 1 to a power
-  that `^` takes through `EXP(y LOG x)` is not 1 either (`1^1E9` 1.17513837, `1^100000.5` 1.00001614; `SQR(1)` and
-  whole powers are 1); the original's `LOG(1)` and `1^y` are not recorded yet (bb13c `fn-log-pow`). `tests/basic/fpmodel.js` models the steps (`log`); `tests/basic-math.test.js`
-  holds the ROM to it bit for bit and to the error the steps allow. 6 bytes more than the series it replaces (16,319,
-  39 free; `FSQR` and `ABS` change sides of `$A000`). Still open: `EXP(2)` and `SQR` of 3, 1E30 and 1E8, a unit
-  each, through `EXP`; and `^` with a whole exponent: bb10 `num-print-big` shows the original's 2^66 as 195,0,0,0,44
-  and 2^126 as 255,0,0,0,44, `EXP(y LOG x)` with its `LOG(2)` (now ours too), while ours multiplies whole powers
-  exactly; sending whole powers of a positive base through `EXP` gives both and keeps 2^60 exact, but makes `0^0` 0
-  and `3^20` 3.48678443E+09, which no record shows: bb13c records them first.
+  that `^` takes through `EXP(y LOG x)` is not 1 either (`1^1E9` 1.17513837, `1^100000.5` 1.00001614; `SQR(1)` is
+  1): the original's, byte for byte [BB bb13c fn-log-pow]. `tests/basic/fpmodel.js` models the steps (`log`);
+  `tests/basic-math.test.js` holds the ROM to it bit for bit and to the error the steps allow. 6 bytes more than the
+  series it replaces (16,319, 39 free; `FSQR` and `ABS` change sides of `$A000`). Open: bb13c `fn-log-pow`'s `LOG`
+  of .625, .6875, .75, .9375 and .99 (1 to 44 units; 24 of the 29 recorded `LOG` values are the original's, and no
+  change of the series' coefficients makes more: one of the original's steps differs from ours), and `EXP(2)` and
+  `SQR` of 3, 1E30 and 1E8, a unit each, through `EXP`.
+  **`^`** is always `EXP(y LOG |x|)`, a whole exponent too, as the original's [BB bb13c fn-log-pow, bb10
+  num-print-big]: its 2^2 is 4 and a unit, 2^10 1024 and 6, 2^-1 just under .5, 2^66 195,0,0,0,44, while 2^30 and
+  2^60 come out exact; a base below 0 takes a whole exponent (else `?FC ERROR`) and gives the sign by its parity
+  ((-2)^3 is -8 and a unit); `0^0` is 1, `0^y` 0, `?/0 ERROR` below 0. 28 of bb13c's 33 powers are the original's;
+  the other five (2^-2, 3^.5, 10^2, 10^3, 10^20) a unit off through `LOG` and `EXP`. 22 bytes fewer than the
+  repeated squaring it replaces: 16,197, 161 free.
 * **`RND`:** the sequence after cold start is visible to programs, so ours is the original's, inferred from the values
   the black-box case `rnd-seq` (bb8) recorded (open question 5): a 32-bit seed at `$0116-$0119`, high byte first;
   each step makes it seed x `$40E64DAB` + `$05B0658B` (mod 2^32), with `MULMAN`'s 64-bit product. `RND(0)` is the new
@@ -953,8 +958,9 @@ All answered by the project owner and kept here with the decision, except where 
    (a) `FOUT` of 5E-39's bytes (exponent byte 1): the original's `5.00000001E-39` fits at most two steps of 1E9 before
    the steps of 10, the other records below 1 need all of them. Probe: the printed value of chosen bytes with
    exponent bytes 1 to 40 (a mantissa each, POKEd into a variable), and of 1E-30 to 1E-38 times 1, 3, 7. (b) `LOG`'s
-   reduction: found (section 5, 2026-11-28); to confirm it, `LOG(1)`, `LOG(4)`, `LOG(.25)` and the bytes of `LOG(x)` for
-   x from .5 to 1 in steps of 1/64 and at 1.0001, .9999, 1.01, .99; and `^`: `0^0`, `X^Y`
+   reduction: found (section 5, 2026-11-28) and recorded by bb13c `fn-log-pow`: `LOG(1)` and 1 to a power are the
+   original's, and 24 of its 29 `LOG` values; open, `LOG` of .625, .6875, .75, .9375 and .99 (a step of the original's
+   differs from ours, not its coefficients); and `^` (now always `EXP(y LOG |x|)`, 28 of 33 as the original's): `0^0`, `X^Y`
    for X = 2, 3, 10 and Y = 1-12, 30, 60-70, -1, -2, .5 (whether a whole power is ever exact); `(-2)^3`, `(-2)^2`
    bytes. (c) `COS(0)`, `SIN(pi/2)`, `SIN` at 1/8, 1/4 and 3/8 of a turn, and `TAN` where its cosine is 0 (ours
    `?/0 ERROR`), as bytes. (d) Octal: `&O9`, `&O18` and `VAL("&O19")` (ours takes 9 as a digit and adds: 17, 16, 17;

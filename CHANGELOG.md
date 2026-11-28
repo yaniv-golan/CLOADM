@@ -243,12 +243,15 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   `,` and `TAB(` count the printer's own column, and BREAK or an error during `LLIST` puts the output back on the
   screen. The ROM is 116 bytes larger with them (16,313; 45 bytes free).
   `LOG` works as the original's does, from bb10 `fn-last-bit`: a mantissa from 1/2 to 1, t = 1 - sqrt 2 / (m + sqrt
-  1/2), a four-term series of our own fit and - 1/2, so every recorded `LOG` value is the original's bit for bit, near
-  1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, as the same steps give, so 1 to a large or fractional power is not
-  exactly 1 either (`1^1E9` 1.17513837; `SQR(1)` and whole powers stay 1). 6 bytes
+  1/2), a four-term series of our own fit and - 1/2, so every `LOG` value of bb10 `fn-last-bit` is the original's bit
+  for bit, near 1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, and 1 to a large
+  or fractional power is not exactly 1 either (`1^1E9` 1.17513837), both as on the original. 6 bytes
   (16,319; 39 bytes free).
   `LINE`, `GET` and `PUT`'s rectangles and `PRINT USING`'s field scan are 100 bytes smaller and faster than they
   were (16,219; 139 bytes free); no record times them on the original yet, and every recorded loop is as before.
+  `^` is always `EXP(y LOG |x|)`, as the original's: a whole power is no longer worked out exactly (2^2 is 4 and a
+  unit, 2^66 and 2^126 now print as the original's), a base below 0 still takes a whole exponent and keeps its sign by
+  the exponent's parity, and `0^0` is 1. 22 bytes fewer (16,197; 161 bytes free).
 
 #### Changed
 

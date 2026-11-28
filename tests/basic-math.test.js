@@ -193,10 +193,41 @@ ex('EXP(0) = 1', 'FEXP', 0, 1);
 ex('SIN(0) = 0', 'FSIN', 0, 0);
 ex('COS(0) = 1', 'FCOS', 0, 1);
 ex('ATN(0) = 0', 'FATN', 0, 0);
-ex('2^10 = 1024', 'FPOWER', 2, 1024, 10);
-ex('(-2)^3 = -8', 'FPOWER', -2, -8, 3);
-ex('10^-2 by whole powers: 1/100 rounded once', 'FPOWER', 10, num(F.round(F.div(F.unpack([0x81, 0, 0, 0, 0]), F.unpack([0x87, 0x48, 0, 0, 0])))), -2);
-ex('0^0 = 1', 'FPOWER', 0, 1, 0);
+// ^ is always EXP(y LOG |x|), whole exponents too, as the original's: its five bytes [BB bb13c fn-log-pow]
+const POW = [[2, 2, '131,0,0,0,1'], [2, 10, '139,0,0,0,6'], [2, -1, '127,127,255,255,255'], [2, 30, '159,0,0,0,0'], [2, 60, '189,0,0,0,0'],
+  [10, -2, '122,35,215,10,61'], [-2, 3, '132,128,0,0,1'], [-2, 2, '131,0,0,0,1'], [0, 0, '129,0,0,0,0'], [0, 2, '0,0,0,0,0']];
+for (const [a, b, want] of POW) {
+  const r = rom1('FPOWER', packedOf(a), packedOf(b));
+  check(`${a}^${b} is the original's ${want} [BB bb13c]`, r.st === 'ok' && String(F.pack(get(FAC))) === want, r.st === 'ok' ? String(F.pack(get(FAC))) : r.st);
+}
+// mutants of ^'s rules, each built and run in a machine of its own: one value of POW must no longer be the original's
+{
+  const powOn = (built, a, b) => {
+    const mm = Emu.createMachine('dragon64');
+    mm.setRoms({ basic: built.rom, basic64: null });
+    mm.reset(true);
+    for (let i = 0; i < 20; i++) mm.runFrame();
+    const s = (n) => built.symbols.get(n), c = mm.cpu, r = mm.ram;
+    r[TRAP] = 0x20; r[TRAP + 1] = 0xFE;
+    const at = (v, x) => { r[x] = v.e; const q = Number(v.m); r[x + 1] = (q >>> 24) & 255; r[x + 2] = (q >>> 16) & 255; r[x + 3] = (q >>> 8) & 255; r[x + 4] = q & 255; r[x + 5] = v.x; r[x + 6] = v.s ? 0xFF : 0; };
+    at(packedOf(a), s('ARGEXP')); at(packedOf(b), s('FACEXP'));
+    c.s = 0x7E00 - 2; r[c.s] = TRAP >> 8; r[c.s + 1] = TRAP & 0xFF; c.cc |= 0x50; c.dp = 0; c.jump(s('FPOWER'));
+    const stop = new Set([TRAP, s('OVERR'), s('DZERR'), s('FCERR')]);
+    for (let i = 0; i < 2000000 && !stop.has(c.pc); i++) c.step();
+    if (c.pc !== TRAP) return 'err';
+    const f = s('FACEXP');
+    return String(F.pack(F.round({ e: r[f], m: BigInt(((r[f + 1] << 24) | (r[f + 2] << 16) | (r[f + 3] << 8) | r[f + 4]) >>> 0), x: r[f + 5], s: r[f + 6] === 0xFF })));
+  };
+  for (const [what, from, to] of [
+    ['a base below 0 to an odd power keeps no sign', '        ANDB    #1\n', '        ANDB    #0\n'],
+    ['a base below 0 left below 0 for LOG', '        FCB     F_LD+6,0\n        CLR     <FACSGN\n', '        FCB     F_LD+6,0\n        NOP\n        NOP\n'],
+    ['0 to the power 0 is 0', '        BEQ     PW0\n', '        BRN     PW0\n'],
+  ]) {
+    const built = buildBasic({ edit: (f, t) => { if (f !== 'mathfn.inc') return t; if (!t.includes(from)) throw new Error(`mutant source not found: ${from}`); return t.replace(from, to); } });
+    const bad = POW.filter(([a, b, want]) => powOn(built, a, b) !== want);
+    check(`^ mutant "${what}": no longer the original's`, bad.length > 0, bad.map(([a, b]) => `${a}^${b}`).join(' '));
+  }
+}
 ex('0^2 = 0', 'FPOWER', 0, 0, 2);
 ex('3^0 = 1', 'FPOWER', 3, 1, 0);
 for (const [x, i, f] of [[3.7, 3, 3], [-3.7, -4, -3], [-3, -3, -3], [0.5, 0, 0], [-0.5, -1, 0], [123456.75, 123456, 123456], [-1e-30, -1, 0], [1e20, 1e20, 1e20]]) {

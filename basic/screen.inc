@@ -119,3 +119,13 @@ LINSTR  STD     <FACM+2
         CLRB
         STD     <FACM
         JMP     U32DEC
+
+* EDPUT: LSTLIN's characters into the line at TMPPTR. Keeps every register.
+* (edit.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+EDPUT   PSHS    X
+        LDX     <TMPPTR
+        CMPX    #LINBUF+LINMAX
+        BHS     EDP1
+        STA     ,X+
+        STX     <TMPPTR
+EDP1    PULS    X,PC

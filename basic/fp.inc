@@ -457,9 +457,6 @@ FCLT    LDA     #$FF
 FCEQ0   CLRA
 FCEQ    RTS
 
-* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
-* is not a square root rounded once (mathfn.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md
-* section 3)
-FSQR    JSR     <ZFPRUN
-        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,0
-        JMP     PW5
+* the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a routine starts at $A000:
+* docs/clean-room-basic.md section 3)
+UNIMPL  JMP     <ZFCERR
