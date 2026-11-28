@@ -836,6 +836,20 @@ async function romInputChecks(browser, base, check) {
     // that method's own guard catches only what Session.isRom recognises, which this image is not.
     await page.evaluate(() => window.emu.session.runWithoutRoms({ menu: true }));
     await waitFor(page, () => !window.emu.session.screenText().join('').includes('I AM LIZA'));
+    // the No-ROMs report is a toast this drop's own load replaces within its 4 s (feedback.show(): a new toast
+    // replaces the one up), so it cannot be polled after the fact: a MutationObserver on the toast box records
+    // every text it ever held (the same pattern as the speech-ROM counter at the Pak cases above). The load's
+    // toast arriving is itself asserted below, so the watcher having run is not left to trust.
+    await page.evaluate(() => {
+      window.__junkZipReport = null;
+      const el = document.getElementById('toast');
+      new MutationObserver(() => {
+        if (/No ROMs could be used\.[^]*Not ROMs: junk\.zip: Dragon 64 BASIC\.rom/.test(el.textContent)) {
+          window.__junkZipReport = document.getElementById('toastText').textContent + ' | ' + document.getElementById('toastDetails').textContent;
+        }
+      }).observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
+      return true;
+    });
     const cartBefore = await page.evaluate(() => window.emu.machine.cartPort && window.emu.machine.cartPort.name);
     await dropFiles(page, [['junk.zip', zip([['liza.bin', liza, 0], ['Dragon 64 BASIC.rom', fake(16384, 0x35), 0]])]]);
     check('drop: a ZIP of a program and an unrecognised .rom runs the program',
@@ -844,8 +858,8 @@ async function romInputChecks(browser, base, check) {
     check('drop: a ZIP of a program and an unrecognised .rom never fills the cartridge slot',
       !cartAfter && !cartBefore, `before ${cartBefore}, after ${cartAfter}`);
     check('drop: the unrecognised .rom is reported "Not ROMs", not claimed as a ROM',
-      await waitFor(page, () => /No ROMs could be used\.[^]*Not ROMs: junk\.zip: Dragon 64 BASIC\.rom/.test(document.getElementById('toast').textContent)),
-      await page.textContent('#toast'));
+      await waitFor(page, () => window.__junkZipReport !== null, null, 15000),
+      await page.evaluate(() => window.__junkZipReport));
   }
   check('ROM input: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
