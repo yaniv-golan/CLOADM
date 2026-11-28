@@ -24,8 +24,9 @@ const SHEETS = [
   // Settings (Menu → Settings…, and openSettings(tab) from anywhere): the drawer's tabs and their panels
   { id: 'sheetSettings', chip: null, nodes: ['.drawer > [role="tablist"]', '#panel-media', '#panel-display', '#panel-input', '#panel-pokes', '#panel-machine'] },
 ];
-// what may open over a sheet, and so is shown in it while it is open (outside the dialog it would be inert, under it)
-const GUESTS = ['#snapNeeds', '#lizaOffer', '#mediaOffer'];
+// what may open over a sheet, and so is shown in it while it is open (outside the dialog it would be inert, under it):
+// the switch question too, which a RAM change in the Settings sheet asks (pinned to the sheet's foot: play/index.html)
+const GUESTS = ['#snapNeeds', '#lizaOffer', '#mediaOffer', '#switchConfirm'];
 const FOCUSABLE = 'button:not([hidden]):not([disabled]), select:not([disabled]), input:not([disabled]):not([type="hidden"]), a[href], summary, [tabindex]:not([tabindex="-1"])';
 
 export function setupPhoneSheets(page, { touchKeys, ask = null }) {

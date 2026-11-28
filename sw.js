@@ -202,6 +202,7 @@ const FILES = [
   'js/needs-basic.js',
   'js/package.json',
   'js/postcard.js',
+  'js/printout.js',
   'js/profiler.js',
   'js/program-pages.js',
   'js/roms.js',
