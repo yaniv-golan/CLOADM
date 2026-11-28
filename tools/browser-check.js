@@ -2833,17 +2833,25 @@ async function romUiChecks(browser, base, check) {
   // screen is a ROM drop zone — nothing there is a program, so nothing runs and no socket changes. (Its report
   // lands in report.ignored, which this screen does not display: it names loose non-ROM files beside the drop
   // zone, not an archive's. What the person sees is the screen's own state: nothing added, nothing run.)
+  // The success path has no observable of its own to wait for, so LIZA-not-running is waited for as the
+  // expected-outcome wait: it must stay down for a real span (an emulated second, not a wall sleep), and the
+  // check's precondition (LIZA not already up from an earlier drop) is asserted on its own.
   {
     await openRoms(page);
     const liza = fs.readFileSync(path.join(ROOT, 'examples/liza.bin'));
     const before = await page.evaluate(() => ({ liza: window.emu.session.screenText().join('').includes('I AM LIZA'),
       sockets: window.emu.session.machineRoms('dragon64').sockets.map((s) => s.crc || '').join(',') }));
+    check('Add ROMs: the ZIP case starts from the menu (LIZA not already on screen)', !before.liza, JSON.stringify(before));
     await dropFiles(page, [['game.zip', zip([['liza.bin', liza, 0]])]], null, 'romDrop');
-    await new Promise((r) => setTimeout(r, 1500));   // the drop is asynchronous: give take() its turn
+    // a dropped ZIP that wrongly loaded would show LIZA within a second of emulated time; the screen must stay
+    // as it was for that whole second (maybeWaitFor: false === the pass, and its timeout only counts when the
+    // condition was really polled, so a hung page cannot read as green)
+    const stayed = await maybeWaitFor('a program must not start from a drop on the Add ROMs screen', page,
+      () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 10000);
     const after = await page.evaluate(() => ({ liza: window.emu.session.screenText().join('').includes('I AM LIZA'),
       sockets: window.emu.session.machineRoms('dragon64').sockets.map((s) => s.crc || '').join(',') }));
     check('Add ROMs: a ZIP of programs dropped there runs nothing and changes no socket',
-      !after.liza && before.sockets === after.sockets, JSON.stringify({ before, after }));
+      stayed === false && !after.liza && before.sockets === after.sockets, JSON.stringify({ stayed, before, after }));
   }
   await page.click('#btnRomBack');
   // the Machine tab's "Add ROMs →" opens it too

@@ -12,7 +12,7 @@
 // Every image here is synthetic (seeded bytes) or our own example program; no real ROM is used.
 const path = require('path');
 const Emu = require('./load')();
-const { readZip } = require('../js/media/zip.js');
+const { writeZip } = require('../js/media/zip.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name}`); };
@@ -80,11 +80,16 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
     check('a ZIP of one program through a drop path: nothing was said as a ROM summary (no ROMs, no failures)',
       captured.statuses.length === 0, JSON.stringify(captured.statuses));
 
-    // a folder walk reaches take() the same way an archive does (from: "folder/"), so its programs load too
+    // a loose program file (from: null) still goes to the loader, as it always did
     const { panel: p2, captured: c2, onPrograms: op2 } = await makePanel();
-    await p2.take([{ name: 'demo.bin', file: { name: 'demo.bin', arrayBuffer: async () => liza.buffer.slice(liza.byteOffset, liza.byteOffset + liza.byteLength) }, from: null }], { onPrograms: op2 });
-    // (that is a loose file; the folder case is the browser check's job — here the archive case is what is unit-pinned)
+    await p2.take([fileOf('demo.bin', liza)], { onPrograms: op2 });
     check('a loose program still goes to the loader (unchanged)', c2.programs.length === 1 && c2.programs[0] === 'demo.bin', JSON.stringify(c2.programs));
+    // a program out of a dragged FOLDER (from: "MyROMs/", the shape expand() gives a walked folder's files)
+    // loads too: the CHANGELOG claims it, so it is pinned here, not left to the archive case's code path
+    const { panel: p3, captured: c3, onPrograms: op3 } = await makePanel();
+    await p3.take([{ name: 'demo.bin', file: { name: 'demo.bin', arrayBuffer: async () => liza.buffer.slice(liza.byteOffset, liza.byteOffset + liza.byteLength) }, from: 'MyROMs/' }], { onPrograms: op3 });
+    check('a program out of a dragged folder goes to the loader (the same from-tagged path as a ZIP)',
+      c3.programs.length === 1 && c3.programs[0] === 'demo.bin', JSON.stringify(c3.programs));
   }
 
   // ---- a ZIP of a program AND a ROM-shaped image: the ROM goes in, the program loads ----
