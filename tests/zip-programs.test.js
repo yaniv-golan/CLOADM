@@ -87,7 +87,7 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
     check('a loose program still goes to the loader (unchanged)', c2.programs.length === 1 && c2.programs[0] === 'demo.bin', JSON.stringify(c2.programs));
   }
 
-  // ---- a ZIP holding a program AND a ROM-shaped image: the ROM goes in, the program loads ----
+  // ---- a ZIP of a program AND a ROM-shaped image: the ROM goes in, the program loads ----
   {
     const { session, panel, captured, onPrograms } = await makePanel();
     // Session.isRom's own bar, as the brief defines it: a usual ROM file name (d64_1.rom) with patterned bytes.
@@ -101,6 +101,28 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
       captured.programs.length === 1 && captured.programs[0] === 'prog.bin', JSON.stringify(captured.programs));
     check('a ZIP of a program and a ROM image: the ROM is reported as added, not as a failure',
       !captured.statuses.some((s) => /No ROMs could be used/.test(s.text)), JSON.stringify(captured.statuses.map((s) => s.text)));
+  }
+
+  // ---- a README in a ZIP of ROMs is still "Not ROMs", not a load error per file ----
+  // The loader refuses what it cannot open one file at a time ("unknown format"), which is its answer for a
+  // file someone meant to load; a readme riding along in a folder or archive of ROMs is not that. It keeps the
+  // report a drop of ROMs makes (romInput's pinned "Not ROMs: MyROMs/readme.txt" and "Not ROMs: roms.zip: info.txt").
+  {
+    const { session, panel, captured, onPrograms } = await makePanel();
+    const rom = fake(16384, 0x21);
+    const notes = new TextEncoder().encode('notes');
+    await panel.take([zipOf('roms.zip', [['d64_1.rom', rom], ['readme.txt', notes]])], { onPrograms });
+    check('a ZIP of a ROM and a readme through a drop path: the ROM goes in, the readme stays "Not ROMs"',
+      captured.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'roms.zip: readme.txt')
+      && session.machineRoms('dragon64').sockets.some((s) => s.crc), JSON.stringify(captured.reports.map((r) => r.ignored)));
+    check('a ZIP of a ROM and a readme: the readme never reaches the program loader',
+      !captured.programs.includes('readme.txt'), JSON.stringify(captured.programs));
+    // a snapshot is openable (gzip/JSON is looksLikeSnapshot), so a ZIP of snapshots loads them
+    const { panel: p3, captured: c3, onPrograms: op3 } = await makePanel();
+    const gzip = new Uint8Array([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03]);
+    await p3.take([zipOf('snaps.zip', [['save.cloadm', gzip]])], { onPrograms: op3 });
+    check('a ZIP of a snapshot goes to the loader (it is not raw junk)',
+      c3.programs.length === 1 && c3.programs[0] === 'save.cloadm', JSON.stringify(c3.programs));
   }
 
   // ---- without a program loader (the Add ROMs screen: all: true): a program in a ZIP is still not a ROM ----

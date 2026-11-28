@@ -5,6 +5,8 @@
 import { Session } from '../session.js';
 import { keepStorage } from '../host/storage.js';
 import { readZip } from '../media/zip.js';
+import { looksLikeSnapshot } from '../media/snapshot.js';
+import { detectMedia } from '../media/detect.js';
 import { $ } from './page.js';
 import { currentView } from './feedback.js';
 import { droppedFiles, expand, pickedFiles } from './files.js';
@@ -103,13 +105,15 @@ export function setupRomPanel(page) {
       if (res) { report.files = res.files; report.machines.push(...res.machines); report.offers = res.offers;
         report.ignored.push(...res.files.filter((f) => f.result === 'ignored').map((f) => f.name)); }
     }
-    // Everything the drop is not putting in a socket goes to the program loader when there is one (Open…, a drop on
-    // the page): loose files, and files out of a folder or ZIP (f.from) — a ZIP of programs is opened, not judged as
-    // a bad drop of ROMs (OPENS_TEXT names "ZIPs of these"). Without one (the Add ROMs screen) nothing else is
-    // claimed for it: an archive's non-ROM entries are what that screen refuses, said as Not ROMs, and a loose file
-    // stays with the caller to be refused on its own terms (notRoms says it there).
-    const loose = other.filter((f) => onPrograms || !f.from);
-    report.ignored.push(...other.filter((f) => f.from && !onPrograms).map((f) => f.from + f.name));
+    // The files the drop is not putting in a socket go to the program loader when there is one (Open…, a drop on the
+    // page): loose files, and the openable ones out of a folder or ZIP — a ZIP of programs is opened, not judged as a
+    // bad drop of ROMs (OPENS_TEXT names "ZIPs of these"). What CLOADM cannot open at all (a readme, a photo: a raw
+    // kind that is not a snapshot) is not the loader's to refuse one by one: from an archive it stays what it always
+    // was, "Not ROMs:", the report a drop of ROMs makes. Without a loader (the Add ROMs screen) nothing else is
+    // claimed for it either: an archive's non-ROM entries are what that screen refuses, said the same way.
+    const openable = (f) => detectMedia(f.name, f.bytes).kind !== 'raw' || looksLikeSnapshot(f.name, f.bytes);
+    const loose = other.filter((f) => !f.from || (onPrograms && openable(f)));
+    report.ignored.push(...other.filter((f) => f.from && !(onPrograms && openable(f))).map((f) => f.from + f.name));
     if (roms.length || report.restored || report.ignored.length || report.errors.length || report.skipped.length) { summarise(report); changed(report); }
     // the first ROMs stored: ask the browser to keep them (it may otherwise clear site storage when space runs
     // low), and say which it is
