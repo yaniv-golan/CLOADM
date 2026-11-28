@@ -2377,6 +2377,11 @@ async function printerPanelChecks(browser, base, check) {
     await linesPrinted(4);
     await emuFrames(page, 2);
     check(`${L}: the toast comes once per machine: none when the Dragon prints again`, await printToasts() === 1, JSON.stringify(await page.evaluate(() => window.toasts)));
+    // the box shown with lines (Save and Clear on) before the switch, so the CoCo's NUL alone must turn them off
+    await show();
+    s = await box();
+    check(`${L}: printing lines again, Save and Clear are on`, !s.save && !s.clear && /^\d+ lines?$/.test(s.state), s.state);
+    await hide();
 
     // ---- the CoCo's serial printer: a NUL alone, then its first print toasts; the copy ----
     await switchQuestion('coco');
