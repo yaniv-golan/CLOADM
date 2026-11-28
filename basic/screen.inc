@@ -83,7 +83,8 @@ CRLF1   JSR     <ZCHROUT
         PULS    A,PC
 
 * NEWLIN: a carriage return unless the cursor is at the start of a line
-NEWLIN  PSHS    A
+NEWLIN  JSR     PRTEND          ; (READY and ERROR: their text on the screen, and DEVNUM 0, after LLIST's BREAK too)
+        PSHS    A
         LDA     <CURPOS+1
         ANDA    #31
         PULS    A               ; (the flags stay)

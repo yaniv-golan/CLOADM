@@ -313,6 +313,14 @@ These are hard rules for everyone who works on this ROM.
   (to `FONINE`'s unused neighbour), `FORVAR`, `DRANG` and `DRSCL` (after `TEMPPT`) and `GXY` (the 4 free bytes after
   `KEYDLY`). `RESTOR` and `UNIMPL` go back to their modules and `MOVFM` (into `mathfn.inc`) comes below `$A000`:
   16,218, `$BF6C`, 131 free; `cas-cloadm2`'s B 2,417.
+* **`LLIST` and `PRINT #-2`** (`printer.inc`, after `$A000`; `PRTOFF` in the 6 bytes at `$8000`) took 120 bytes:
+  16,338, the code ending at `$BFDC`, 20 bytes below the vectors. `PRTDEV` looks for `-2` after the `#` with `LDD`,
+  then puts the `#` back in A for `CDEV`, which reads the device from it; a digit after the 2 is `?DN ERROR`. The
+  printer keeps its own column, `PCOL` (`$0114`, counted by `PRTOUT`): PRINT's comma and `TAB(` and LIST's line end
+  read it through `COLMN` on the printer, the screen's column anywhere else (the screen's made a comma after
+  `PRINT "XYZ";` loop for ever) [OWN]. `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
+  output back on the screen and `DEVNUM` 0, after a BREAK in `LLIST` too. `DRSCAL` goes back to `draw.inc`, so that
+  `SCRNST` starts at `$A000` again.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -322,7 +330,7 @@ These are hard rules for everyone who works on this ROM.
 
 | Range | Use |
 |---|---|
-| `$8000-$8005` | `$FF`: nothing is published there [DOC]; not counted as free (too small for a module) |
+| `$8000-$8005` | `PRTOFF` (6 bytes: the output back to the screen after the printer, `printer.inc`): nothing is published there [DOC] |
 | `$8006-$8029` | the published entry points, a 3-byte jump each [DOC pp. 4-5]: a `JMP` to our routine where it does what the page says, `$FF` where none of ours does (the table below; `tests/basic-entry.test.js`) |
 | `$802A-...` | the modules, in the order of section 4, packed, around the table at `$A000` |
 | `$A000-$A00D` | the published indirect calls, a word each [DOC pp. 4-5]: `$A000` our keyboard poll, the rest `$FFFF` (the table below; `basic/vectbl.inc`). `tools/build-basic.js` puts it in between two routines, before one that nothing runs on into (the instruction before it an `RTS`, `RTI`, `BRA`, `LBRA`, `JMP` or `PULS` of PC) that starts at `$A000` (`SCRNST` today), so it costs no byte; the build fails if no routine starts there (code that grows below `$A000` then goes in a module after it, as `EDIT` does). A mutant's build (tests only) puts it before the last such routine below `$A000` that its short branches still reach over and the code still fits after, the bytes between left `$FF`, or goes without it |
@@ -336,7 +344,7 @@ The published entry points ([DOC] Dragon Data Ltd, "Dragon 32 Information for Ma
 | `$8006` (and `JSR [$A000]`) | polls the keyboard: A = the key's code, or 0 if no new key | `KEYIN` |
 | `$8009` | blinks the cursor when its count reaches 0 | `$FF`: inside `KEYWT` here |
 | `$800C` | writes A to the text screen, scrolling if needed; the cursor moves on | `CHROUT` (the screen while `DEVNUM` is not 255; like anything printed, it shows the text screen again, a picture shown before giving way to it) |
-| `$800F` | writes A to the printer | `$FF`: no printer output yet |
+| `$800F` | writes A to the printer | `PRTOUT` (it waits while the printer is busy, PIA 1 PB0, as LLIST does) |
 | `$8012` | updates the joystick readings in `$015A-$015D` | `$FF`: `JOYSTK` keeps them in `JOYV` |
 | `$8015`, `$8018` | the cassette relay on, off | `RLYON`, `RLYOFF` (the motor alone, the interrupt mask left as it was; `CASON` and `CASOFF` also mask and unmask interrupts). Each writes the whole of PIA 1's control register A (`$3C` or `$34`: CA1's interrupt off, the data register selected) and uses A |
 | `$801B` (and `JSR [$A00C]`) | prepares for writing | `$FF`: inside `CWBLK` here |
@@ -428,6 +436,7 @@ black-box case (`VARPTR` then `PEEK` of five bytes) and changed to match if it d
 | `sound.inc` | the tone loop (a cycle-exact square wave, its length counted in cycles), `SOUND`, `AUDIO`, `JOYSTK` (section 7 there) |
 | `play.inc` | `PLAY`: its commands, the note table and the length arithmetic; `PLAY`'s defaults, set by `CLRVAR` |
 | `edit.inc` | `EDIT` [BB bb10 stmt-edit]; after `$A000`, so code added to it never moves the routine at `$A000` (section 3) |
+| `printer.inc` | LLIST, `PRINT #-2` and the printer routine `PRTOUT` [BB bb11 stmt-printer2]; after `$A000` for the same reason |
 
 Statements and functions that belong to P2 (graphics, sound, joysticks) exist in the keyword table from the start, so
 programs crunch and list correctly, and give `?FC ERROR` (to be decided, open question 6) until P2 implements them.
@@ -617,6 +626,12 @@ All of them run with no ROM, on our ROM assembled at test time.
   test (`$8015` to `CASON`, `$8018` to `CASOFF`, `$800C` to `SCROLL`, `$801E` to `CWDLY`, `$8006` and `$A000` to
   `CHROUT`), each failing a call. Also where the build puts the table when a mutant's code before it grows or
   shrinks.
+* **`tests/basic-printer.test.js`:** LLIST and `PRINT #-2`: bb11 `stmt-printer2` replayed, the screen and the 49 printer
+  bytes identical; nothing sent while the printer's busy line (PIA 1 PB0) is held high, then the bytes in order;
+  `$800F` and `$8000`;
+  the output back on the screen before the next statement [OWN]; and a mutant of each rule (the byte after the
+  strobe, no busy wait, `PRINT #-2` alone printing nothing, LLIST's missing CR at column 0, the output left on the
+  printer), each failing it.
 * **The keyboard and the screen, through the matrix:** the line editor's keys (left arrow erases a character,
   SHIFT-left arrow the line, BREAK drops it, SHIFT-0 lower case and back) in the case `editor-keys`
   (`tests/basic-lang.test.js`); SHIFT-@ pausing a running program and BREAK stopping it in `tests/basic-pause.test.js`;
@@ -995,6 +1010,7 @@ Every behaviour fact the ROM relies on, with its source. A fact without a source
 | 68 | The interpreter's costs (section 2, the original's cost model): a digit of a number by the number so far and the digit's bits, the same in a constant, `VAL` and `READ`; a 0 about 925-1000 cycles; a product by its right operand's bytes and bits, not its left one's; `INT` 23 cycles a place it drops; `AND` alike for small and large operands; `MOTOR ON` waits about 25.4 fields with `TIMER` counting, and again when the motor already runs; `MOTOR OFF` of a motor that is off takes nothing | [BB] bb10 `time-literals`, `time-ops`, `time-mul`, `time-int`, `time-motor` |
 | 69 | The published entry points: a jump at `$8006`, `$8009`, `$800C`, `$800F`, `$8012` (keyboard, cursor blink, screen, printer, joysticks), `$8015`-`$8027` (the cassette: relay on, off, prepare to write, write a byte, prepare to read, read a byte, read a bit), a word at `$A000`, `$A004`, `$A006`, `$A008`, `$A00C`; nothing published at `$8000-$8005` or after `$8027`; `$8B2D`, `$8C37` and the RAM hooks at `$015E-$01AF` (section 3) | [DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pp. 4-5 and PDF p. 7, read from the page images (the text layer has OCR errors) and checked cell by cell by the maintainer's side (2026-11-27) |
 | 70 | `EDIT n` prints the line as `LIST` does, then the line's number and a space again, and takes keys: ENTER shows the rest of the line and stores it as a typed line is stored (no `OK` after it, in direct mode or in a program, which ends there); X shows the rest and inserts what is typed; L shows the rest and starts the line again (a third copy); a count of digits and space moves that many characters on, showing them; H deletes the rest and inserts; nD deletes n characters, showing nothing for them (`2D` on `PRINT 7` leaves `INT 7`). `EDIT 99` with no line 99, and `EDIT` with no number, are `?UL ERROR`. The other keys and commands, BREAK, the left arrow in insertion and a full line are ours [OWN] until bb11's `stmt-edit2` and `stmt-edit3` answer them (ours: a key that is no command does nothing; in insertion only a printable key goes in; a line of 250 characters with its number takes no more, and a stored line that lists longer is cut there) | [BB] bb10 `stmt-edit` |
+| 71 | LLIST sends each line as LIST shows it and a carriage return (no line feed), `LLIST 20` the one line; `PRINT #-2` formats as on the screen (its comma and `TAB(` by the printer's own column [OWN]) (a space after a number, `;` at the end no carriage return) and `PRINT #-2` alone is a carriage return; ours waits while the printer is busy (PIA 1 PB0 high); the bytes go out on PIA 0 port B, each taken at a rise of PIA 1 PA1 that leaves the DAC's bits as they are. bb10 `stmt-printer` and bb6 `famous-pokes`, where the original waited with no printer, were recorded on an emulator that read PB0 as the 6551's receive data, idle high (busy); on a Dragon, PB0 is the printer's BUSY on every model, so those two are to be recorded again on an emulator with that fixed (CLOADM 0.4.1) and the wait is not taken from them | [BB] bb11 `stmt-printer2` (2026-11-27, with the printer ready: 49 bytes); [DOC] Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!", the `$FF22` entry (PB0 the printer's busy input) |
 
 The log grows with every milestone; black-box facts are added with the date of the run they came from.
 
@@ -1162,7 +1178,7 @@ reproduce. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
-| `POKE 111,254` (output to the printer) | output goes to the printer (the record's wait for one came from an emulator that read the printer's busy line, PIA 1 PB0, as busy: to be recorded again) | output stays on the screen: no printer output is built yet [OWN, open] | `famous-pokes` (its last step) |
+| `POKE 111,254` (output to the printer) | output goes to the printer (the record's wait for one came from an emulator that read the printer's busy line, PIA 1 PB0, as busy: to be recorded again) | output stays on the screen: ours sends to the printer only from LLIST and `PRINT #-2` (the two-byte call `ZCHROUT` pointed at `PRTOUT` for the statement), not from `$6F` [OWN] | `famous-pokes` (its last step) |
 | `DLOAD`, `DLOADM` (no serial link) | waits for the serial port: nothing on the screen after 250 fields, and `BREAK` does not bring `OK` back | `?FC ERROR` at once: no serial loading is built [OWN, open] | `stmt-dload` [BB bb10] |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it); on a fresh machine (bb10 `using-wide12`) `%1000000000E-10`, `%1234500000E-06%-1000000000E-10` for 12345;-1, BASIC still answering | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp`, `using-wide12` |
 
@@ -1277,7 +1293,7 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$25-26` | a string-space pointer: one past the end of the last string copied into the string space, or the start of the last one made there when nothing was copied into it (`CHR$`) | [BB `ram-pointers2`, 2026-11-26; bb8 `ram-ptr25`, every value it printed]: in direct mode a literal is copied, so after a `PRINT "S"` it is `$23` + 1; in a program a join, `STR$`, `LEFT$` and an `INPUT` reply move it (a join's temporary in `PRINT` too), a literal, a variable copied, a number, `FOR`, `RUN` and `CLEAR` do not | the same (`STRDST`); our strings sit a byte below the original's (ours from `FRETOP`, the original's from `FRETOP` + 1), so it is our pointer + 1 |
 | `$27-28` | the string space's top | 32766 | the same (`MEMTOP`; `CLEAR n,top` takes a top up to 32768 [OWN]) |
 | `$68-69` | the line running | `$FFFF` in direct mode | the same (`CURLIN`) |
-| `$6F` | where output goes | 0 the screen; 254 the printer (the records' wait for it, bb6 `famous-pokes` and bb10 `stmt-printer`, came from an emulator that read PB0 as busy); 255 the tape | 0 and 255 the same (`DEVNUM`); any other value the screen: no printer output yet (section 13) |
+| `$6F` | where output goes | 0 the screen; 254 the printer (the records' wait for it, bb6 `famous-pokes` and bb10 `stmt-printer`, came from an emulator that read PB0 as busy); 255 the tape | 0 and 255 the same (`DEVNUM`); 254 during LLIST and `PRINT #-2`, as there; a 254 POKEd prints on the screen (section 13) |
 | `$71` | the cold-start flag | 85 (`$55`) once BASIC has started | the same (`WARMFL`) |
 | `$9D-9E` | `EXEC`'s address: `CLOADM` puts the file's exec address there, its offset added | [BB] bb8 `cas-cloadm2` (RAM below the screen searched for the bytes) | the same (`EXECAD`) |
 | `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into the crunched line at `$02DC`, as the original's does ([BB] `ram-pointers2` (2026-11-26): 757, 761, 765) |

@@ -232,8 +232,7 @@ LL3     LDA     <DEVNUM         ; (to the tape, CSAVE ,A: every line ends with i
         JSR     DELAYX
 LL3A    JSR     CRLF
 LL4     PULS    X,PC
-LL3B    LDA     <CURPOS+1
-        BITA    #31
+LL3B    JSR     COLMN           ; (the printer's column on the printer: LLIST)
         BEQ     LL4
         BRA     LL3A
 * LSTCH: A to the screen, unless 249 characters of the line are out already. Keeps X, U.

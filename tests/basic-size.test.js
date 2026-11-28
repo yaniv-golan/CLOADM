@@ -65,7 +65,7 @@ check('the budget: free is the gap from the code\'s end to the vectors', g.free 
 // nothing of ours but the jumps and the table's words lies in the reserved spans: every line placed there is a JMP,
 // an FDB or an RMB (the listing, line by line)
 const inReserved = b.listing.filter((l) => l.bytes && l.bytes.length && [[0x8006, 0x802A], [0xA000, 0xA00E]].some(([s, e]) => l.addr < e && l.addr + l.bytes.length > s));
-check('only the published jumps and words are placed in the reserved spans', inReserved.length === 8 && inReserved.every((l) => /^\S*\s+(JMP|FDB)\s/.test(l.src)), inReserved.map((l) => l.src.trim().split(/\s+/).slice(0, 2).join(' ')).join(', '));
+check('only the published jumps and words are placed in the reserved spans', inReserved.length === 9 && inReserved.every((l) => /^\S*\s+(JMP|FDB)\s/.test(l.src)), inReserved.map((l) => l.src.trim().split(/\s+/).slice(0, 2).join(' ')).join(', '));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

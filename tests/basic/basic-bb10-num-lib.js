@@ -33,7 +33,11 @@ function replay(rom, c) {
   for (let i = 0; i < Math.max(want.length, got.length); i++) if (want[i] !== got[i]) { at = i; break; }
   return { same: at < 0, detail: at < 0 ? `${got.length} lines` : `line ${at}: ${JSON.stringify(want[at])} vs ${JSON.stringify(got[at])}` };
 }
+// A mutant is built without EDIT (the cases here type no EDIT): some add code (TAN as SIN/COS, 41 bytes; FOUT's old
+// steps, 19), more than the ROM as built has free, and EDIT's room lets them assemble with the rest of the ROM as is.
+const noEdit = (f, t) => (f === 'd64basic.asm' ? t.replace('        INCLUDE "edit.inc"\n', 'EDIT    EQU     UNIMPL\n') : t);
 const mutant = (file, from, to) => buildBasic({ edit: (f, t) => {
+  t = noEdit(f, t);
   if (f !== file) return t;
   if (!t.includes(from)) throw new Error(`mutant source not found in ${file}: ${from}`);
   return t.replace(from, to);
@@ -48,6 +52,10 @@ function run(CASES, MUTANTS) {
     const open = Object.keys(OPEN[c] || {}).length + (OPENWRAP[c] ? 1 : 0);
     check(`${c}: ours identical to the original's record${open ? ` but for its ${open} open line(s)` : ''} [BB]`, r.same, r.detail);
   }
+  // the control: each case as recorded on the ROM the mutants are built from (EDIT left out, nothing else changed), so
+  // a mutant's difference is its own change's
+  const base = buildBasic({ edit: noEdit }).rom;
+  for (const c of CASES) check(`${c}: as recorded on the ROM the mutants start from (without EDIT)`, replay(base, c).same, replay(base, c).detail);
   for (const [cases, what, file, from, to] of MUTANTS) {
     const r = mutant(file, from, to);
     for (const c of cases) check(`${c} mutant "${what}": no longer as recorded`, !replay(r, c).same);

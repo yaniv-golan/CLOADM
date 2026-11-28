@@ -27,6 +27,16 @@ DRCOL   STB     <FGCOL
         STB     <GCOLB
         RTS
 
+* DRSCAL: DRLEN = B x the scale / 4, rounded down
+DRSCAL  LDA     <DRSCL
+        MUL
+        LSRA
+        RORB
+        LSRA
+        RORB
+        STD     <DRLEN
+        RTS
+
 * DRSGN: D = DRLEN x B (B is -1, 0 or 1)
 DRSGN   CLRA
         TSTB

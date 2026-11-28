@@ -236,6 +236,11 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   The ROM is 111 bytes smaller (16,218; 131 bytes free before the vectors): shared tails, tests dropped where the
   flags were already set, flags known to be 0 set with `INC`, an `IF` that is false ending through `REM`'s scan,
   three more two-byte calls (`COMMA`, `LPAREN`, `ERROR`); no recorded loop is faster than the original's.
+  `LLIST` and `PRINT #-2` print, as the bb11 record of the original shows them: each line as `LIST` shows it with a
+  carriage return, numbers as on the screen, `PRINT #-2` alone a carriage return, and a wait while the printer's busy
+  line is high; the published entry `$800F` is the printer routine (`tests/basic-printer.test.js`). On the printer,
+  `,` and `TAB(` count the printer's own column, and BREAK or an error during `LLIST` puts the output back on the
+  screen. The ROM is 120 bytes larger with them (16,338; 20 bytes free).
 
 #### Changed
 

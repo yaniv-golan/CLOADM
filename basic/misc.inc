@@ -143,11 +143,6 @@ MEM     LEAX    4,S             ; (the original's MEM with its string space at 3
         TFR     X,D
         SUBD    <ARYEND
 MEMGIV  JMP     GIVUNS
-* POS(n): the cursor's column (n is not used)
-POS     JSR     <ZFNARGN
-        LDB     <CURPOS+1
-        ANDB    #31
-        JMP     GIVB
 * TIMER: the fields counted since it was last set (50 a second); TIMER = n sets it [UM]
 TIMERF  LDD     TIMER
         BRA     MEMGIV

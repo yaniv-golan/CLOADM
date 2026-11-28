@@ -206,8 +206,3 @@ INLINE  TST     <ITMCOL         ; (a record from the tape)
         LBCS    STOPIN
         RTS
 
-* LINE: LINE INPUT when INPUT follows, otherwise the graphics LINE (line.inc)
-LINE    CMPA    #T_INPUT
-        LBNE    GLINE
-        JSR     <ZCHRGET
-        JMP     LNINP

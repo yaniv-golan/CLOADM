@@ -57,7 +57,6 @@ FMERR   LDB     #ERR_FM
 IEERR   LDB     #ERR_IE
 
 ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
-        CLR     <DEVNUM         ; (the message on the screen, whatever PRINT #-1 was doing [OWN])
         STS     <BASESP
         JSR     RSTTMP          ; and the string temporaries
         JSR     NEWLIN

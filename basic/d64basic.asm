@@ -39,7 +39,7 @@ BLKBUF  EQU     $01DA           ; the cassette's block buffer, 255 bytes below t
 
 * ---------------- system RAM, $0100-$01FF: laid out one after another, so nothing overlaps ----------------
 * (TIMER falls at $0112 after the vectors; the regions SYSR0 and SYSR1 end at or below the fixed addresses after
-* them, RNDX and CASEFL; $0114 is not used:)
+* them, RNDX and CASEFL; $0114 is the printer's column, PCOL:)
 RNDX    EQU     $0115           ; 128 from a cold start on: RND neither reads nor writes it, and NEW, CLEAR and RUN
 *                                 leave it [BB bb9 rnd-state]
 SEED    EQU     $0116           ; RND's seed, high byte first, as on the original [BB bb8 rnd-seq]
@@ -53,6 +53,7 @@ VSWI    RMB     3
 VSWI2   RMB     3
 VSWI3   RMB     3
 TIMER   RMB     2               ; counts fields (50 Hz): $0112, as on the original [BB bb3 ram-pointers, bb6]
+PCOL    RMB     1               ; the printer's column: characters since its last carriage return (printer.inc) [OWN]
 SYSR0   RMB     0               ; (at or below RNDX)
         ORG     SEED+4
 USRTAB  RMB     20              ; DEF USR0-9 addresses
@@ -297,6 +298,13 @@ ZFCERR   RMB     3
 ZCHKNUM  RMB     3
 ZMOVMF   RMB     3
 
+* PRTOFF: output back to the screen (ZCHROUT to CHROUT), after LLIST or PRINT #-2 sent it to the printer, and before
+* any message (NEWLIN, at READY and ERROR). Uses X only. It fills $8000-$8005, where nothing is published [OWN].
+        ORG     $8000
+PRTOFF  LDX     #CHROUT
+        STX     <ZCHROUT+1
+        RTS
+
 * ---------------- the published entry points, $8006-$8029 ----------------
 * Dragon Data Ltd, "Dragon 32 Information for Machine Code Users!" (March 1983), printed pages 4-5 [DOC]: a jump at
 * each of these addresses. One goes to our routine where it does what the page says; the rest stay $FF (nothing of
@@ -306,7 +314,7 @@ ZMOVMF   RMB     3
         JMP     KEYIN           ; $8006 the keyboard polled: A = a new key's code, or 0 [DOC p.5]
         RMB     3               ; $8009 the cursor blinked when its count reaches 0 [DOC p.5]: inside KEYWT here
         JMP     CHROUT          ; $800C A written to the screen, scrolling as needed [DOC p.5]
-        RMB     3               ; $800F A to the printer [DOC p.5]: none yet
+        JMP     PRTOUT          ; $800F A to the printer [DOC p.5]
         RMB     3               ; $8012 the joysticks read into $15A-$15D [DOC p.5]: JOYSTK keeps them in JOYV
         JMP     RLYON           ; $8015 the cassette relay on [DOC p.4]
         JMP     RLYOFF          ; $8018 the relay off [DOC p.4]
@@ -349,6 +357,7 @@ ZMOVMF   RMB     3
         INCLUDE "sound.inc"
         INCLUDE "play.inc"
         INCLUDE "edit.inc"
+        INCLUDE "printer.inc"
         INCLUDE "tokens.inc"
 ROMEND  RMB     0
 

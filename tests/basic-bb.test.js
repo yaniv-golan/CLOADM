@@ -60,7 +60,7 @@ const rec = (c, status, t) => [c, { case: c, status, transcript: t }];
 const built = buildBasic();
 check('build: a 16K image', built.rom.length === 0x4000);
 check('build: the reset vector points at RESET', built.rom[0x3FFE] * 256 + built.rom[0x3FFF] === built.symbols.get('RESET'));
-check('build: $8000-$8005 is left $FF, nothing published there (tests/basic-entry.test.js checks the rest)', built.rom.subarray(0, 6).every((x) => x === 0xFF));
+check('build: $8000-$8005, where nothing is published, holds PRTOFF (tests/basic-entry.test.js checks the rest)', built.symbols.get('PRTOFF') === 0x8000);
 {
   const inc = tokensInc({ statements: [{ word: 'FOR', handler: 'FORST' }, { word: 'TAB(', handler: null }, { word: '+', token: '0x90' }],
     functions: [{ word: 'STR$', handler: 'STRS' }] });
@@ -346,7 +346,7 @@ for (const good of ['PCLEAR 1', 'PCLEAR 0', 'PCLEAR 9', 'PMODE 4,1', 'PMODE 0,4'
   const quiet = runCase(built.rom, 'PRINT 1\n');
   check('printer: a case that prints nothing has no printer field (older records unchanged)', quiet.status === 'ok' && !('printer' in quiet));
   const llist = runCase(built.rom, '10 REM\nLLIST\n');
-  check('printer: LLIST on ours (?FC ERROR) prints nothing', llist.transcript.includes('?FC ERROR') && !('printer' in llist));
+  check('printer: LLIST\'s line is what the printer field holds (10 REM and a carriage return)', llist.status === 'ok' && llist.printer && Buffer.from(llist.printer.hex, 'hex').toString('latin1') === '10 REM\r', JSON.stringify(llist.printer || null));
   const P = (hex) => ({ rule: 2, length: hex.length / 2, hex });
   check('compare printer: a first record from the rule before (no rule: 2, the bb10 run) is not compared', comparePrinter({ length: 2, hex: '7f00' }, undefined).length === 0);
   check('compare printer: identical bytes pass', comparePrinter(P('31320d'), P('31320d')).length === 0);

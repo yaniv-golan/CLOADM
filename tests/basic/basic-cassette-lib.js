@@ -272,7 +272,7 @@ const MUTANTS = [
   ['PRINT #-1 with no file open is let through', 'cassette.inc', 'FILCHK  CMPA    <CLDBAS\n        BEQ     DVC1', 'FILCHK  CMPA    <CLDBAS\n        BRA     DVC1', 'forms'],
   ['a record not cut at the end of the file (?IE never)', 'cassette.inc', '        LBCC    IEERR', '        BRA     *+4', 'read'],
   ['a byte of a block taken with a signed offset (past 127: the screen)', 'cassette.inc', '        ABX                     ; (B unsigned: up to 254)\n        LDA     ,X', '        LDA     B,X\n        NOP', 'big'],
-  ['the output left on the tape after an error', 'errors.inc', '        CLR     <DEVNUM         ; (the message on the screen, whatever PRINT #-1 was doing [OWN])', '', 'errout'],
+  ['the output left on the tape after an error', 'printer.inc', 'PRTEND  CLR     <DEVNUM', 'PRTEND  NOP\n        NOP', 'errout'],
 ];
 
 // the data-file checks of the sections given, run on ours in order on one machine, each a check of its own

@@ -21,13 +21,20 @@ const word = (a) => at(a) * 256 + at(a + 1);
 
 // ---- the layout ----
 // [address, our routine or null] from the manual's pages 4-5
-const JUMPS = [[0x8006, 'KEYIN'], [0x8009, null], [0x800C, 'CHROUT'], [0x800F, null], [0x8012, null], [0x8015, 'RLYON'],
+const JUMPS = [[0x8006, 'KEYIN'], [0x8009, null], [0x800C, 'CHROUT'], [0x800F, 'PRTOUT'], [0x8012, null], [0x8015, 'RLYON'],
   [0x8018, 'RLYOFF'], [0x801B, null], [0x801E, 'CWBYTE'], [0x8021, null], [0x8024, 'CRBYTE'], [0x8027, 'CRBIT']];
 for (const [a, r] of JUMPS) {
   if (r) check(`${hex(a)}: JMP ${r}`, at(a) === 0x7E && word(a + 1) === symbols.get(r), `${at(a).toString(16)} ${hex(word(a + 1))}`);
   else check(`${hex(a)}: $FF (no routine of ours does its job)`, at(a) === 0xFF && at(a + 1) === 0xFF && at(a + 2) === 0xFF);
 }
-check('$8000-$8005: nothing published, nothing placed', [0, 1, 2, 3, 4, 5].every((i) => rom[i] === 0xFF));
+// $8000-$8005, where nothing is published: PRTOFF (d64basic.asm), LDX #CHROUT / STX <ZCHROUT+1 / RTS, its 6 bytes
+// worked out here from the symbols, so it neither runs short nor into the jump at $8006
+{
+  const c = symbols.get('CHROUT'), z = (symbols.get('ZCHROUT') + 1) & 0xFF;
+  const want = [0x8E, c >> 8, c & 0xFF, 0x9F, z, 0x39];
+  check('$8000-$8005: nothing published; PRTOFF fills it, LDX #CHROUT / STX <ZCHROUT+1 / RTS', symbols.get('PRTOFF') === 0x8000 && want.every((b, i) => rom[i] === b),
+    [...rom.subarray(0, 6)].map((b) => b.toString(16)).join(' '));
+}
 const first = buildBasic().listing.find((l) => l.file === 'boot.inc' && l.bytes && l.bytes.length);
 check('the code starts at $802A, just after the last published jump', first && first.addr === 0x802A, first && hex(first.addr));
 check('$A000: the keyboard poll, KEYIN', word(0xA000) === symbols.get('KEYIN'), hex(word(0xA000)));
@@ -37,7 +44,9 @@ check('the ROM as built: the table costs no byte (a routine starts at $A000)', b
 // A mutant's build (tests only) moves the table when the code before it grows or shrinks: still at $A000, after an
 // instruction that nothing runs on from, with the bytes between left $FF; or, where no such place fits, has none
 for (const [name, edit] of [
-  ['3 bytes more before it', (f, t) => (f === 'screen.inc' ? t.replace('CHROUT  PSHS    D,X\n', 'CHROUT  PSHS    D,X\n        NOP\n        NOP\n        NOP\n') : t)],
+  // (and without EDIT, so that the code after the table has room for the 3: the ROM as built has 3 bytes free)
+  ['3 bytes more before it', (f, t) => (f === 'screen.inc' ? t.replace('CHROUT  PSHS    D,X\n', 'CHROUT  PSHS    D,X\n        NOP\n        NOP\n        NOP\n')
+    : f === 'd64basic.asm' ? t.replace('        INCLUDE "edit.inc"\n', 'EDIT    EQU     UNIMPL\n') : t)],
   ['2 bytes fewer before it', (f, t) => (f === 'screen.inc' ? t.replace('        JSR     TXTSCR\n        LDA     ,S\n', '        JSR     TXTSCR\n') : t)],
   ['4 bytes fewer before it', (f, t) => (f === 'screen.inc' ? t.replace('        CMPA    #8\n        BEQ     CHRBS\n', '') : t)],
 ]) {
@@ -51,8 +60,9 @@ for (const [name, edit] of [
 }
 
 {
-  // all but 5 of the free bytes taken before it: no place below $A000 leaves room for the table and the code after it
-  const grow = 0xBFF0 - symbols.get('ROMEND') - 5;
+  // 5 bytes more before it than the ROM has free: the code still fits without the table (14 bytes), but no place
+  // below $A000 leaves room for the table and the code after it
+  const grow = 0xBFF0 - symbols.get('ROMEND') + 5;
   const m = buildBasic({ edit: (f, t) => (f === 'd64basic.asm' ? t.replace('        INCLUDE "screen.inc"', `        RMB     ${grow}\n        INCLUDE "screen.inc"`) : t) });
   check('a mutant\'s build with no room for it has no table', m.gap === null && !m.symbols.has('VECTBL'), `gap ${m.gap}`);
 }
