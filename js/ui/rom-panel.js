@@ -116,10 +116,12 @@ export function setupRomPanel(page) {
     // dump usually has too — cannot be told by this drop from such a dump (no known CRC, no usual name:
     // Session.isRom's bar), so from an archive it is reported as before ("Not ROMs"), the same trap the open-rom
     // fix closed: a machine's BASIC must not end up in the cartridge slot. Open it on its own to use it as one.
-    // The rule is on the KIND, not the name alone: a `.rom` whose content CLOADM recognises (a WAV tape, a
-    // snapshot, a program over the cart size cap) routes by its content as before, from an archive as loose.
-    // Loose files never come here: they go to the loader whatever they are, as they always did. `.ccc` and
-    // `.dgn` are not touched: those extensions name cartridge images and nothing else.
+    // The rule is on the KIND, not the name alone: a `.rom` whose content CLOADM recognises as something other than
+    // a cartridge (a WAV tape, a program over the cart size cap, a snapshot above 128K) routes by its content, from
+    // an archive as loose. A snapshot up to 128K named `.rom` is a cartridge by size, so from an archive it is
+    // reported like a ROM dump (a test pins this). Loose files pass this line too, but the `romShaped` rule is not
+    // applied to them: they go to the loader whatever they are, as they always did. `.ccc` and `.dgn` are not
+    // touched: those extensions name cartridge images and nothing else.
     const romShaped = (f) => /\.rom$/i.test(f.name) && detectMedia(f.name, f.bytes).kind === 'cart';
     const openable = (f) => !romShaped(f) && (detectMedia(f.name, f.bytes).kind !== 'raw' || looksLikeSnapshot(f.name, f.bytes));
     const loose = other.filter((f) => !f.from || (onPrograms && openable(f)));
