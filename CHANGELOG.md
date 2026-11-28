@@ -244,7 +244,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   screen. The ROM is 116 bytes larger with them (16,313; 45 bytes free).
   `LOG` works as the original's does, from bb10 `fn-last-bit`: a mantissa from 1/2 to 1, t = 1 - sqrt 2 / (m + sqrt
   1/2), a four-term series of our own fit and - 1/2, so every recorded `LOG` value is the original's bit for bit, near
-  1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, as the same steps give. 6 bytes
+  1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, as the same steps give, so 1 to a large or fractional power is not
+  exactly 1 either (`1^1E9` 1.17513837; `SQR(1)` and whole powers stay 1). 6 bytes
   (16,319; 39 bytes free).
 
 #### Changed

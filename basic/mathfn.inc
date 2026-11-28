@@ -181,7 +181,7 @@ FINT    BSR     FTRUNC
         LDX     #FPM1
         JMP     FADDX
 
-* INT(x), FIX(x), SGN(x) (ABS(x) is in fp.inc)
+* INT(x), FIX(x), SGN(x) (ABS(x) is at this file's end)
 FIX     JSR     <ZFNARGN
         BRA     FTRUNC
 SGN     CLRA

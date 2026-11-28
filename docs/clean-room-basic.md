@@ -520,8 +520,9 @@ programs crunch and list correctly, and give `?FC ERROR` (to be decided, open qu
   then (log2 m + e) ln 2, each step rounded. The - 1/2 cancels near 1 as the original's does: every one of
   `fn-last-bit`'s 13 `LOG` values is the original's bit for bit (its `LOG(1.1)` 27 units from the nearest, `LOG(.9)`,
   and `LOG(.5)` and `LOG(2)` one unit either side of ln 2), and with them `SQR` (x^.5, through `LOG`) of .1, .5 and 2
-  and `fn-sqr-bits`' `SQR(.5)*2-1`. The same reduction leaves `LOG(1)` at ln 2 x 2^-32, not 0 (the original's
-  `LOG(1)` is not recorded yet: bb13c). `tests/basic/fpmodel.js` models the steps (`log`); `tests/basic-math.test.js`
+  and `fn-sqr-bits`' `SQR(.5)*2-1`. The same reduction leaves `LOG(1)` at ln 2 x 2^-32, not 0, and so 1 to a power
+  that `^` takes through `EXP(y LOG x)` is not 1 either (`1^1E9` 1.17513837, `1^100000.5` 1.00001614; `SQR(1)` and
+  whole powers are 1); the original's `LOG(1)` and `1^y` are not recorded yet (bb13c `fn-log-pow`). `tests/basic/fpmodel.js` models the steps (`log`); `tests/basic-math.test.js`
   holds the ROM to it bit for bit and to the error the steps allow. 6 bytes more than the series it replaces (16,319,
   39 free; `FSQR` and `ABS` change sides of `$A000`). Still open: `EXP(2)` and `SQR` of 3, 1E30 and 1E8, a unit
   each, through `EXP`; and `^` with a whole exponent: bb10 `num-print-big` shows the original's 2^66 as 195,0,0,0,44

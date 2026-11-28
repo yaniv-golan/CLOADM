@@ -76,9 +76,11 @@ sweep('LOG', 'FLOG', (i) => 10 ** (rnd() * 60 - 30), Math.log, { tol: 2, absScal
 // LOG near 1: the reduction's - 1/2 cancels there, as the original's does (its LOG(1.1) is 27 units from the nearest,
 // its LOG(.5) and LOG(2) one unit either side of ln 2) [BB bb10 fn-last-bit], so the bound that was here (3 units)
 // is not the oracle: the ROM is held to the model of its steps (tests/basic/fpmodel.js log) bit for bit, and to the
-// error those steps allow, absolute in log2 m: q = sqrt 2 / (m + sqrt 1/2), from .83 to 1.17, rounded at up to 2^-31
-// (its last place from 1 up), which t P(t^2) carries times P (under 2.9): 3 x 2^-31; t P and 1/2 less it rounded at
-// 2^-33 each: 2^-32; then x ln 2, and the result's own unit
+// error those steps and the series allow, absolute in log2 m: q = sqrt 2 / (m + sqrt 1/2), from .83 to 1.17, rounded
+// to nearest, at most half its last place (2^-32 from 1 up), which t P(t^2) carries times P (under 2.9): 1.45 x 2^-31;
+// t P and 1/2 less it rounded at 2^-33 each: .5 x 2^-31; the series' own error, the least-squares fit's (1.11 x 2^-31
+// at most, exact arithmetic over t from -.1716 to .1716) and its third term's 91 units (.2 x 2^-31): 3.26 x 2^-31 in
+// all, held to 3.5; then x ln 2, and the result's own unit
 {
   let mism = 0, first = '', worst = 0, at = null;
   for (let i = 0; i < COUNT; i++) {
@@ -176,6 +178,14 @@ ex('SQR(144) is 12 - 3 x 2^-28 [BB bb2]', 'FSQR', 144, 12 - 3 * 2 ** -28);
 ex('SQR(65536) is 256 [BB bb2]', 'FSQR', 65536, 256);
 ex('EXP(11.5129255) is 100000 + 113 x 2^-15 [BB bb2]', 'FEXP', 11.5129255, 1e5 + 113 * 2 ** -15);
 ex('SQR(0) = 0', 'FSQR', 0, 0);
+// the original's 13 LOG values, bit for bit, ROM and model [BB bb10 fn-last-bit: the argument as read, the five bytes]
+for (const [text, want] of [['.001', '131,221,12,84,205'], ['.1', '130,147,93,141,221'], ['.5', '128,177,114,23,247'], ['.9', '125,215,199,65,18'],
+  ['1.1', '125,67,49,251,232'], ['2', '128,49,114,23,249'], ['3', '129,12,159,83,214'], ['10', '130,19,93,141,222'], ['100', '131,19,93,141,222'],
+  ['1E10', '133,56,52,241,85'], ['1E-10', '133,184,52,241,85'], ['1E30', '135,10,39,181,0'], ['12345', '132,22,188,113,54']]) {
+  const a = F.round(F.unpack(F.finTen(text))), r = rom1('FLOG', a);
+  const got = r.st === 'ok' ? F.pack(get(FAC)) : r.st;
+  check(`LOG(${text}) is the original's ${want} [BB bb10 fn-last-bit]`, String(got) === want && String(F.pack(F.round(F.log(a)))) === want, String(got));
+}
 // LOG(1) is ln 2 x 2^-32, not 0: L at m = 1/2 is that much above -1, which puts LOG(.5) and LOG(2) one unit either
 // side of ln 2 as the original's are [BB bb10 fn-last-bit]; the original's LOG(1) itself is not recorded yet (bb13c)
 ex('LOG(1) is ln 2 x 2^-32 (the model\'s)', 'FLOG', 1, F.toNumber(F.unpack([96, 49, 114, 23, 248])));
@@ -206,7 +216,7 @@ check('(-8)^(1/3) is ?FC ERROR', errOf('FPOWER', -8, 1 / 3) === 'FC');
 check('0^-1 is ?/0 ERROR', errOf('FPOWER', 0, -1) === '/0');
 check('2^200 is ?OV ERROR', errOf('FPOWER', 2, 200) === 'OV');
 // the constants against Math (they are rounded to nearest from 36 digits, so within half a unit)
-for (const [name, want] of [['PIO2', Math.PI / 2], ['TWOPI', 2 * Math.PI], ['QUARTR', 0.25], ['LN2', Math.LN2], ['INVLN2', 1 / Math.LN2], ['SQRT3', Math.sqrt(3)], ['PIO6', Math.PI / 6], ['SQRHLF', Math.SQRT1_2], ['TANP12', 2 - Math.sqrt(3)]]) {
+for (const [name, want] of [['PIO2', Math.PI / 2], ['TWOPI', 2 * Math.PI], ['QUARTR', 0.25], ['LN2', Math.LN2], ['INVLN2', 1 / Math.LN2], ['SQRT3', Math.sqrt(3)], ['PIO6', Math.PI / 6], ['SQRHLF', Math.SQRT1_2], ['SQRT2', Math.SQRT2], ['TANP12', 2 - Math.sqrt(3)]]) {
   const at = sym(name) - 0x8000, v = num(F.unpack(Array.from(rom.slice(at, at + 5))));
   check(`constant ${name}`, err(v, want) <= 0.5, `${v}`);
 }
