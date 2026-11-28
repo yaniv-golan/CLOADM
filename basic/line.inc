@@ -119,18 +119,6 @@ GL2     JSR     COLVAL
         BRA     BF0
 GLSN    JMP     <ZSNERR
 
-* CLMPU: the signed word at U clamped to 0-X (keeps X)
-CLMPU   LDD     ,U
-        BPL     CU1
-        CLRA
-        CLRB
-CU1     PSHS    X
-        CMPD    ,S++
-        BLE     CU2
-        TFR     X,D
-CU2     STD     ,U
-        RTS
-
 * LINETO: a line from the last point to (X, Y), 16-bit signed, in the colour byte GCOLB; the last point ends at
 * (X, Y). Both ends are first clamped to the picture (x 0-255, y 0-191), so a line to a point off the picture runs
 * along its edge and the last point ends on it [BB bb2 gfx-clip: circles past each edge draw along it, DRAW "F30"
@@ -142,92 +130,95 @@ CU2     STD     ,U
 * further along, as if the line were always drawn towards the major axis's larger end [BB bb2 gfx-line pmode3-lines
 * and the chords of gfx-circle]), loses the minor delta at each step, and when it goes negative gets the major delta
 * back and the minor axis steps. Both ends are drawn.
-LINETO  PSHS    X,Y             ; (12,S and 14,S once the frame is made)
-        LDX     #255
-        LEAU    ,S
-        BSR     CLMPU
-        LDU     #LASTX
-        BSR     CLMPU
-        LDX     #191
-        LEAU    2,S
-        BSR     CLMPU
-        LDU     #LASTY
-        BSR     CLMPU
+LINETO  PSHS    X,Y             ; the clamped end is restored to LASTX/LASTY after drawing
         LDX     <GMENT
-        LDB     2,X             ; bit 0: x is halved, bit 1: y is halved
-        LEAS    -12,S           ; two axes, 6 bytes each: |delta|, the step, the coordinate's address
-        PSHS    B
-        LEAY    1,S
-        LDU     #LASTX
-        LDD     13,S
+        LDA     2,X
+        PSHS    A               ; mode bits, consumed x first, then y
+        LEAS    -8,S            ; two records: byte delta, signed byte step, pointer to coordinate's low byte
+        LEAY    ,S
+        LEAX    9,S             ; destination x (then y)
+        LDU     #LASTX          ; starting x (then y)
+        LDB     #255
         BSR     LNAXIS
-        LEAY    7,S
-        LDU     #LASTY
-        LDD     15,S
+        LDB     #191
         BSR     LNAXIS
-        LEAS    1,S
-        LEAU    ,S              ; U: the minor axis, Y: the major one
-        LDD     ,Y
-        CMPD    ,U
+        LEAU    ,S
+        LEAY    4,S
+        LDA     ,Y              ; Y major, U minor; x wins ties
+        CMPA    ,U
         BHI     LT1
         EXG     U,Y
-        LDD     ,Y
-LT1     PSHS    D               ; the steps still to take
-        TST     2,Y
-        BMI     LT1A            ; the major axis runs downwards
-        SUBD    #1
-LT1A    LSRA                    ; the error term
-        RORB
-        PSHS    D
+        LDA     ,Y
+LT1     PSHS    A               ; steps remaining
+        TST     1,Y
+        BMI     LT1A
+        DECA
+LT1A    LSRA
+        PSHS    A               ; unsigned error, below the major delta when a step remains
 LT2     LDA     <LASTX+1
         LDB     <LASTY+1
-        JSR     PLOT            ; (keeps Y and U)
-        LDD     2,S
-        SUBD    #1
-        BCS     LT4
-        STD     2,S
-        LDD     ,S
-        SUBD    ,U
-        STD     ,S
-        BPL     LT3
-        ADDD    ,Y
-        STD     ,S
-        LDD     [4,U]
-        ADDD    2,U
-        STD     [4,U]
-LT3     LDD     [4,Y]
-        ADDD    2,Y
-        STD     [4,Y]
+        JSR     PLOT
+        TST     1,S
+        BEQ     LT4
+        DEC     1,S
+        LDA     ,S
+        SUBA    ,U
+        BCC     LT3
+        ADDA    ,Y              ; borrow: wrap back into [0, major)
+        LDB     [2,U]
+        ADDB    1,U
+        STB     [2,U]
+LT3     STA     ,S
+        LDB     [2,Y]
+        ADDB    1,Y
+        STB     [2,Y]
         BRA     LT2
-LT4     LEAS    16,S
+LT4     LEAS    11,S
         PULS    X,Y
         JMP     BF0
 
-* LNAXIS: the axis entry at Y for the end D of the coordinate at U, the axis halved if bit 0 of the byte above the
-* return address is set (which it shifts out)
-LNAXIS  STU     4,Y
-        LDX     #1
-        LSR     2,S
-        PSHS    CC
+* LNAXIS: clamp start U and destination X to 0..B, then fill the record at Y.
+* Advance the three pointers to their next entries. The saved destination stays
+* in full coordinates even when the raster uses only even positions.
+LNAXIS  BSR     LNCLIP
+        EXG     X,U
+        BSR     LNCLIP
+        LEAX    1,X
+        STX     2,Y
+        LDA     1,U
+        LDB     #1
+        LSR     10,S            ; mode byte, above the two records and return address
         BCC     LA1
-        ANDB    #$FE            ; both ends on even values
-        PSHS    B
-        LDB     1,U
-        ANDB    #$FE
-        STB     1,U
-        PULS    B
-LA1     SUBD    ,U
-        BPL     LA2
-        LEAX    -2,X
-        BSR     NEGD
-LA2     STX     2,Y
-        PULS    CC
-        BCC     LA3
-        LSRA                    ; the delta in the mode's pixels, the step 2
-        RORB
-        ASL     3,Y
-        ROL     2,Y
-LA3     STD     ,Y
+        ANDA    #$FE
+        LSR     ,X
+        ASL     ,X
+        INCB
+LA1     SUBA    ,X
+        BCC     LA2
+        NEGA
+        NEGB
+LA2     STB     1,Y
+        BITB    #1              ; an even step in either direction is a halved axis
+        BNE     LA3
+        LSRA
+LA3     STA     ,Y
+        LEAY    4,Y
+        LEAX    1,X
+        LEAU    2,U
+        EXG     X,U
+        RTS
+
+* Clip the signed coordinate at X to the inclusive byte bound B.
+LNCLIP  LDA     ,X
+        BMI     LCZERO
+        BNE     LCMAX
+        CMPB    1,X
+        BHS     LCDONE
+LCMAX   STB     1,X
+        CLR     ,X
+LCDONE  RTS
+LCZERO  CLR     ,X
+        CLR     1,X
         RTS
 * NEGD: D = -D
 NEGD    COMA
