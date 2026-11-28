@@ -166,6 +166,9 @@
     display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-panel);
     border: 1px solid var(--orange); border-radius: var(--r-14); padding: 12px 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, .6); }
   #switchConfirm[hidden] { display: none; }
+  /* in a phone's open sheet (a guest there: js/ui/phone-sheets.js), the question stands at the sheet's foot, in view
+     however the sheet is scrolled; the bar's own placement (js/ui/machine-panel.js place) does not apply */
+  dialog.sheet > #switchConfirm { position: sticky; top: auto; bottom: 12px; left: auto !important; width: auto; margin: 0 12px 12px; }
   #switchConfirm button { border-radius: var(--pill); }
   #btnSwitchCancel { background: transparent; border: 0; text-decoration: underline; }
 

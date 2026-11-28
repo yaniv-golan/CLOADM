@@ -60,7 +60,20 @@ const bytes = (s) => Array.from(s, (c) => c.charCodeAt(0));
     check('reader: nothing new reads as nothing', !got.fresh && got.added === '');
     p.length = 0; p.push(0x5A);
     got = r.read(p);
-    check('reader: a cleared printout (shorter) starts over', got.fresh && r.text === 'Z' && r.lines === 1, JSON.stringify(got));
+    check('reader: a cleared printout (shorter) starts over, its new text added', got.fresh && !got.replaced && got.added === 'Z' && r.text === 'Z' && r.lines === 1, JSON.stringify(got));
+    {
+      // another printout (a snapshot's, another machine's) was printed before: its text is the reader's, but nothing was added
+      const r3 = new PrintoutReader(), first = [];
+      r3.read(first);
+      const restored = bytes('OLD TEXT\r');
+      const g = r3.read(restored);
+      check('reader: another printout (another array) starts over with its text, and adds nothing', g.fresh && g.replaced && g.added === '' && r3.text === 'OLD TEXT\n' && r3.lines === 1, JSON.stringify(g));
+      restored.push(0xFF);
+      const g2 = r3.read(restored);
+      check('reader: ...a $FF after it adds nothing to see', !g2.fresh && g2.added === '' && r3.lines === 1, JSON.stringify(g2));
+      const r4 = new PrintoutReader(), g3 = r4.read(bytes('FIRST'));
+      check('reader: a new reader\'s first read is not another printout: its text is added', g3.fresh && !g3.replaced && g3.added === 'FIRST', JSON.stringify(g3));
+    }
     const other = [0xFF];
     got = r.read(other);
     check('reader: another printout (another array) starts over; a $FF alone is 0 lines', got.fresh && r.text === '' && r.lines === 0 && !r.visible);

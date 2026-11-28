@@ -2347,6 +2347,13 @@ async function printerPanelChecks(browser, base, check) {
     await hide();
     check(`${L}: with a printout, the switch says it is lost`, await switchQuestion('coco')
       === `Switching to ${names[1]} resets the ${names[0]}. The running program and the printout will be lost.`, await page.textContent('#switchText'));
+    // the question on screen and answerable (held sideways, the app bar stays while it is open: js/ui/touch-keys.js)
+    const ask = await page.evaluate(() => {
+      const on = (id) => { const e = document.getElementById(id), r = e.getBoundingClientRect();
+        return e.checkVisibility() && r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === e; };
+      return { text: on('switchText'), yes: on('btnSwitch'), cancel: on('btnSwitchCancel') };
+    });
+    check(`${L}: the switch question is on screen, its Switch and Cancel there to press`, ask.text && ask.yes && ask.cancel, JSON.stringify(ask));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-switch.png`) });
     await page.click('#btnSwitchCancel');
     // the program stopped (the machine started again: a Dragon's reset may print its $FF), the printout cleared
@@ -2398,6 +2405,24 @@ async function printerPanelChecks(browser, base, check) {
     check(`${L}: a NUL-only printout on the CoCo: "nothing yet", Save and Clear disabled, no toast`, s.bytes.every((b) => b === 0) && s.state === 'nothing yet' && s.save && s.clear
       && await printToasts() === 1, JSON.stringify({ bytes: s.bytes, state: s.state }));
     check(`${L}: the CoCo's printer reads "Serial printer, 600 baud"`, await page.textContent('#printerKind') === 'Serial printer, 600 baud', await page.textContent('#printerKind'));
+    // a RAM change with no text printed asks as before (the select put back on Cancel)
+    const ramQuestion = async (to, shot = null) => {
+      await page.selectOption('#ramSel', to);
+      await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+      await painted(page);
+      if (shotDir && shot) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-${shot}.png`) });
+      const text = await page.textContent('#switchText');
+      const ask = await page.evaluate(() => { const e = document.getElementById('btnSwitchCancel'), r = e.getBoundingClientRect();
+        return e.checkVisibility() && r.width > 0 && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === e; });
+      // (pressed as a person would; one that cannot be pressed fails the check below, and is answered by script so
+      // the run goes on)
+      if (ask) await page.click('#btnSwitchCancel'); else await page.evaluate(() => document.getElementById('btnSwitchCancel').click());
+      const kept = await page.evaluate(() => window.emu.machine.config.ram === 64 && document.getElementById('ramSel').value === '64');
+      return { text, ask, kept };
+    };
+    let ram = await ramQuestion('16');
+    check(`${L}: a RAM change with only a NUL printed: "The running program will be lost.", Cancel there and the RAM kept`,
+      ram.text === `Changing RAM switches the ${names[1]} off and on. The running program will be lost.` && ram.ask && ram.kept, JSON.stringify(ram));
     await hide();
     await load(slowCoco);
     check(`${L}: the CoCo's first print toasts too (once for each machine)`, await toastSeen(page, /^Printed to the printer$/) && await printToasts() === 2);
@@ -2409,6 +2434,11 @@ async function printerPanelChecks(browser, base, check) {
     check(`${L}: the CoCo's Show opens the box, at its end, its text the 600-baud bytes'`, s.gap <= 1 && s.text === textOf(s.bytes) && s.text.startsWith('CLOADM PRINTER TEST\n'),
       JSON.stringify({ gap: s.gap, text: s.text.slice(0, 30) }));
     if (shotDir) await page.locator('#printerHeading').screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-heading.png`) }).catch(() => {});
+    // a RAM change with text printed names the printout, as a switch does
+    await show();
+    ram = await ramQuestion('16', 'ram');
+    check(`${L}: a RAM change with text printed: "The running program and the printout will be lost."`,
+      ram.text === `Changing RAM switches the ${names[1]} off and on. The running program and the printout will be lost.` && ram.ask && ram.kept, JSON.stringify(ram));
     await page.selectOption('#selSerial', 'terminal');
     await painted(page);
     const copy = await page.evaluate(() => {
@@ -2422,6 +2452,45 @@ async function printerPanelChecks(browser, base, check) {
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-unplugged.png`) });
     const a11y = await page.evaluate(() => { const b = document.getElementById('printout'); return { role: b.getAttribute('role'), tab: b.getAttribute('tabindex'), label: b.getAttribute('aria-label'), live: !!b.closest('[aria-live]') || b.hasAttribute('aria-live') }; });
     check(`${L}: the printout is a region, a tab stop, named "Printout", not a live region`, a11y.role === 'region' && a11y.tab === '0' && a11y.label === 'Printout' && !a11y.live, JSON.stringify(a11y));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
+  // A printout already in the machine is not a print: a snapshot holding one, opened in a fresh visit, then only a
+  // $FF printed (as a Dragon's reset prints), toasts nothing; the first text printed after it does.
+  {
+    const L = 'printer panel, a snapshot with a printout';
+    const snap = async () => {
+      const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+      const page = await ctx.newPage();
+      await page.goto(`${base}?machine=dragon64`);
+      await started(page);
+      await stubPrompt(page);
+      await page.evaluate((b) => window.emu.session.load('printer.bin', new Uint8Array(b), { remember: false }), bin('dragon', TEST_BYTES, false));
+      await waitFor(page, () => window.emu.session.printoutLines() >= 3);
+      const bytes = await page.evaluate(async () => [...(await window.emu.session.snapshotFile()).bytes]);
+      await closeCtx(ctx);
+      return bytes;
+    };
+    const bytes = await snap();
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await page.evaluate(() => { const f = window.emu.feedback, t = f.toast; window.toasts = []; f.toast = (text, o) => { window.toasts.push(String(text)); return t(text, o); }; });
+    await page.evaluate(async (b) => { const s = window.emu.session; s.openSnapshot(await s.readSnapshot(new Uint8Array(b))); }, bytes);
+    await waitFor(page, () => window.emu.session.printoutLines() >= 3);
+    await emuFrames(page, 2);
+    const before = await page.evaluate(() => window.emu.machine.printed.length);
+    await page.evaluate((b) => window.emu.session.load('ff.bin', new Uint8Array(b), { remember: false }), ffOnly);
+    await waitFor(page, (n) => window.emu.machine.printed.length > n && window.emu.machine.printed[window.emu.machine.printed.length - 1] === 0xFF, before);
+    await emuFrames(page, 4);
+    const toastsNow = await page.evaluate((p) => window.toasts.filter((t) => t === p).length, PRINTED);
+    check(`${L}: opened, then a $FF alone printed: no "Printed to the printer"`, toastsNow === 0, JSON.stringify(await page.evaluate(() => window.toasts)));
+    await page.evaluate((b) => window.emu.session.load('printer.bin', new Uint8Array(b), { remember: false }), slowDragon);
+    check(`${L}: ...and the first text printed after it toasts`, await toastSeen(page, /^Printed to the printer$/)
+      && await page.evaluate((p) => window.toasts.filter((t) => t === p).length, PRINTED) === 1);
     check(`${L}: no page errors`, !errors.length, errors.join('; '));
     await closeCtx(ctx);
   }

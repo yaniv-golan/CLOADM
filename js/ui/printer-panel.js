@@ -9,11 +9,11 @@
  * shows. A live update keeps the view at the end only if it was at the end (within about a line); scrolled up, the
  * view stays where the person put it. When the box comes into view it shows the end.
  *
- * The first time each machine (by model) prints in a session while the box is out of sight, a toast says so, and its
+ * The first time each machine (by model) prints text in a session while the box is out of sight, a toast says so, and its
  * Show opens Settings → Machine at the Printer box.
  */
 import { $ } from './page.js';
-import { PrintoutReader } from '../printout.js';
+import { PrintoutReader, hasVisible } from '../printout.js';
 
 const PRINTED_TOAST = 'Printed to the printer';
 
@@ -37,7 +37,9 @@ export function setupPrinterPanel(page) {
   function read(printed) {
     const r = reader.read(session.shownMachine.printed);
     if (r.fresh) { pending = reader.text; whole = true; } else pending += r.added;
-    if (printed && reader.visible && !toasted.has(session.shownMachine.id)) {
+    // (what this print added: a printout already there, from a snapshot or printed off screen, is not this print, and
+    // a reset's $FF or a start-bit NUL alone is nothing to see)
+    if (printed && hasVisible(r.added) && !toasted.has(session.shownMachine.id)) {
       toasted.add(session.shownMachine.id);
       // (in sight already, the box says it: no toast, and none later for this machine)
       if (!shown()) page.toast(PRINTED_TOAST, { action: { label: 'Show', run: reveal } });

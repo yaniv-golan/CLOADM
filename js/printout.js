@@ -48,17 +48,19 @@ export class PrintoutReader {
     this.source = source; this.bytes = 0; this.afterCR = false;
     this.text = ''; this.newlines = 0; this.visible = false;
   }
-  // -> { fresh: started over (the text is all new: render it whole), added: the text new since the last read }
+  // -> { fresh: started over (the text is all new: render it whole), replaced: another printout (another array, not
+  // this one cleared; the first read of a new reader is not one), added: the text new since the last read (all of it after a Clear; none for another printout,
+  // which was printed before, not now) }
   read(printed) {
-    let fresh = false;
-    if (printed !== this.source || printed.length < this.bytes) { this.reset(printed); fresh = true; }
-    if (printed.length === this.bytes) return { fresh, added: '' };
+    let fresh = false, replaced = false;
+    if (printed !== this.source || printed.length < this.bytes) { replaced = this.source !== null && printed !== this.source; this.reset(printed); fresh = true; }
+    if (printed.length === this.bytes) return { fresh, replaced, added: '' };
     const { text, afterCR } = printoutText(printed, this.bytes, this.afterCR);
     this.bytes = printed.length; this.afterCR = afterCR;
     this.text += text;
     for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) this.newlines++;
     if (!this.visible && hasVisible(text)) this.visible = true;
-    return { fresh, added: text };
+    return { fresh, replaced, added: replaced ? '' : text };
   }
   // printoutLines(this.text), kept as the text grows
   get lines() { return this.visible ? this.newlines + (this.text.endsWith('\n') ? 0 : 1) : 0; }
