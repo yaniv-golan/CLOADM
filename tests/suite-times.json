@@ -250,6 +250,12 @@
     "workflows-release.test.js": 0.1,
     "workflows.test.js": 0,
     "writewatch.test.js": 3.5,
+    "wyrmfire-config.test.js": 0.1,
+    "wyrmfire-credits.test.js": 1.4,
+    "wyrmfire-files.test.js": 4.4,
+    "wyrmfire-session.test.js": 5.7,
+    "wyrmfire-sprites.test.js": 1.8,
+    "wyrmfire-wad.test.js": 0.1,
     "zip.test.js": 0.2
   }
 }
