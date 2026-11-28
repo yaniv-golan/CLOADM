@@ -259,6 +259,12 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   typed `MOTOR ON:PRINT TIMER` still counts the original's 26 now that the screen's echo takes a little longer.
   `LIST` and `LLIST` end the line they are on, in a program too, as on the original (bb13c): what follows them on
   the line, or the program's next lines, is not run.
+  `EDIT` has the original's full set of commands (bb11 to bb13c): I inserts, nC changes n characters, nS c moves on
+  to the n-th c and nK c deletes up to it (the rest when there is none), A starts again from the line as stored, E
+  stores the line without showing the rest and Q leaves it as it was; in insertion the left arrow takes the last
+  character out and SHIFT with the up arrow goes back to the commands; `EDIT 10X` is `?SN ERROR`, and a line of 32
+  characters leaves an empty line under its first copy. All ten `EDIT` records are identical on ours
+  (`tests/basic-edit.test.js`). 132 bytes (16,351; 7 bytes free).
 
 #### Changed
 
