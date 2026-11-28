@@ -157,6 +157,7 @@
     "power-on.test.js": 1.2,
     "prepush.test.js": 1.1,
     "press-break.test.js": 0.4,
+    "printout.test.js": 0.1,
     "privacy-copy.test.js": 0.1,
     "private-paths.test.js": 0.9,
     "probes.test.js": 1,

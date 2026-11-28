@@ -102,6 +102,6 @@ const bytes = (s) => Array.from(s, (c) => c.charCodeAt(0));
     check('Session: Clear leaves 0 lines', s.printoutLines() === 0 && s.printoutText() === '');
   }
 
-  console.log(`\n${n - fail}/${n} passed`);
-  process.exit(fail ? 1 : 0);
-})().catch((e) => { console.error(e); process.exit(1); });
+  console.log(fail ? `${fail} FAILED (of ${n})` : `${n}/${n} printout checks passed`);
+  process.exitCode = fail ? 1 : 0;
+})().catch((e) => { console.log('FAIL', e.stack); process.exitCode = 1; });
