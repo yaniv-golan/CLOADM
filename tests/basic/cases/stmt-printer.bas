@@ -1,11 +1,10 @@
-# bb-only: LLIST and PRINT #-2 with the printer ready (docs/clean-room-basic.md section 13: ours sends no output to
-# the printer yet; LLIST gives ?FC ERROR, PRINT #-2 ?DN ERROR). The record holds the screen (what each prints there,
-# whether it comes back to OK, how long it takes in fields by TIMER) and the bytes the printer port received (the
-# record's printer: this case's own program and output, as BASIC sends them to a printer).
+# bb-only: LLIST and PRINT #-2 with the printer ready (docs/clean-room-basic.md section 13). The record holds the
+# screen (what each prints there, whether it comes back to OK, how long it takes in fields by TIMER) and the bytes
+# the printer port received (the record's printer: this case's own program and output, as BASIC sends them to a
+# printer).
 # LLIST of a two-line program, LLIST with a line range, PRINT #-2 with ; and , and with nothing, then PRINT #-2 in a
-# program. A wait that times out (waiting for the printer) is the result. Syntax [UM]; the answers [BB].
+# program. Syntax [UM]; the answers [BB].
 #timeout 20
-#expect-timeout
 10 PRINT "HELLO"
 20 REM PRINTER
 LLIST
