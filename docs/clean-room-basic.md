@@ -336,6 +336,17 @@ These are hard rules for everyone who works on this ROM.
   after `PRINT "XYZ";` loop for ever) [OWN]. `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
   output back on the screen and `DEVNUM` 0, after a BREAK in `LLIST` too. `DRSCAL` goes back to `draw.inc`, so that
   `SCRNST` starts at `$A000` again.
+* **A size pass from outside, after `LOG`** (three patches, 2026-11-28) [OWN]: `LINE`'s clipped lines rasterised
+  with byte deltas and steps (32 bytes); `GET` and `PUT` rectangles sized in bits minus one, the editor moved beside
+  the I/O module so `EDPUT` and `PRTOUT` stay on different pages (27); `PRINT USING`'s field scan kept in registers
+  (41): 100 bytes, 16,219, the code ending at `$BF65`, 139 free. No recorded loop changes but `cas-cloadm2`'s B, a
+  field to 2,419 against at most 2,419.96 (its RAM scan, above); every recorded loop is still at or above the
+  original's. **Speed differences no record covers yet:** these three are faster than before, and nothing recorded
+  times them on the original: a `LINE`'s rasterising (PMODE 4, (0,0)-(255,0) 21,433 to 18,828 cycles, the diagonal to
+  (255,191) 28,309 to 23,603, the `PLOT` of each pixel as it was), `GET` and `PUT`'s rectangle set-up (243 to 185
+  cycles for a full-width `PUT`, 289 to 233 for a coarse `GET` with reversed rows; the copying itself as it was) and
+  `PRINT USING`'s scan of a numeric field (`#` 429 to 141 cycles, `###.##` 827 to 354; the number's conversion as
+  it was). Each is to be timed on the original before the freeze holds it.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

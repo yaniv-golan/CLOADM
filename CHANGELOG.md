@@ -247,6 +247,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, as the same steps give, so 1 to a large or fractional power is not
   exactly 1 either (`1^1E9` 1.17513837; `SQR(1)` and whole powers stay 1). 6 bytes
   (16,319; 39 bytes free).
+  `LINE`, `GET` and `PUT`'s rectangles and `PRINT USING`'s field scan are 100 bytes smaller and faster than they
+  were (16,219; 139 bytes free); no record times them on the original yet, and every recorded loop is as before.
 
 #### Changed
 
