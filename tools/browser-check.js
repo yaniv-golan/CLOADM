@@ -13311,8 +13311,24 @@ async function chatScreenChecks(browser, base, check) {
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' };
   const ROWS = 30;   // more lines than the screen holds, so it scrolls
   const reply = Array.from({ length: ROWS }, (_, i) => `Line ${i + 1} of a long answer.`).join('\n');
+  // Every page action of a viewport runs through step(): bounded() from the lib, so an action that stalls (a key that never
+  // lands, a screenshot that never returns: seen once, `keyboard.type('poke it')` for ~12 minutes after ~80 groups ran in one
+  // browser, on a Mac) is a named FAIL -- which step, which viewport, how long it waited -- and ends THIS viewport, not the
+  // run. The bound is STEP_MS, many times what any of these takes (about a second); it is a limit, never a delay.
+  const STEP_MS = 60000;
   for (const [label, viewport] of SCREEN_VIEWPORTS) {
     const ctx = await browser.newContext({ viewport, serviceWorkers: 'block' });
+    const stalled = { at: null };
+    const step = async (name, fn) => {
+      const t0 = Date.now();
+      const b = await bounded(Promise.resolve().then(fn), STEP_MS);
+      if (b.outcome === 'settled') return b.value;
+      const what = b.outcome === 'timeout' ? `stalled: no result after ${Date.now() - t0} ms (bound ${STEP_MS} ms)` : `threw: ${b.error && b.error.message}`;
+      stalled.at = name;
+      check(`chat screen (${label}): step "${name}" ${what}`, false, `viewport ${label} ${JSON.stringify(viewport)}`);
+      throw stalled;
+    };
+    try {
     // the replies in order: the long answer; then Claude acting (a POKE into the BASIC session) and a short answer
     const replies = [text(reply), tools([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]), text('Done.')];
     await ctx.route('https://api.anthropic.com/**', (route) => (route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors })
@@ -13325,42 +13341,43 @@ async function chatScreenChecks(browser, base, check) {
     await started(page);
     const idle = () => waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 30000);
     await idle();
-    await focusScreenByKey(page);
+    await step('focus the screen by key', () => focusScreenByKey(page));
     await emuFrames(page, 2);
-    const before = await textOverlay(page);
+    const before = await step('read the overlay (before typing)', () => textOverlay(page));
     // the focus hint: under the screen where the nameplate shows; never in a phone chat (its sticky bar is the way out)
     const phoneChat = await page.evaluate(() => document.body.classList.contains('chat-phone'));
     const plateUp = await page.evaluate(() => document.querySelector('.plate').checkVisibility());
     check(`chat screen (${label}): before typing, nothing lies over the chat's text; the focus hint shows under the screen (not in a phone chat); BASIC's key hint, the no-ROMs pill and card do not`,
       before.focused === 'screen' && before.keyHintLive && !before.over.length && before.hints.focus === (!phoneChat && plateUp) && !before.hints.keys && !before.romPill && !before.noRomsCard,
       JSON.stringify({ phoneChat, plateUp, before }));
-    if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-start-${label}.png`) });
+    if (shotDir) await step('screenshot (start)', () => page.screenshot({ path: path.join(shotDir, `chat-screen-start-${label}.png`) }));
     // a reply longer than the screen: it scrolls
-    await page.keyboard.type('tell me a long story');
-    await page.keyboard.press('Enter');
+    await step('type the long-story line', () => page.keyboard.type('tell me a long story'));
+    await step('press Enter on the long-story line', () => page.keyboard.press('Enter'));
     // the typed line has reached the chat (busy while the mocked reply streams; the reply can come and go between two
     // polls, so "busy" alone timed out on every run)
     await waitFor(page, () => { const c = window.emu.session.chat; return !!c && (c.busy || c.messages.some((m) => m.role === 'user' && m.content === 'tell me a long story')); });
     await idle();
     await emuFrames(page, 10);
-    const after = await textOverlay(page);
+    const after = await step('read the overlay (after the reply)', () => textOverlay(page));
     check(`chat screen (${label}): after the reply has scrolled the screen, row 0 holds text and is wholly in view (the canvas and the tube, through the curvature), and nothing lies over the text`,
       after.lit > 0 && after.inside && !after.over.length, JSON.stringify(after));
-    if (shotDir) await page.locator('.tube').screenshot({ path: path.join(shotDir, `chat-screen-scrolled-${label}.png`) });
+    if (shotDir) await step('screenshot (scrolled)', () => page.locator('.tube').screenshot({ path: path.join(shotDir, `chat-screen-scrolled-${label}.png`) }));
     // Claude acting on the BASIC session shows its window (hidden by default; when it shows, it stays
     // off the chat's text like the hints)
-    await page.check('#chkClaudeTools');
-    await page.focus('#screen');
-    await page.keyboard.type('poke it');
-    await page.keyboard.press('Enter');
+    await step('tick Claude tools', () => page.check('#chkClaudeTools'));
+    await step('focus the screen', () => page.focus('#screen'));
+    await step('type "poke it" (pip)', () => page.keyboard.type('poke it'));
+    await step('press Enter on "poke it" (pip)', () => page.keyboard.press('Enter'));
     const pipUp = await waitFor(page, () => !document.getElementById('claudePip').hidden && window.emu.session.chatMachines.basic.ram[0x3000] === 1, null, 20000);
     await idle();
     await emuFrames(page, 3);
-    const pip = await textOverlay(page);
+    const pip = await step('read the overlay (pip)', () => textOverlay(page));
     check(`chat screen (${label}): Claude acting shows the BASIC session's window, and it lies off the chat's text`,
       pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
-    if (shotDir) await page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) });
+    if (shotDir) await step('screenshot (pip)', () => page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) }));
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
+    } catch (e) { if (e !== stalled) throw e; }
     await closeCtx(ctx);
   }
 }
