@@ -114,11 +114,13 @@ function unreleasedRegion(lines) {
 // A fenced code block ("```" or "~~~") anywhere under [Unreleased] is an error: a fence shows an example, and every
 // rule that keeps this section honest reads structure line by line -- a fenced example quoting a "#### Fixed" twice,
 // a "### 0.4.0" heading or a "## [Unreleased]" line would read as real structure to those rules. So the section carries
-// no fences at all: describe the shape in prose, or link to the docs that show it. Every line that opens or closes
-// a fence is reported by its line number, so a fence of two lines names both. The rule reads a fence line however
-// CommonMark would (the up-to-three spaces of indent, the closing "\r" of a Windows-saved file), so a fence that
-// renders as a fence is a fence that is reported. Released sections are not touched: whatever they hold is compared
-// with their tag byte for byte, which no fence can hide.
+// no fences at all: describe the shape in prose, or link to the docs that show it. Every fence line that falls
+// inside the region is reported by its line number, so a fence of two lines wholly inside it names both (a fence
+// whose closing line lies past the region's end has only the line inside it named, which is why the region's edge
+// decides what is reported, not the fence). The rule reads a fence line however CommonMark would (the up-to-three
+// spaces of indent), so a fence that renders as a fence is a fence that is reported; the pattern is start-anchored
+// with no end anchor, so a Windows-saved file's trailing "\r" cannot stop a fence line matching. Released sections
+// are not touched: whatever they hold is compared with their tag byte for byte, which no fence can hide.
 //
 // An example ABOVE the section that quotes a "## [Unreleased]" line starts the region at the quoted line, so the
 // region begins earlier, and the scans then read from there to the real release heading: a duplicate in the real
@@ -134,12 +136,22 @@ function unreleasedFences(text) {
   const { from, to } = unreleasedRegion(lines);
   const out = [];
   for (let i = from + 1; i < to; i++) {
-    if (FENCE_LINE.test(lines[i].replace(CR, ''))) out.push({ line: i + 1, text: lines[i].trim() });
+    // No CR strip: FENCE_LINE is start-anchored and has no end anchor, so a trailing "\r" cannot change the match.
+    if (FENCE_LINE.test(lines[i])) out.push({ line: i + 1, text: lines[i].trim() });
   }
   return out;
 }
 
-const CR = /\r$/;
+// The message the fence check carries: the lines found, and the remedy. The remedy is part of the message the test
+// prints and asserts, so a failure tells the reader what to do (not only which lines), and a test pins that text.
+const FENCE_REMEDY = 'describe it in prose or link to the docs';
+const fenceFailure = (fences) => `${fences.map((x) => `line ${x.line}: ${x.text}`).join(' | ')} -- ${FENCE_REMEDY}`;
+// The detail the fence check passes, from the text under test: '' when there is no fence (so a green line stays
+// quiet), otherwise the lines and the remedy. The test's real-file check reads its detail from this function, and
+// its pin runs this same function on fixtures, so a change to the message is caught. (The check's call-site
+// expression is not held by a test: with a fence-free CHANGELOG its value is '', so no value-level check could
+// tell a changed call site from this one. See the pin's comment.)
+const fenceDetail = (text) => { const f = unreleasedFences(text); return f.length ? fenceFailure(f) : ''; };
 
 // A "#### Kind" heading's kind: the text after the four hashes, without the padding around it. null when the line is
 // not a "####" heading ("####Added" is prose: Markdown wants a space), '' when it is one with no name after it
@@ -337,4 +349,4 @@ function check({ text, tagText, tags, ci = false, allowed = ALLOWED_CORRECTIONS,
   return { failures, skips, compared };
 }
 
-module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
+module.exports = { parse, check, tagOf, TAG_ALIASES, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, fenceDetail, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines };
