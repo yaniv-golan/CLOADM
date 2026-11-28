@@ -127,6 +127,9 @@ export function setupMachinePanel(page, { showRoms }) {
   // ---- the switch confirmation: it names what the switch takes out, built from the old machine before the
   // switch (Session.takenOut), says which of those stay in the Library, and offers to save a snapshot's own disk ----
   let cancelled = null;   // what Cancel does besides closing (a RAM change puts the select back)
+  // the control that asked (the RAM select, a menu item): Cancel and Esc give the focus back to it when it stands in an
+  // open phone sheet, where the screen behind the modal cannot take the focus (js/ui/phone-sheets.js)
+  let asker = null;
   // "a, b and c"
   const and = (l) => (l.length < 2 ? l.join('') : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
   const what = (t) => (t.kind === 'tape' ? `the tape ${t.name}` : t.kind === 'cartridge' ? (t.name ? `the cartridge ${t.name}` : 'the cartridge') : `the disk ${t.name} in drive ${t.drive}`);
@@ -149,6 +152,7 @@ export function setupMachinePanel(page, { showRoms }) {
   let asking = 0;
   function confirmSwitch(to, onSwitch, onCancel = null) {
     const from = session.shownMachine.profile.name, items = session.takenOut(to.id, to.config), mine = ++asking;
+    asker = document.activeElement;
     const snap = items.filter((t) => t.kind === 'disk' && !t.stored);
     const text = $('switchText');
     text.replaceChildren();
@@ -197,6 +201,7 @@ export function setupMachinePanel(page, { showRoms }) {
   // undoes. Shown at once, as a switch's is.
   function ask({ text, label, name = label, onYes, onCancel = null }) {
     ++asking;
+    asker = document.activeElement;
     $('switchText').textContent = text;
     $('btnSwitch').textContent = label; confirm.setAttribute('aria-label', name);
     $('btnSwitchSaveDisk').hidden = true;
@@ -241,16 +246,16 @@ export function setupMachinePanel(page, { showRoms }) {
     if (phone) h.scrollIntoView({ block: 'start' });
   }
   $('btnSwitch').onclick = () => {
-    confirm.hidden = true;
+    confirm.hidden = true; asker = null;
     const run = pending; pending = null; cancelled = null;
     if (run) run();
     page.focus();
   };
   $('btnSwitchCancel').onclick = () => {
     confirm.hidden = true; pending = null;
-    const undo = cancelled; cancelled = null;
+    const undo = cancelled, back = asker; cancelled = null; asker = null;
     if (undo) undo();
-    page.focus();
+    if (back && back.isConnected && back.closest('dialog[open]') && back.checkVisibility()) back.focus(); else page.focus();
   };
   page.onEscape(ESC.confirm, () => !confirm.hidden, () => $('btnSwitchCancel').click());
   btn.onclick = () => openMenu(menu.hidden);

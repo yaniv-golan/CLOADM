@@ -2411,6 +2411,19 @@ async function printerPanelChecks(browser, base, check) {
       await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
       await painted(page);
       if (shotDir && shot) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-${shot}.png`) });
+      // in a phone's sheet the question stands at the sheet's foot however the sheet is scrolled: its bottom within
+      // 40 px above the sheet's bottom edge, the sheet at its top and at its end (null: no sheet, a desktop)
+      const foot = await page.evaluate(() => {
+        const q = document.getElementById('switchConfirm'), d = q.closest('dialog.sheet[open]');
+        if (!d) return null;
+        const at = [];
+        for (const top of [0, d.scrollHeight]) {
+          d.scrollTop = top;
+          const gap = d.getBoundingClientRect().bottom - q.getBoundingClientRect().bottom;
+          at.push(Math.round(gap));
+        }
+        return at;
+      });
       const text = await page.textContent('#switchText');
       const ask = await page.evaluate(() => { const e = document.getElementById('btnSwitchCancel'), r = e.getBoundingClientRect();
         return e.checkVisibility() && r.width > 0 && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === e; });
@@ -2418,11 +2431,24 @@ async function printerPanelChecks(browser, base, check) {
       // the run goes on)
       if (ask) await page.click('#btnSwitchCancel'); else await page.evaluate(() => document.getElementById('btnSwitchCancel').click());
       const kept = await page.evaluate(() => window.emu.machine.config.ram === 64 && document.getElementById('ramSel').value === '64');
-      return { text, ask, kept };
+      return { text, ask, kept, foot };
     };
     let ram = await ramQuestion('16');
     check(`${L}: a RAM change with only a NUL printed: "The running program will be lost.", Cancel there and the RAM kept`,
       ram.text === `Changing RAM switches the ${names[1]} off and on. The running program will be lost.` && ram.ask && ram.kept, JSON.stringify(ram));
+    const phoneSheet = await page.evaluate(() => !!document.getElementById('ramSel').closest('dialog.sheet[open]'));
+    check(`${L}: the RAM question stands at the foot of the phone's sheet, scrolled to its top or its end`,
+      phoneSheet ? Array.isArray(ram.foot) && ram.foot.every((g) => g >= 0 && g <= 40) : ram.foot === null, JSON.stringify({ phoneSheet, foot: ram.foot }));
+    // Esc answers Cancel: the RAM kept, and in a phone's sheet the focus back on the RAM select that asked
+    await page.focus('#ramSel');
+    await page.selectOption('#ramSel', '16');
+    await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+    await page.keyboard.press('Escape');
+    await waitFor(page, () => document.getElementById('switchConfirm').hidden);
+    const esc = await page.evaluate(() => ({ ram: window.emu.machine.config.ram, sel: document.getElementById('ramSel').value, focus: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
+      sheet: !!document.querySelector('dialog.sheet[open]') }));
+    check(`${L}: Esc cancels the RAM question, the RAM kept${phoneSheet ? ', the focus back on the RAM select in the sheet' : ''}`,
+      esc.ram === 64 && esc.sel === '64' && (!phoneSheet || (esc.focus === 'ramSel' && esc.sheet)), JSON.stringify(esc));
     await hide();
     await load(slowCoco);
     check(`${L}: the CoCo's first print toasts too (once for each machine)`, await toastSeen(page, /^Printed to the printer$/) && await printToasts() === 2);
