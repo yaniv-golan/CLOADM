@@ -13331,22 +13331,22 @@ async function chatScreenChecks(browser, base, check) {
     try {
     // the replies in order: the long answer; then Claude acting (a POKE into the BASIC session) and a short answer
     const replies = [text(reply), tools([{ name: 'poke', input: { address: 0x3000, bytes: [1] } }]), text('Done.')];
-    await ctx.route('https://api.anthropic.com/**', (route) => (route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors })
-      : route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') })));
-    const page = await ctx.newPage();
+    await step('route the mocked API', () => ctx.route('https://api.anthropic.com/**', (route) => (route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors })
+      : route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: replies.shift() || text('ok') }))));
+    const page = await step('open a page', () => ctx.newPage());
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    await page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789'));
-    await page.goto(`${base}?machine=dragon64&app=claude`);
-    await started(page);
+    await step('add the key init script', () => page.addInitScript(() => localStorage.setItem('cloadm.anthropicKey', 'sk-ant-BROWSER-CHECK-KEY-0123456789')));
+    await step('load the page', () => page.goto(`${base}?machine=dragon64&app=claude`));
+    await step('wait for the machine to start', () => started(page));
     const idle = () => waitFor(page, () => { const c = window.emu.session.chat; return c && !c.busy && c.channel.queued === 0 && window.emu.session.chatView === 'chat'; }, null, 30000);
-    await idle();
+    await step('wait for the chat to idle (start)', () => idle());
     await step('focus the screen by key', () => focusScreenByKey(page));
-    await emuFrames(page, 2);
+    await step('run 2 frames', () => emuFrames(page, 2));
     const before = await step('read the overlay (before typing)', () => textOverlay(page));
     // the focus hint: under the screen where the nameplate shows; never in a phone chat (its sticky bar is the way out)
-    const phoneChat = await page.evaluate(() => document.body.classList.contains('chat-phone'));
-    const plateUp = await page.evaluate(() => document.querySelector('.plate').checkVisibility());
+    const phoneChat = await step('read the phone-chat class', () => page.evaluate(() => document.body.classList.contains('chat-phone')));
+    const plateUp = await step('read the nameplate visibility', () => page.evaluate(() => document.querySelector('.plate').checkVisibility()));
     check(`chat screen (${label}): before typing, nothing lies over the chat's text; the focus hint shows under the screen (not in a phone chat); BASIC's key hint, the no-ROMs pill and card do not`,
       before.focused === 'screen' && before.keyHintLive && !before.over.length && before.hints.focus === (!phoneChat && plateUp) && !before.hints.keys && !before.romPill && !before.noRomsCard,
       JSON.stringify({ phoneChat, plateUp, before }));
@@ -13356,9 +13356,9 @@ async function chatScreenChecks(browser, base, check) {
     await step('press Enter on the long-story line', () => page.keyboard.press('Enter'));
     // the typed line has reached the chat (busy while the mocked reply streams; the reply can come and go between two
     // polls, so "busy" alone timed out on every run)
-    await waitFor(page, () => { const c = window.emu.session.chat; return !!c && (c.busy || c.messages.some((m) => m.role === 'user' && m.content === 'tell me a long story')); });
-    await idle();
-    await emuFrames(page, 10);
+    await step('wait for the typed line to reach the chat', () => waitFor(page, () => { const c = window.emu.session.chat; return !!c && (c.busy || c.messages.some((m) => m.role === 'user' && m.content === 'tell me a long story')); }));
+    await step('wait for the chat to idle (reply)', () => idle());
+    await step('run 10 frames', () => emuFrames(page, 10));
     const after = await step('read the overlay (after the reply)', () => textOverlay(page));
     check(`chat screen (${label}): after the reply has scrolled the screen, row 0 holds text and is wholly in view (the canvas and the tube, through the curvature), and nothing lies over the text`,
       after.lit > 0 && after.inside && !after.over.length, JSON.stringify(after));
@@ -13369,12 +13369,12 @@ async function chatScreenChecks(browser, base, check) {
     await step('focus the screen', () => page.focus('#screen'));
     await step('type "poke it" (pip)', () => page.keyboard.type('poke it'));
     await step('press Enter on "poke it" (pip)', () => page.keyboard.press('Enter'));
-    const pipUp = await waitFor(page, () => !document.getElementById('claudePip').hidden && window.emu.session.chatMachines.basic.ram[0x3000] === 1, null, 20000);
-    await idle();
-    await emuFrames(page, 3);
+    const pipUp = await step('wait for the pip', () => waitFor(page, () => !document.getElementById('claudePip').hidden && window.emu.session.chatMachines.basic.ram[0x3000] === 1, null, 20000));
+    await step('wait for the chat to idle (pip)', () => idle());
+    await step('run 3 frames', () => emuFrames(page, 3));
     const pip = await step('read the overlay (pip)', () => textOverlay(page));
     check(`chat screen (${label}): Claude acting shows the BASIC session's window, and it lies off the chat's text`,
-      pipUp && await page.isVisible('#claudePip') && !pip.over.length, JSON.stringify(pip));
+      pipUp && await step('read the pip visibility', () => page.isVisible('#claudePip')) && !pip.over.length, JSON.stringify(pip));
     if (shotDir) await step('screenshot (pip)', () => page.screenshot({ path: path.join(shotDir, `chat-screen-pip-${label}.png`) }));
     check(`chat screen (${label}): no page errors`, !errors.length, errors.join('; '));
     } catch (e) { if (e !== stalled) throw e; }
