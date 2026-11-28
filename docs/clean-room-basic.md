@@ -302,7 +302,10 @@ These are hard rules for everyone who works on this ROM.
   `DIMFLG`); `CRUNCH`'s `?` and quoted strings through `CRCOPY`; the error's two letters through `PRTN`; `RUN` into
   `CLEAR`'s end (`CL3`). `RESTOR` (beside `CLRVAR`) and `DRSCAL` (in `gfx.inc`), 18 bytes, moved below `$A000` so
   that a routine still starts there. No recorded loop got faster than the original's: `GSDLY` 53 keeps 500 `GOSUB`s at
-  83 fields; `cas-cloadm2`'s B 2,416 against at most 2,419.96.
+  83 fields; `cas-cloadm2`'s B 2,416 against at most 2,419.96. Then 8 bytes more: an `IF` that is false with no
+  `ELSE` ends through `REM`'s scan (`JMP REM1`, 4 cycles more on that path; X is already on the line's 0), and
+  `MSSTR` (into `strfunc.inc`) and `ABS` (into `fp.inc`) change sides of `$A000` so a routine still starts there:
+  16,252, the code ending at `$BF8E`, 97 free; `cas-cloadm2`'s B 2,417.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

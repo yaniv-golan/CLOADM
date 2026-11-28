@@ -14,14 +14,6 @@
 *   MSNUM   a number: =var; or decimal digits, 0-255 (?FC ERROR beyond) [OWN; BB]: D, C set if there was none (D 0)
 * Errors: anything wrong in the string (a ';' missing after a name, too long a number): ?FC ERROR [BB].
 
-* MSSTR: the string expression at the text pointer as the command string
-MSSTR   JSR     EVSTR
-        JSR     FRESTR
-        STX     <MSPTR
-        STB     <MSCNT
-        CLR     <MSDEP
-        RTS
-
 * MSGET: the next character into A; C set if there is none (keeps B)
 MSGET   LDA     <MSCNT
         SUBA    #1

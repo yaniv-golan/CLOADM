@@ -30,13 +30,8 @@ IFN3A   CMPA    #T_ELSE
         STX     <TXTPTR
         JSR     <ZCHRGET
         BRA     IFYES
-IFN4    LEAX    -1,X            ; the end of the line
-IFN5    LDA     ,X
-        BEQ     IFN6
-        LEAX    1,X
-        BRA     IFN5
-IFN6    STX     <TXTPTR
-        RTS
+IFN4    LEAX    -1,X            ; the end of the line (on its 0: REM's scan stores it at once)
+        JMP     REM1
 
 * FOR variable = start TO limit [STEP step]: a frame on the stack (interp.inc, FORSIZ bytes): the marker,
 * the variable's address, the step and the limit packed, the line and the text pointer after the statement.

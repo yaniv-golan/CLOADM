@@ -297,3 +297,12 @@ CL1     JSR     ENDCHK
 CL3     JSR     CLRVAR
         LDS     <STRBOT
         JMP     NEWSTT
+
+* MSSTR: the string expression at the text pointer as the command string of DRAW and PLAY
+* (mini.inc; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+MSSTR   JSR     EVSTR
+        JSR     FRESTR
+        STX     <MSPTR
+        STB     <MSCNT
+        CLR     <MSDEP
+        RTS
