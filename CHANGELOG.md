@@ -60,6 +60,19 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
   the sheet, where neither Switch nor Cancel could be pressed. The question now stands at the foot of the open sheet.
   (`js/ui/phone-sheets.js`)
 
+- **A ZIP of programs opened through Open… or dropped on the page now loads them.** OPENS_TEXT says CLOADM
+  opens "programs (.bin, .bas, .txt) … and ZIPs of these", but a program inside a ZIP was sorted with the
+  drop's ROM candidates and, not being one, ended in the refusal list: the toast said "No ROMs could be
+  used. Not ROMs: game.zip: demo.bin" and nothing ran. A drop and Open… now give every non-ROM entry
+  CLOADM can open — a program, a tape, a disk, a snapshot, loose or out of a folder or ZIP — to the
+  program loader, as loose files always went; what cannot be opened at all (a readme riding along in a
+  folder or archive of ROMs) keeps the "Not ROMs" report it always had, and the Add ROMs screen keeps its
+  own reading (there nothing is a program). A cartridge-sized `.rom` inside a ZIP or folder is reported
+  under "Not ROMs", not loaded — a `.rom` is a ROM dump's extension too, and this drop cannot tell a
+  cartridge image from such a dump; open the `.rom` on its own to use it as a cartridge. A `.rom` whose
+  content CLOADM opens by itself (a WAV tape) still loads by its content, and loose files are
+  unchanged. (`tests/zip-programs.test.js`, browser check group romInput)
+
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
   way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and
   the Library then added the same file as the machine's BASIC and switched it on: BASIC started with itself plugged in,

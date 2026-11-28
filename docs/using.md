@@ -278,7 +278,9 @@ whatever image is in DriveWire drive 0 then.
   port overrides the choice (Program Pak, Banked ROM, Games Master, Orchestra-90). The port's Multi-Pak section takes an
   image and a board for each of the four slots and the front-panel switch, and inserts them together; a slot's board
   menu also offers the machine's disk controllers (no image needed: the disk ROM is the one you added), which the drives
-  card then uses.
+  card then uses. A cartridge-sized `.rom` inside a ZIP or folder is reported under "Not ROMs", not loaded — a `.rom`
+  is a ROM dump's extension too, and a drop cannot tell a cartridge image from such a dump; open the `.rom` on its
+  own to use it as a cartridge.
 * **`.BAS` / `.TXT`**: BASIC listings, which are typed in.
 * **A program that needs BASIC, without its ROM.** Most programs call BASIC's ROM for something (clearing the screen,
   printing a number). Without the ROMs, CLOADM's built-in firmware has only the routines that read the keyboard and

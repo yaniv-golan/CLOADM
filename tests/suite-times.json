@@ -257,6 +257,7 @@
     "wyrmfire-session.test.js": 5.7,
     "wyrmfire-sprites.test.js": 1.8,
     "wyrmfire-wad.test.js": 0.1,
+    "zip-programs.test.js": 0.2,
     "zip.test.js": 0.2
   }
 }

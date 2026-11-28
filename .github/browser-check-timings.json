@@ -5,7 +5,7 @@
   "groups": {
     "models": 17.1,
     "reset": 16.1,
-    "romUi": 13.4,
+    "romUi": 16.2,
     "mediaBackend": 13.5,
     "audio": 27.7,
     "cartridge": 2.4,
@@ -39,7 +39,7 @@
     "webSerial": 1.5,
     "snapshot": 5,
     "liza6803": 20.7,
-    "romInput": 3.7,
+    "romInput": 3.2,
     "romTruth": 2.9,
     "design": 0.6,
     "inputScreen": 34.8,
