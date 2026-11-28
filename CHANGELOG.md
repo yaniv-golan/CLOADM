@@ -10,6 +10,15 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Changed
 
+- **WYRMFIRE 0.1.0: monsters stand on the floor, shrink with distance and no longer vanish when you turn.** A monster's
+  feet are on the floor at every distance (they used to float near you and sink far away), it gets smaller the further
+  away it is, it is drawn when it is at the edge of the view or half behind a pillar, and it never shows through a wall
+  that is nearer than it is. The game runs about twice as fast, and its sound effects play at a steady rate however busy
+  the picture is. Only the engine changed (`wyrmfire.bin`, SHA-256 63783f6c, 11,145 bytes, WYRMFIRE commit 6af92df); the
+  converter, the licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`,
+  rebuilt with `tools/wyrmfire-vendor.js`). `tests/wyrmfire-sprites.test.js` holds the monsters to the floor line, the
+  scaling and the walls.
+
 - **For contributors: the changelog guard refuses a fenced code block under [Unreleased] and names a "####" heading
   with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real
   structure to every rule that keeps the section honest, so the section may not carry a fence at all -- describe
