@@ -28,9 +28,9 @@ const { check, tally, built, real, caseText, mutant, runCase } = require('./basi
   for (const [what, ...ft] of [
     ['a digit waits a tenth less', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*9/10\nFPW1'],
     ['a digit waits a tenth more', '        LDB     #FIDLY\nFPW1', '        LDB     #FIDLY*11/10\nFPW1'],
-    // (B 2420 against at most 2419.96: thin, as the change is worth two fields of loop B; tests/basic-timing-loopb.test.js
-    // checks the loop itself against bb12 time-loopb)
-    ['the conversion to an integer waits for places under 16 bits, 17 cycles each (before bb12)', 'CMPB    #17 ', 'CMPB    #16 ', 'SUBA    #17 ', 'SUBA    #16 ', 'PSHS    D\n        PULS    D', 'PSHS    B\n        PULS    B'],
+    // (the conversion's wait as it was before bb12 is not among these: it moves cas-cloadm2's B by two fields, which the
+    // layout alone moves by as much (2419 or 2420 against at most 2419.96), so it is pinned where it shows by more:
+    // tests/basic-timing-loopb.test.js, bb12 time-loopb's loop B 578 against at most 577)
   ]) {
     const m = judge(mutant(...ft));
     check(`cas-cloadm2 mutant "${what}": outside the original's time .. +1%`, !within(m), JSON.stringify(m));

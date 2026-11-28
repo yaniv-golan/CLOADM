@@ -65,10 +65,8 @@ ERROR   LDS     <STRBOT         ; drop everything the program had on the stack
         JSR     <ZCHROUT
         LDX     #ERRTAB
         ABX
-        LDA     ,X
-        JSR     <ZCHROUT
-        LDA     1,X
-        JSR     <ZCHROUT
+        LDB     #2
+        JSR     PRTN
         JSR     PRMSG
         FCN     " ERROR"
         CLR     <OLDTXT         ; an error cannot be continued

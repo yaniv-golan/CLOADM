@@ -18,8 +18,7 @@ ZEROV   FCB     0,0,0,0,0       ; the value of a variable not yet made: 0, or th
 * exist is made only when VARCRE is nonzero (an assignment); otherwise X points at a 0. An array that does not
 * exist is made with 11 elements a dimension, or with the sizes given when DIMFLG is set (DIM).
 * PTRNEW: PTRGET for a variable that is made if it does not exist (an assignment)
-PTRNEW  LDA     #1
-        STA     <VARCRE
+PTRNEW  INC     <VARCRE
         BSR     PTRGET
         CLR     <VARCRE
         RTS
@@ -289,16 +288,10 @@ MULTMP  PSHS    D
         PULS    D,PC
 
 * GETIDX: FAC as a subscript, 0-32767, in D (?FC ERROR if negative or too large)
-GETIDX  JSR     INTCNV
-        TSTA
-        BPL     GI1
-        JMP     <ZFCERR
-GI1     RTS
 
 * DIM name(sizes), ...
-DIM     LDA     #1
-        STA     <DIMFLG
-        STA     <VARCRE
+DIM     INC     <DIMFLG
+        INC     <VARCRE
         JSR     PTRGET
         CLR     <DIMFLG
         JSR     <ZCHKCOM

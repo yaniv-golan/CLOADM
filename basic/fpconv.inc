@@ -174,8 +174,7 @@ FO11    INCB
         LDB     <FPND
         SUBB    <FPE10+1
         DECB
-        JSR     CPYXU
-        BRA     FOEND
+        BRA     FOCP
 FOFR    LDA     #'.'
         STA     ,U+
         LDB     <FPE10+1        ; -E - 1 zeros
@@ -187,7 +186,7 @@ FOF1    STA     ,U+
         DECB
         BNE     FOF1
 FOF2    LDB     <FPND
-        JSR     CPYXU
+FOCP    JSR     CPYXU
         BRA     FOEND
 * d.ddddE+nn
 FOSCI   LDA     ,X+

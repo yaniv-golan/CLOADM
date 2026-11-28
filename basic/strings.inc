@@ -266,8 +266,8 @@ CC1     JSR     GETSPA
         LDX     <STRPTR
         JSR     FRETMP
         LDX     <ARGSTR
-        JSR     FRETMP
-        PULS    B,X
+FREMK   JSR     FRETMP
+PULMK   PULS    B,X
         JMP     MKTMP
 * CPYSS: CPYUX into the string space, STRDST following the copy (GETSPA)
 CPYSS   BSR     CPYUX

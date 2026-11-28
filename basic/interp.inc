@@ -285,11 +285,10 @@ TROF1   STA     <TRCFLG
 
 * ---------------- GOTO, GOSUB, RETURN ----------------
 * GO TO n / GO SUB n
-GO      CMPA    #T_TO
-        BEQ     GOTO
-        CMPA    #T_SUB
+GO      CMPA    #T_SUB
         BEQ     GOSUB
-        JMP     <ZSNERR
+        CMPA    #T_TO
+        BNE     GOSN
 GOTO    JSR     <ZCHRGET
 GOTO1   BCC     GOSN
         JSR     <ZLINGET
@@ -300,11 +299,10 @@ JMP1    LEAX    3,X             ; the byte before the line's text
         STX     <TXTPTR
         LDD     <BINVAL
         STD     <CURLIN
-        LDA     #1
-        STA     <JMPFLG
+        INC     <JMPFLG
         RTS
 GOSN    JMP     <ZSNERR
-GSDLY   EQU     52              ; GOSUB's delay: 5 cycles a step (with RETURN's 24 for the statement's end)
+GSDLY   EQU     53              ; GOSUB's delay: 5 cycles a step (with RETURN's 24 for the statement's end)
 
 * a GOSUB frame on the stack: marker, CURLIN, TXTPTR (on the character after the line number) [OWN]
 GOSUB   JSR     <ZCHRGET
@@ -363,15 +361,13 @@ RUN     BEQ     RUN1
         BSR     JUMPTO
         JMP     NEWJMP
 RUN1    JSR     CLO1
-        JSR     CLRVAR
-        LDS     <STRBOT
         LDX     <TXTTAB
         LEAX    -1,X            ; the 0 before the program: NEWSTT takes the first line
         STX     <TXTPTR
         CLRA
         CLRB
         STD     <CURLIN
-        JMP     NEWSTT
+        JMP     CL3
 RUNSN   JMP     <ZSNERR
 
 NEW     BNE     RUNSN
@@ -382,8 +378,7 @@ NEW     BNE     RUNSN
 * semigraphics-4 character with all four elements lit, its colour in bits 4-6 [HW: the MC6847 data sheet]. A colour
 * 9-255 is no error: one line of text, then an empty line [BB bb2, screen-cls-range: the original's shape]; ours
 * prints its own line there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
-CLSST   JSR     <ZCHRGOT
-        BEQ     CLSS1
+CLSST   BEQ     CLSS1
         JSR     <ZGETBYT
         CMPB    #8
         BHI     CLSBIG

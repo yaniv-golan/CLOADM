@@ -5,8 +5,7 @@ PEEK    JSR     <ZFNARGN
         JSR     GETADR
         TFR     D,X
         LDB     ,X
-        CLRA
-        JMP     GIVNUM
+        JMP     GIVB
 * POKE address, value
 POKE    JSR     EVADR
         PSHS    D
@@ -33,8 +32,8 @@ USR     BSR     USRNUM
         CLR     <VALTYP
         RTS
 * USRNUM: an optional digit after USR: X = its entry in USRTAB
-USRNUM  JSR     <ZCHRGOT
-        LDB     #0
+USRNUM  CLRB
+        JSR     <ZCHRGOT
         BCC     UN1
         SUBA    #'0'
         TFR     A,B
@@ -54,20 +53,21 @@ DEF     CMPA    #$FF
         LBNE    SNERR
         JSR     <ZCHRGET
         BSR     USRNUM
-        PSHS    X
+DEFSTO  PSHS    X
         JSR     SYNEQ
         JSR     EVADR
         PULS    X
         STD     ,X
         RTS
+TIMERS  LDX     #TIMER
+        BRA     DEFSTO
 DEF1    CMPA    #T_FN
         LBNE    SNERR
         JSR     DIRCHK
         LBEQ    IDERR           ; only in a program
         JSR     <ZCHRGET
         BSR     FNNAME
-        LDA     #1
-        STA     <VARCRE
+        INC     <VARCRE
         JSR     PTRLKP
         PSHS    X
         JSR     LPAREN
@@ -147,12 +147,7 @@ MEMGIV  JMP     GIVUNS
 POS     JSR     <ZFNARGN
         LDB     <CURPOS+1
         ANDB    #31
-        CLRA
-        JMP     GIVNUM
+        JMP     GIVB
 * TIMER: the fields counted since it was last set (50 a second); TIMER = n sets it [UM]
 TIMERF  LDD     TIMER
         BRA     MEMGIV
-TIMERS  JSR     SYNEQ
-        JSR     EVADR
-        STD     TIMER
-        RTS

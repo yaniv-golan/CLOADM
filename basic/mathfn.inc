@@ -211,9 +211,8 @@ FSQR    JSR     <ZFPRUN
 LOG     JSR     <ZFNARGN
 FLOG    TST     <FACSGN
         LBMI    FCERR
-        TST     <FACEXP
-        LBEQ    FCERR
         LDA     <FACEXP
+        LBEQ    FCERR
         SUBA    #128
         STA     <LOGE
         LDA     #128

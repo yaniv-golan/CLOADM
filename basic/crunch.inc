@@ -36,9 +36,7 @@ CRH2    STA     ,U+
 CR2A    CMPA    #'?'
         BNE     CR3
         LDA     #T_PRINT
-        STA     ,U+
-        LEAX    1,X
-CR1J    BRA     CR1
+        BRA     CRCOPY
 CR3     CMPA    #' '
         BEQ     CRCOPY
         BSR     KWMAT
@@ -72,13 +70,11 @@ CRCOPY  STA     ,U+
         BRA     CR1
 CRQUOT  STA     ,U+             ; a string: copied with its quotes
         LEAX    1,X
-CRQ1    LDA     ,X
+        LDA     ,X
         BEQ     CRDONE
-        STA     ,U+
-        LEAX    1,X
         CMPA    #'"'
-        BNE     CRQ1
-        BRA     CR1J
+        BNE     CRQUOT
+        BRA     CRCOPY
 CRREST  LDA     ,X+
         STA     ,U+
         BNE     CRREST
@@ -105,11 +101,10 @@ KW0     CLR     <KWLEN
         LDB     #1
         BSR     KWSCAN
         LDA     <KWTOK
-        TST     <KWLEN
-        BEQ     KWNO
-        ORCC    #1
+        CLRB
+        CMPB    <KWLEN
         PULS    X,U,PC
-KWNO    ANDCC   #$FE
+KWNO    CLRB
         PULS    X,U,PC
 * KWSCAN: try every entry of the table at U against the text at 2,S's X (B: 1 for the function table). An entry's
 * token is its place in the table, counted in Y from $80.

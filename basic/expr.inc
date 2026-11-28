@@ -308,6 +308,10 @@ INTCNV  BSR     CHKNUM
 IC1     CMPD    #$8000
         LBLS    NEGD
 ICFC    JMP     <ZFCERR
+GETIDX  JSR     INTCNV
+        TSTA
+        BMI     ICFC
+        RTS
 * GETADR: FAC as an address, 0-65535, in D (?FC ERROR otherwise)
 * EVADR: an expression as an address
 EVADR   JSR     <ZEVNUM

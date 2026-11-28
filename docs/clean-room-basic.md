@@ -294,6 +294,15 @@ These are hard rules for everyone who works on this ROM.
   by pointing the two-byte call `ZCHROUT` at a store for that one call, so no `LIST` code was added or slowed; the
   count lives in B, which `KEYWT` keeps; ENTER hands the line to the main loop where a typed line goes (`MAINLN`, which
   now sets `CURLIN` to `$FFFF` after the line is typed instead of before: nothing reads it during the wait).
+* **A size pass** (2026-11-28, from a review of the source for bytes) took 69 bytes: 16,260, the code ending at
+  `$BF96`, 89 bytes below the vectors. Tails shared (`GIVB` for a function's byte result, `PULMK` and `FREMK` for a
+  string made, `FOCP` in `FOUT`, `DEFSTO` for `DEFUSR` and `TIMER =`, `PRSEMI` inside `PRINT`'s comma path behind a
+  `CMPX #`); a test dropped where the flags were already set (`CLSST` on the statement's entry, `KW0`'s carry from a
+  compare, `GETITM`'s from `NEGA`, `USCHR`'s `CLRA`); a flag that is 0 there set with `INC` (`JMPFLG`, `VARCRE`,
+  `DIMFLG`); `CRUNCH`'s `?` and quoted strings through `CRCOPY`; the error's two letters through `PRTN`; `RUN` into
+  `CLEAR`'s end (`CL3`). `RESTOR` (beside `CLRVAR`) and `DRSCAL` (in `gfx.inc`), 18 bytes, moved below `$A000` so
+  that a routine still starts there. No recorded loop got faster than the original's: `GSDLY` 53 keeps 500 `GOSUB`s at
+  83 fields; `cas-cloadm2`'s B 2,416 against at most 2,419.96.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

@@ -2,6 +2,7 @@
 * Each function starts on the character after its token [UM for what each returns].
 
 * GIVNUM: a function's numeric result D (signed 16-bit) into FAC
+GIVB    CLRA                    ; (GIVB: B, 0-255)
 GIVNUM  CLR     <VALTYP
         JMP     GIVABF
 * COMBYT: a ',' and an expression 0-255 into B
@@ -25,20 +26,17 @@ STRCPY  PSHS    X
         PULS    U
         PSHS    B,X
         JSR     CPYSS
-        PULS    B,X
-        JMP     MKTMP
+        JMP     PULMK
 
 * LEN(s$)
 LEN     BSR     STRFN
-        CLRA
-        BRA     GIVNUM
+        BRA     GIVB
 * ASC(s$): the first character's code (?FC ERROR for an empty string)
 ASC     BSR     STRFN
         TSTB
         LBEQ    FCERR
         LDB     ,X
-        CLRA
-        BRA     GIVNUM
+        BRA     GIVB
 * CHR$(n)
 CHRS    JSR     LPAREN
         JSR     <ZGETBYT
@@ -108,9 +106,7 @@ SS2     LDB     <SBCNT
         PULS    B,U
         PULS    X
         PSHS    B,U
-        JSR     FRETMP          ; the argument's temporary
-        PULS    B,X
-        JMP     MKTMP
+        JMP     FREMK           ; the argument's temporary freed, then the result made
 
 * STR$(n): the number as PRINT shows it, without the space after
 STRS    JSR     <ZFNARGN

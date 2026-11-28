@@ -105,8 +105,7 @@ JY3     PULS    A
         CLRB
 JY4     LDX     #JOYV
         LDB     B,X
-        CLRA
-        JMP     GIVNUM
+        JMP     GIVB
 
 * TONE: a square wave of period D cycles (111 or more) for X fields: the first level (U's high byte), then the
 * second (U's low byte), each written to the DAC. A period is TOVH + 8 (k1 + k2) + 5 (j + 1) cycles: the first

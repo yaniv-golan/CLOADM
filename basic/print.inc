@@ -51,10 +51,6 @@ PRSTR   JSR     FRESTR
 PRNXT   JSR     <ZCHRGOT
         BNE     PR1
 PRCR    JMP     CRLF
-PRSEMI  BSR     TAPCR
-        JSR     <ZCHRGET
-        BNE     PR1
-        RTS
 PRCOM   BSR     TAPCR
         BEQ     PRC3            ; (on the tape a carriage return only)
         LDB     <CURPOS+1
@@ -67,6 +63,8 @@ PRC1    JSR     SPACE
         BNE     PRC1
         BRA     PRC3
 PRC2    JSR     CRLF
+        FCB     $8C             ; (CMPX #: skips PRSEMI's two-byte BSR)
+PRSEMI  BSR     TAPCR
 PRC3    JSR     <ZCHRGET
         BNE     PR1
         RTS

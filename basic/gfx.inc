@@ -346,8 +346,18 @@ PP2     DECA                    ; 0 two colours, 2 four
 PP3     TSTB
         BEQ     PP4
         ADDB    <GCSS
-PP4     CLRA
-        JMP     GIVNUM
+PP4     JMP     GIVB
+
+* DRSCAL: DRLEN = B x the scale / 4, rounded down (DRAW's, draw.inc; here so
+* that a routine starts at $A000: section 3)
+DRSCAL  LDA     <DRSCL
+        MUL
+        LSRA
+        RORB
+        LSRA
+        RORB
+        STD     <DRLEN
+        RTS
 
 * SCREEN t[,c]: text (0) or graphics (any other) with colour set c (0, or 1 for any other; default 0) [UM; BB bb2
 * gfx-errors: SCREEN 2 and SCREEN 1,2 are no error]

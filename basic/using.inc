@@ -17,8 +17,7 @@ USCHR   PSHS    X
         LDA     B,X
         ANDCC   #$FB
         PULS    X,PC
-UC1     CLRA
-        ORCC    #4
+UC1     CLRA                    ; (Z set)
         PULS    X,PC
 * the format character after it, without moving (A; Z set past the end)
 USNEXT  INC     <USPOS

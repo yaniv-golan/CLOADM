@@ -48,7 +48,7 @@ ED3     ADDD    #1
         JMP     OMERR
 * open a gap at X: copy from the top down
 ED4     LDU     <VARTAB
-        LDY     <VARTAB
+        LEAY    ,U
         PSHS    X
         LDD     <TMPCNT
         LEAY    D,Y
@@ -132,6 +132,14 @@ CLRVAR  PSHS    D
         STD     <BASESP
         JSR     PLINIT          ; PLAY's defaults, then the temporary strings freed (play.inc)
         PULS    D,PC
+
+* RESTORE: READ starts again from the program's first DATA [UM]. It takes no line number: RESTORE 20 is
+* ?SN ERROR (what follows it is left for the statement runner) [BB bb1 io-data]
+* (here, beside CLRVAR, its other caller, so that a routine starts at $A000: section 3)
+RESTOR  LDD     <TXTTAB
+        SUBD    #1
+        STD     <DATPTR
+        RTS
 
 * ---------------- LIST ----------------
 * LIST, LIST n, LIST n-, LIST -n, LIST n-m [UM]
