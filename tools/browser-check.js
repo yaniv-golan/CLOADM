@@ -2456,6 +2456,12 @@ async function printerPanelChecks(browser, base, check) {
     check(`${L}: the switch question is on screen, its Switch and Cancel there to press`, ask.text && ask.yes && ask.cancel, JSON.stringify(ask));
     if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-switch.png`) });
     await page.click('#btnSwitchCancel');
+    // on the desktop the question was not asked from a dialog, so Cancel leaves the focus where page.focus() puts it: on the screen
+    const desktop = opts.viewport.width === 1440;
+    if (desktop) {
+      const cf = await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName));
+      check(`${L}: Cancel on the switch question puts the keyboard focus on the screen`, cf === 'screen', String(cf));
+    }
     // the program stopped (the machine started again: a Dragon's reset may print its $FF), the printout cleared
     await stubPrompt(page);
     await show();
@@ -2549,6 +2555,7 @@ async function printerPanelChecks(browser, base, check) {
       sheet: !!document.querySelector('dialog.sheet[open]') }));
     check(`${L}: Esc cancels the RAM question, the RAM kept${phoneSheet ? ', the focus back on the RAM select in the sheet' : ''}`,
       esc.ram === 64 && esc.sel === '64' && (!phoneSheet || (esc.focus === 'ramSel' && esc.sheet)), JSON.stringify(esc));
+    if (desktop) check(`${L}: Esc on the RAM question puts the keyboard focus on the screen, not back on the RAM select`, esc.focus === 'screen', JSON.stringify(esc));
     await hide();
     await load(slowCoco);
     check(`${L}: the CoCo's first print toasts too (once for each machine)`, await toastSeen(page, /^Printed to the printer$/) && await printToasts() === 2);
