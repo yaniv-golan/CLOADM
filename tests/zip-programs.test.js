@@ -140,12 +140,79 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
     check('the Add ROMs screen: no ROM was claimed', !session.machineRoms('dragon64').sockets.some((s) => s.crc), JSON.stringify(session.machineRoms('dragon64').sockets.map((s) => s.id + ':' + !!s.crc)));
   }
 
-  // ---- Session.isRom on the archive's own entries: the routing's input, pinned where the guard lives ----
+  // ---- a .rom that is not a ROM image, inside a ZIP: reported, never loaded as a cartridge ----
+  // detectMedia calls any .rom up to 128K a cartridge (js/media/formats.js identify), so without this rule the
+  // openable() gate sent an unrecognised ROM dump from a ZIP to the program loader, whose cart case plugs it
+  // into the cartridge slot — a machine's BASIC in the slot, the same trap the open-rom fix closed
+  // (js/session.js load()'s own guard catches only what Session.isRom recognises, and a dump with no known CRC
+  // and no usual name is not one of those). The .rom is seeded bytes under a plausible name: synthetic only.
+  {
+    const { session, panel, captured, onPrograms } = await makePanel();
+    const rom = fake(16384, 0x35);   // 16K, no known CRC, no usual name
+    await panel.take([zipOf('mix.zip', [['prog.bin', liza], ['Dragon 64 BASIC.rom', rom]])], { onPrograms });
+    const sockets = session.machineRoms('dragon64').sockets;
+    check('a ZIP of a program and an unrecognised .rom: the .rom never reaches the program loader',
+      captured.programs.length === 1 && captured.programs[0] === 'prog.bin', JSON.stringify(captured.programs));
+    check('a ZIP of a program and an unrecognised .rom: it is reported "Not ROMs" as before',
+      captured.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'mix.zip: Dragon 64 BASIC.rom'),
+      JSON.stringify(captured.reports.map((r) => r.ignored)));
+    check('a ZIP of a program and an unrecognised .rom: no socket took it and no ROM was claimed',
+      !sockets.some((s) => s.crc), JSON.stringify(sockets.map((s) => s.id + ':' + !!s.crc)));
+    // the cartridge slot: the panel never loads it, and the session has no cartridge inserted
+    const cart = session.shownMachine.cartPort;
+    check('a ZIP of a program and an unrecognised .rom: the cartridge slot is empty',
+      !cart, String(cart && cart.name));
+    // a folder's .rom rides the same from-tagged path as a ZIP's, so the rule must hold there too
+    const { session: s2, panel: p2, captured: c2, onPrograms: op2 } = await makePanel();
+    await p2.take([{ name: 'basic.rom', file: { name: 'basic.rom', arrayBuffer: async () => rom.buffer.slice(rom.byteOffset, rom.byteOffset + rom.byteLength) }, from: 'MyROMs/' }], { onPrograms: op2 });
+    check('a folder\'s unrecognised .rom goes to the report too, not the loader',
+      c2.programs.length === 0 && c2.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'MyROMs/basic.rom')
+        && !s2.machineRoms('dragon64').sockets.some((s) => s.crc) && !s2.shownMachine.cartPort,
+      JSON.stringify({ programs: c2.programs, ignored: c2.reports.map((r) => r.ignored) }));
+    // a LOOSE .rom keeps today's behaviour: it goes to the loader. (The stub here records what the loader is
+    // given; the loader itself is the page's, and it is the browser check's romInput group that proves a loose
+    // .rom still plugs in as a Program Pak there — as its phone Open… case already does for a plain cartridge.)
+    {
+      const { panel: p3, captured: c3, onPrograms: op3 } = await makePanel();
+      await p3.take([fileOf('game.rom', fake(8192, 0x36))], { onPrograms: op3 });
+      check('a loose .rom keeps today\'s behaviour: it goes to the loader',
+        c3.programs.length === 1 && c3.programs[0] === 'game.rom', JSON.stringify(c3.programs));
+    }
+    // the boundary: .ccc and .dgn from an archive still go to the loader — those extensions name cartridge
+    // images and nothing else, so they are cartridges by their own declaration. A .ccc too big for the slot
+    // (formats.identify caps a cart at 128K) would be raw, so an 8K image keeps this about the extension alone.
+    {
+      const { panel: p4, captured: c4, onPrograms: op4 } = await makePanel();
+      const ccc = fake(8192, 0x37);
+      await p4.take([zipOf('carts.zip', [['game.ccc', ccc]])], { onPrograms: op4 });
+      check('a .ccc out of a ZIP still goes to the loader (cartridge by its own extension)',
+        c4.programs.length === 1 && c4.programs[0] === 'game.ccc', JSON.stringify(c4.programs));
+      check('a .ccc out of a ZIP is never reported "Not ROMs"',
+        !c4.reports.some((r) => r.ignored.length), JSON.stringify(c4.reports.map((r) => r.ignored)));
+    }
+  }
+
+  // ---- a .txt that looks like a BASIC listing, inside a ZIP: loads as a program (looksLikeBasicText) ----
+  {
+    const { panel, captured, onPrograms } = await makePanel();
+    const listing = new TextEncoder().encode('10 PRINT "HI"\n20 GOTO 10\n');
+    await panel.take([zipOf('listing.zip', [['game.txt', listing]])], { onPrograms });
+    check('a .txt out of a ZIP that looks like a BASIC listing goes to the loader',
+      captured.programs.length === 1 && captured.programs[0] === 'game.txt', JSON.stringify(captured.programs));
+    check('a .txt listing out of a ZIP is never reported "Not ROMs"',
+      !captured.reports.some((r) => r.ignored.length), JSON.stringify(captured.reports.map((r) => r.ignored)));
+  }
+
   {
     // a program file is not a ROM image by name or contents, whatever the drop's other files are
     check('Session.isRom: a DragonDOS program is not a ROM image', !Emu.Session.isRom('demo.bin', liza));
     check('Session.isRom: an 8K image with a usual ROM name is one', Emu.Session.isRom('d64_1.rom', fake(0x4000, 1)));
     check('Session.isRom: an 8K image of seeded bytes and no usual name is not (Add ROMs takes it by size anyway)', !Emu.Session.isRom('cart.rom', fake(8192, 0x22)));
+    // the trap itself, pinned where it lives: detectMedia calls the same bytes a cartridge by their extension,
+    // which is why the panel's gate — not detectMedia — is what keeps an archive's unrecognised .rom out
+    check('detectMedia: an unrecognised .rom is detected as a cartridge (the trap the panel guards against)',
+      require('../js/media/detect.js').detectMedia('basic.rom', fake(8192, 0x38)).kind === 'cart',
+      require('../js/media/detect.js').detectMedia('basic.rom', fake(8192, 0x38)).kind);
   }
 
   console.log(fail ? `${fail} FAILED` : 'all passed');

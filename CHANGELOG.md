@@ -27,7 +27,11 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
   CLOADM can open — a program, a tape, a disk, a snapshot, loose or out of a folder or ZIP — to the
   program loader, as loose files always went; what cannot be opened at all (a readme riding along in a
   folder or archive of ROMs) keeps the "Not ROMs" report it always had, and the Add ROMs screen keeps its
-  own reading (there nothing is a program). (`tests/zip-programs.test.js`, browser check group romInput)
+  own reading (there nothing is a program). A `.rom` out of a folder or ZIP that is not a recognised ROM
+  image keeps that report too, and is not loaded: `.rom` is also a cartridge's extension, and an
+  unrecognised one is a ROM dump this drop cannot place, not a program to run — loose it still loads as a
+  cartridge, as a Program Pak someone drops on the page always did. (`tests/zip-programs.test.js`, browser
+  check group romInput)
 
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
   way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and

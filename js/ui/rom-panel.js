@@ -111,7 +111,16 @@ export function setupRomPanel(page) {
     // kind that is not a snapshot) is not the loader's to refuse one by one: from an archive it stays what it always
     // was, "Not ROMs:", the report a drop of ROMs makes. Without a loader (the Add ROMs screen) nothing else is
     // claimed for it either: an archive's non-ROM entries are what that screen refuses, said the same way.
-    const openable = (f) => detectMedia(f.name, f.bytes).kind !== 'raw' || looksLikeSnapshot(f.name, f.bytes);
+    // A cartridge out of a folder or archive is openable (that is what OPENS_TEXT promises: carts load), with one
+    // exception: a `.rom` that is not a ROM image is a cartridge only by its extension, and `.rom` is also what a
+    // ROM dump usually carries — an unrecognised one (no known CRC, no usual name: Session.isRom's bar) is a dump
+    // this drop cannot place, not a program to run. Loose it would go to the Add ROMs reading and by size alone
+    // (all: true, which asks nothing of the name or the CRC); from an archive it is reported as before ("Not
+    // ROMs"), the same trap the open-rom fix closed: a machine's BASIC must not end up in the cartridge slot.
+    // `.ccc` and `.dgn` are not touched: those extensions name cartridge images and nothing else, so an archive
+    // entry carrying one is a cartridge by its own declaration.
+    const romShaped = (f) => /\.rom$/i.test(f.name);
+    const openable = (f) => !romShaped(f) && (detectMedia(f.name, f.bytes).kind !== 'raw' || looksLikeSnapshot(f.name, f.bytes));
     const loose = other.filter((f) => !f.from || (onPrograms && openable(f)));
     report.ignored.push(...other.filter((f) => f.from && !(onPrograms && openable(f))).map((f) => f.from + f.name));
     if (roms.length || report.restored || report.ignored.length || report.errors.length || report.skipped.length) { summarise(report); changed(report); }

@@ -830,6 +830,22 @@ async function romInputChecks(browser, base, check) {
     check('drop: a ZIP of a program and a ROM image runs the program too',
       await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.textContent('#toast'));
     check('drop: a ZIP of a program and a ROM image is never said to be a drop of no ROMs', !(await complained()), await page.textContent('#toast'));
+    // a ZIP of a program and an UNRECOGNISED .rom (seeded bytes under a plausible name: synthetic only, no known
+    // CRC, no usual file name): the program runs, the .rom is reported "Not ROMs" as before, and it never reaches
+    // the cartridge slot — the loader's cart case would plug it in as a Program Pak (js/session.js load()), and
+    // that method's own guard catches only what Session.isRom recognises, which this image is not.
+    await page.evaluate(() => window.emu.session.runWithoutRoms({ menu: true }));
+    await waitFor(page, () => !window.emu.session.screenText().join('').includes('I AM LIZA'));
+    const cartBefore = await page.evaluate(() => window.emu.machine.cartPort && window.emu.machine.cartPort.name);
+    await dropFiles(page, [['junk.zip', zip([['liza.bin', liza, 0], ['Dragon 64 BASIC.rom', fake(16384, 0x35), 0]])]]);
+    check('drop: a ZIP of a program and an unrecognised .rom runs the program',
+      await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.textContent('#toast'));
+    const cartAfter = await page.evaluate(() => window.emu.machine.cartPort && window.emu.machine.cartPort.name);
+    check('drop: a ZIP of a program and an unrecognised .rom never fills the cartridge slot',
+      !cartAfter && !cartBefore, `before ${cartBefore}, after ${cartAfter}`);
+    check('drop: the unrecognised .rom is reported "Not ROMs", not claimed as a ROM',
+      await waitFor(page, () => /No ROMs could be used\.[^]*Not ROMs: junk\.zip: Dragon 64 BASIC\.rom/.test(document.getElementById('toast').textContent)),
+      await page.textContent('#toast'));
   }
   check('ROM input: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
@@ -2844,12 +2860,13 @@ async function romUiChecks(browser, base, check) {
     await dropFiles(page, [['game.zip', zip([['liza.bin', liza, 0]])]], null, 'romDrop');
     // the drop is asynchronous, and a wrong load would be its own last act: give it a real span to happen in
     // (an expected-outcome wait, so a hung page cannot read as green), then read the state it must not have reached
-    const stayed = await maybeWaitFor('no program may load from a drop on the Add ROMs screen', page,
+    // (loadedAnyway: the wait times out when nothing loaded — false is the pass; true would mean a load happened)
+    const loadedAnyway = await maybeWaitFor('no program may load from a drop on the Add ROMs screen', page,
       (was) => !!window.emu.session.lastLoaded && window.emu.session.lastLoaded.name !== was, before.loaded, 10000);
     const after = await page.evaluate(() => ({ loaded: window.emu.session.lastLoaded && window.emu.session.lastLoaded.name,
       sockets: window.emu.session.machineRoms('dragon64').sockets.map((s) => s.crc || '').join(',') }));
     check('Add ROMs: a ZIP of programs dropped there loads nothing and changes no socket',
-      stayed === false && after.loaded === before.loaded && before.sockets === after.sockets, JSON.stringify({ stayed, before, after }));
+      loadedAnyway === false && after.loaded === before.loaded && before.sockets === after.sockets, JSON.stringify({ loadedAnyway, before, after }));
   }
   await page.click('#btnRomBack');
   // the Machine tab's "Add ROMs →" opens it too
