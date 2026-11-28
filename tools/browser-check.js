@@ -824,7 +824,8 @@ async function romInputChecks(browser, base, check) {
     await watchComplaint();
     await dropFiles(page, [['mix.zip', zip([['liza.bin', liza, 0], ['d64_1.rom', DZIP, 0]])]]);
     check('drop: a ZIP of a program and a ROM image takes the ROM (the socket now holds it)',
-      await waitFor(page, () => window.emu.session.machineRoms('dragon64').sockets.find((s) => s.id === 'basic').crc === DZIP_CRC),
+      // the CRC goes in as the wait's argument: an evaluate carries no closure from this file
+      await waitFor(page, (crc) => window.emu.session.machineRoms('dragon64').sockets.find((s) => s.id === 'basic').crc === crc, DZIP_CRC),
       await romStatus(page, 'dragon64'));
     check('drop: a ZIP of a program and a ROM image runs the program too',
       await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.textContent('#toast'));
