@@ -468,3 +468,9 @@ RNW     DECB
         FCB     F_STO+5,F_LD+4,F_MUL+5,F_ADD+K_ONE,0     ; [BB bb9 rnd-timing]), + 1
         JMP     FTRUNC
 RN9     RTS
+
+* FZERO: FAC = 0 (fp.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+FZERO   CLR     <FACEXP
+        CLR     <FACSGN
+        CLR     <FACEXT
+        RTS

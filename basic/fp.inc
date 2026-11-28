@@ -94,12 +94,6 @@ MOVR1   LDA     ,X+
         BNE     MOVR1
         RTS
 
-* FZERO: FAC = 0
-FZERO   CLR     <FACEXP
-        CLR     <FACSGN
-        CLR     <FACEXT
-        RTS
-
 * FNEG: FAC = -FAC
 FNEG    TST     <FACEXP
         BEQ     FNEG1
@@ -479,3 +473,7 @@ FCEQ    RTS
 ABS     JSR     <ZFNARGN
         CLR     <FACSGN
         RTS
+
+* UNIMPL: the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a
+* routine starts at $A000: docs/clean-room-basic.md section 3)
+UNIMPL  JMP     <ZFCERR

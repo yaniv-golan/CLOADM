@@ -233,7 +233,7 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   loop of `cas-cloadm2`) takes 576 fields against the original's 573 (578 before), and `cas-cloadm2`'s last span
   2,416 against the original's 2,396 (at most 2,419.96). No
   recorded loop is faster than the original's.
-  The ROM is 77 bytes smaller (16,252; 97 bytes free before the vectors): shared tails, tests dropped where the
+  The ROM is 82 bytes smaller (16,247; 102 bytes free before the vectors): shared tails, tests dropped where the
   flags were already set, flags known to be 0 set with `INC`, an `IF` that is false ending through `REM`'s scan; no
   recorded loop is faster than the original's.
 

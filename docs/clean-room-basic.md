@@ -305,7 +305,9 @@ These are hard rules for everyone who works on this ROM.
   83 fields; `cas-cloadm2`'s B 2,416 against at most 2,419.96. Then 8 bytes more: an `IF` that is false with no
   `ELSE` ends through `REM`'s scan (`JMP REM1`, 4 cycles more on that path; X is already on the line's 0), and
   `MSSTR` (into `strfunc.inc`) and `ABS` (into `fp.inc`) change sides of `$A000` so a routine still starts there:
-  16,252, the code ending at `$BF8E`, 97 free; `cas-cloadm2`'s B 2,417.
+  16,252, the code ending at `$BF8E`, 97 free; `cas-cloadm2`'s B 2,417. Then 5 more: `BRKTST`'s two ways out share
+  the columns' restore (`BRKX`; the same cycles with BREAK up, the `$FF` to the columns 3 cycles later), and
+  `FZERO` (into `mathfn.inc`) and `UNIMPL` (into `fp.inc`) change sides of `$A000`: 16,247, `$BF89`, 102 free.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 

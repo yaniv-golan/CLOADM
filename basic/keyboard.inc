@@ -189,14 +189,12 @@ BRKP1   JSR     KEYIN           ; wait for SHIFT-@ to be let go and another key 
         BEQ     BRKP1
         CMPA    #3
         BEQ     BRKYES
-BRKNO   LDA     #$FF
+BRKNO   ANDCC   #$FE
+BRKX    LDA     #$FF            ; (the keyboard's columns back up; LDA and STA leave C as it is)
         STA     PIA0B
-        ANDCC   #$FE
         PULS    A,PC
 BRKDN   LDA     ROLLTB+2        ; BREAK counts as already down, so the editor does not see it again
         ORA     #$40
         STA     ROLLTB+2
-BRKYES  LDA     #$FF
-        STA     PIA0B
-        ORCC    #1
-        PULS    A,PC
+BRKYES  ORCC    #1
+        BRA     BRKX
