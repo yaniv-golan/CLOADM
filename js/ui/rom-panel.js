@@ -103,8 +103,13 @@ export function setupRomPanel(page) {
       if (res) { report.files = res.files; report.machines.push(...res.machines); report.offers = res.offers;
         report.ignored.push(...res.files.filter((f) => f.result === 'ignored').map((f) => f.name)); }
     }
-    report.ignored.push(...other.filter((f) => f.from).map((f) => f.from + f.name));
-    const loose = other.filter((f) => !f.from);
+    // Everything the drop is not putting in a socket goes to the program loader when there is one (Open…, a drop on
+    // the page): loose files, and files out of a folder or ZIP (f.from) — a ZIP of programs is opened, not judged as
+    // a bad drop of ROMs (OPENS_TEXT names "ZIPs of these"). Without one (the Add ROMs screen) nothing else is
+    // claimed for it: an archive's non-ROM entries are what that screen refuses, said as Not ROMs, and a loose file
+    // stays with the caller to be refused on its own terms (notRoms says it there).
+    const loose = other.filter((f) => onPrograms || !f.from);
+    report.ignored.push(...other.filter((f) => f.from && !onPrograms).map((f) => f.from + f.name));
     if (roms.length || report.restored || report.ignored.length || report.errors.length || report.skipped.length) { summarise(report); changed(report); }
     // the first ROMs stored: ask the browser to keep them (it may otherwise clear site storage when space runs
     // low), and say which it is

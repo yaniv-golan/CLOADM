@@ -788,6 +788,45 @@ async function romInputChecks(browser, base, check) {
   // the redirect answered the page's fetch (it was not a missing file at the server that refused it)
   check('?rom= that redirects: refused, saying so, the redirect not followed', movedAsked === 1 && /redirect/i.test(await page.textContent('#toast')) && archive.length === 0,
     `${movedAsked} ${await page.textContent('#toast')} ${archive.join(' ')}`);
+  // a ZIP of programs through every door a drop or Open… is (the Add ROMs screen keeps its own reading; romUi):
+  // the program runs, and no "No ROMs could be used" is said for what loaded. LIZA is ours (examples/liza.bin);
+  // the ZIPs are built here with the same zip() the ROM cases above use — no real ROM anywhere. The complaint,
+  // if the drop refused the ZIP, is a toast, and a toast is replaced by the next one, so it is watched for over
+  // the whole load (an in-page poll of the toast's text, live until LIZA is up).
+  {
+    const liza = fs.readFileSync(path.join(ROOT, 'examples/liza.bin'));
+    const gameZip = () => zip([['liza.bin', liza, 0]]);
+    const watchComplaint = () => page.evaluate(() => {
+      window.__zipComplaint = false;
+      const look = () => { const t = document.getElementById('toast'); if (t && !t.hidden && /No ROMs could be used/.test(t.textContent)) window.__zipComplaint = true; };
+      const iv = setInterval(look, 100); setTimeout(() => clearInterval(iv), 20000);
+      return true;
+    });
+    const complained = () => page.evaluate(() => !!window.__zipComplaint);
+    // a Dragon with no stored ROMs: the stub, and no family-mismatch offer for a Dragon program
+    await page.evaluate(() => window.emu.session.switchMachine('dragon32'));
+    await waitFor(page, () => window.emu.machine.id === 'dragon32');
+    await emuFrames(page, 2);
+    await watchComplaint();
+    await page.setInputFiles('#fileProgram', { name: 'game.zip', mimeType: 'application/zip', buffer: gameZip() });
+    check('Open…: a ZIP of one program loads it (LIZA runs)', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+    check('Open…: a ZIP of one program is never said to be a drop of no ROMs', !(await complained()), await page.textContent('#toast'));
+    await watchComplaint();
+    await dropFiles(page, [['game.zip', gameZip()]]);
+    check('drop: a ZIP of one program loads it (LIZA runs)', await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')));
+    check('drop: a ZIP of one program is never said to be a drop of no ROMs', !(await complained()), await page.textContent('#toast'));
+    // a ZIP of a program AND a ROM image (a usual ROM name over seeded bytes — Session.isRom's own bar): the ROM
+    // replaces the socket it fits (the group's first drop put D1 in dragon64's basic socket), the program runs
+    const DZIP = fake(16384, 99), DZIP_CRC = require('../tests/load')().crc32(new Uint8Array(DZIP));
+    await watchComplaint();
+    await dropFiles(page, [['mix.zip', zip([['liza.bin', liza, 0], ['d64_1.rom', DZIP, 0]])]]);
+    check('drop: a ZIP of a program and a ROM image takes the ROM (the socket now holds it)',
+      await waitFor(page, () => window.emu.session.machineRoms('dragon64').sockets.find((s) => s.id === 'basic').crc === DZIP_CRC),
+      await romStatus(page, 'dragon64'));
+    check('drop: a ZIP of a program and a ROM image runs the program too',
+      await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA')), await page.textContent('#toast'));
+    check('drop: a ZIP of a program and a ROM image is never said to be a drop of no ROMs', !(await complained()), await page.textContent('#toast'));
+  }
   check('ROM input: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -823,6 +862,22 @@ async function phoneOpenRomChecks(browser, base, check) {
   const inserted = await waitFor(page, () => !!window.emu.machine.cartPort, null, 10000);
   const s2 = await state();
   check('phone Open…: a cartridge image still goes into the slot as a Program Pak', inserted && s2.cart === 'Program Pak' && /Program P/.test(s2.chip), JSON.stringify(s2));
+  // a ZIP of programs through the phone's Open… (the only way in there): the program runs, nothing is refused
+  // (the complaint, if it were said, is a toast: watched for over the whole load, as the romInput group does)
+  {
+    const liza = fs.readFileSync(path.join(ROOT, 'examples/liza.bin'));
+    await page.evaluate(() => window.emu.session.runWithoutRoms({ menu: true }));
+    await page.evaluate(() => {
+      window.__zipComplaint = false;
+      const look = () => { const t = document.getElementById('toast'); if (t && !t.hidden && /No ROMs could be used/.test(t.textContent)) window.__zipComplaint = true; };
+      const iv = setInterval(look, 100); setTimeout(() => clearInterval(iv), 20000);
+    });
+    await open({ name: 'game.zip', mimeType: 'application/zip', buffer: zip([['liza.bin', liza, 0]]) });
+    check('phone Open…: a ZIP of one program loads it (LIZA runs)',
+      await waitFor(page, () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 15000));
+    check('phone Open…: a ZIP of one program is never said to be a drop of no ROMs',
+      await page.evaluate(() => !window.__zipComplaint), await page.textContent('#toast'));
+  }
   check('phone Open…: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
 }
@@ -2769,6 +2824,22 @@ async function romUiChecks(browser, base, check) {
   await dropFiles(page, [['mc10.rom', fake(4096, 25)]]);
   check('Add ROMs: a drop that needs explaining opens it', await waitFor(page, romsOpen)
     && /✗ mc10\.rom: named like a .*MC-10.* ROM, but it is 4K instead of 8K\. Not loaded/.test(await page.textContent('#romFound')), await page.textContent('#romFound'));
+  await page.click('#btnRomBack');
+  // the Add ROMs screen keeps its own reading of a ZIP of programs (a drop on the page loads them; here nothing
+  // is a program). What the screen says for it: an entry out of an archive is not a ROM image, so it is refused
+  // and named beside the drop zone, exactly as a loose non-ROM file is (rom-panel.js notRoms); nothing runs.
+  {
+    await openRoms(page);
+    const liza = fs.readFileSync(path.join(ROOT, 'examples/liza.bin'));
+    await dropFiles(page, [['game.zip', zip([['liza.bin', liza, 0]])]], null, 'romDrop');
+    await waitFor(page, () => document.getElementById('romDropNote').hidden === false
+      || window.emu.session.screenText().join('').includes('I AM LIZA'), null, 15000);
+    const said = await page.textContent('#romDropNote');
+    check('Add ROMs: a ZIP of programs dropped there does not run the program',
+      await page.evaluate(() => !window.emu.session.screenText().join('').includes('I AM LIZA')), said);
+    check('Add ROMs: it is refused as not a ROM image, naming the archive and the file',
+      /game\.zip: liza\.bin isn't a ROM image, so it wasn't added\./.test(said), said);
+  }
   await page.click('#btnRomBack');
   // the Machine tab's "Add ROMs →" opens it too
   await page.click('#tab-machine');

@@ -20,6 +20,14 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Fixed
 
+- **A ZIP of programs opened through Open… or dropped on the page now loads them.** OPENS_TEXT says CLOADM
+  opens "programs (.bin, .bas, .txt) … and ZIPs of these", but a program inside a ZIP was sorted with the
+  drop's ROM candidates and, not being one, ended in the refusal list: the toast said "No ROMs could be
+  used. Not ROMs: game.zip: demo.bin" and nothing ran. A drop and Open… now give every non-ROM entry —
+  loose or out of a folder or ZIP — to the program loader, as loose files always went, and the Add ROMs
+  screen keeps its own reading (there a program is not a ROM image, and says so). (`tests/zip-programs.test.js`,
+  browser check group romInput)
+
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
   way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and
   the Library then added the same file as the machine's BASIC and switched it on: BASIC started with itself plugged in,
