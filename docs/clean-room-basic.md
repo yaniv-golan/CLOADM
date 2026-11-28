@@ -672,6 +672,10 @@ All of them run with no ROM, on our ROM assembled at test time.
   test (`$8015` to `CASON`, `$8018` to `CASOFF`, `$800C` to `SCROLL`, `$801E` to `CWDLY`, `$8006` and `$A000` to
   `CHROUT`), each failing a call. Also where the build puts the table when a mutant's code before it grows or
   shrinks.
+* **`tests/basic-using-regress.test.js`:** `PRINT USING`'s field scanner on the edges no record holds yet: `**` with
+  `$` (42 and -42), `**` alone, `$$`, `**$##.##`, a trailing `+` with -5, a partial `^^^` printed as literals, and a
+  field that ends at its format's end with a `#` after it in memory; a mutant of each rule (the `$` after `**`, the
+  trailing sign, the four carets, the end-of-format test) changes an answer. The original's answers: bb14.
 * **`tests/basic-printer.test.js`:** LLIST and `PRINT #-2`: bb11 `stmt-printer2` replayed, the screen and the 49 printer
   bytes identical; nothing sent while the printer's busy line (PIA 1 PB0) is held high, then the bytes in order;
   `$800F` and `$8000`;
