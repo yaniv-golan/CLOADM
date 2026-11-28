@@ -2830,28 +2830,26 @@ async function romUiChecks(browser, base, check) {
     && /✗ mc10\.rom: named like a .*MC-10.* ROM, but it is 4K instead of 8K\. Not loaded/.test(await page.textContent('#romFound')), await page.textContent('#romFound'));
   await page.click('#btnRomBack');
   // the Add ROMs screen keeps its own reading of a ZIP of programs: a drop on the page loads them, but this
-  // screen is a ROM drop zone — nothing there is a program, so nothing runs and no socket changes. (Its report
-  // lands in report.ignored, which this screen does not display: it names loose non-ROM files beside the drop
-  // zone, not an archive's. What the person sees is the screen's own state: nothing added, nothing run.)
-  // The success path has no observable of its own to wait for, so LIZA-not-running is waited for as the
-  // expected-outcome wait: it must stay down for a real span (an emulated second, not a wall sleep), and the
-  // check's precondition (LIZA not already up from an earlier drop) is asserted on its own.
+  // screen is a ROM drop zone — nothing there is a program. Its report lands in report.ignored, which this
+  // screen does not display (it names loose non-ROM files beside the drop zone, not an archive's), so the
+  // observable is the load the screen must not do: session.lastLoaded names whatever the program loader last
+  // loaded, and it must still name what the last REAL load left there, not the ZIP's program. (The screen text
+  // is not the test: a program for another family loads without showing its banner, so LIZA-on-screen would
+  // not go red for a load that happened.)
   {
     await openRoms(page);
     const liza = fs.readFileSync(path.join(ROOT, 'examples/liza.bin'));
-    const before = await page.evaluate(() => ({ liza: window.emu.session.screenText().join('').includes('I AM LIZA'),
+    const before = await page.evaluate(() => ({ loaded: window.emu.session.lastLoaded && window.emu.session.lastLoaded.name,
       sockets: window.emu.session.machineRoms('dragon64').sockets.map((s) => s.crc || '').join(',') }));
-    check('Add ROMs: the ZIP case starts from the menu (LIZA not already on screen)', !before.liza, JSON.stringify(before));
     await dropFiles(page, [['game.zip', zip([['liza.bin', liza, 0]])]], null, 'romDrop');
-    // a dropped ZIP that wrongly loaded would show LIZA within a second of emulated time; the screen must stay
-    // as it was for that whole second (maybeWaitFor: false === the pass, and its timeout only counts when the
-    // condition was really polled, so a hung page cannot read as green)
-    const stayed = await maybeWaitFor('a program must not start from a drop on the Add ROMs screen', page,
-      () => window.emu.session.screenText().join('').includes('I AM LIZA'), null, 10000);
-    const after = await page.evaluate(() => ({ liza: window.emu.session.screenText().join('').includes('I AM LIZA'),
+    // the drop is asynchronous, and a wrong load would be its own last act: give it a real span to happen in
+    // (an expected-outcome wait, so a hung page cannot read as green), then read the state it must not have reached
+    const stayed = await maybeWaitFor('no program may load from a drop on the Add ROMs screen', page,
+      (was) => !!window.emu.session.lastLoaded && window.emu.session.lastLoaded.name !== was, before.loaded, 10000);
+    const after = await page.evaluate(() => ({ loaded: window.emu.session.lastLoaded && window.emu.session.lastLoaded.name,
       sockets: window.emu.session.machineRoms('dragon64').sockets.map((s) => s.crc || '').join(',') }));
-    check('Add ROMs: a ZIP of programs dropped there runs nothing and changes no socket',
-      stayed === false && !after.liza && before.sockets === after.sockets, JSON.stringify({ stayed, before, after }));
+    check('Add ROMs: a ZIP of programs dropped there loads nothing and changes no socket',
+      stayed === false && after.loaded === before.loaded && before.sockets === after.sockets, JSON.stringify({ stayed, before, after }));
   }
   await page.click('#btnRomBack');
   // the Machine tab's "Add ROMs →" opens it too
