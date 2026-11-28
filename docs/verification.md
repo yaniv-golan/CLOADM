@@ -226,7 +226,9 @@ The write limit is half a card cycle: MAME's Pak clock is 894,886 Hz, ours 894,8
 cycle over the 1.33 s program (measured worst 0.456 cycle, on the CoCo 3, in the table above). The levels are compared at every sample where both recordings hold one value for three samples running,
 from the later of 20 ms (MAME's first sound update period, as for the cartridges) and the 6809's opening of the mux:
 before it, the recording is the machine's own DAC and single-bit sound (compared by `sam/dac-sound.js`). The 2 LSB
-tolerance covers float rounding in the order MAME sums its streams; one AY level step here is at least 58 LSB.
+tolerance covers float rounding in the order MAME sums its streams; the smallest AY level step here is 52 LSB
+(channel A alone at each fixed volume through the Pak's `'single'` network at `AY8913_GAIN` 2.0, 32767 full scale:
+volumes 1 and 2 give 10,542 and 10,594).
 **Transitions are not part of the result**: at every level change MAME's recording is one output sample (1/48000 s)
 later than the resampler port puts ours, on every model. With that delay every sample matches within 1 LSB (the
 run reports it on its own line), and it is the same constant `cart/audio.js` measured for the cartridges, but its

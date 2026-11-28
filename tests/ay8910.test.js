@@ -138,6 +138,31 @@ for (const [shape, want] of Object.entries(ENV_SHAPES)) {
   // the network is not a sum: the steps 739, 5297 and 587 are what MAME recorded, and no affine map of a sum fits them
   check('single output: the levels do not add (A+B above silence < A above it + B above it)',
     got[3] - got[0] < (got[2] - got[0]) + (got[1] - got[0]), got.join());
+  // THE TEST THAT TELLS A NETWORK FROM A SUM, THROUGH THE CHIP'S OWN OUTPUT PATH. It drives step(), not
+  // aySingleLevel alone: the summed output this replaced lived in step(), so a table-only check would not see it
+  // come back. Set the mixer to fixed volumes ($3F), then A and B in turn, and read what step() writes.
+  //   summed: B's contribution is the same whether or not A drives (the terms do not interact) -> equal.
+  //   network: A's pull-up current is shared out, so B's contribution SHRINKS while A drives -> 587 against 739.
+  // Every offset a sum could carry cancels in a difference, so no scaled or offset sum can satisfy this.
+  // Compared as integer LSB at the Pak's scale (x2 gain, 32767 full scale), never as raw floats: the samples are
+  // 32-bit and differ in the last bits, so a raw `!==` would pass on rounding rather than on the physics.
+  const chip = new AY8910({ output: 'single' });
+  const one = new Float32Array(1);
+  const levelAt = (a, b) => {
+    reg(chip, 8, a); reg(chip, 9, b); chip.step(one);
+    return Math.trunc(Math.fround(one[0] * 2) * 32767);
+  };
+  reg(chip, 7, 0x3F); reg(chip, 10, 0);
+  const sil = levelAt(0, 0), bOnly = levelAt(0, 6), aOnly = levelAt(12, 0), both = levelAt(12, 6);
+  const stepB = bOnly - sil, bWhileA = both - aOnly;
+  check('single output: a network, not a sum (B\'s step shrinks while A drives, through step())',
+    bWhileA !== stepB, `B alone ${stepB}, B while A drives ${bWhileA} LSB`);
+  // The four plateaus themselves, computed here through the real code path (no MAME needed): aySingleLevel is
+  // js/chips/ay8910.js's 'single' table, x2 for the Pak's AY8913_GAIN, at 32767 full scale. Their origin is MAME
+  // 0.264's own output: `coco -ext ssc -wavwrite` with ssc-tone.asm, held for ~120,000 samples each and recorded in
+  // docs/verification.md, and compared sample by sample against this code by tools/mame-diff/ssc/audio.js.
+  check('single output: the plateaus are MAME 0.264\'s 10371/11110/16407/16994, through the x2 gain',
+    got.join() === '10371,11110,16407,16994', got.join());
   const ay = new AY8910({ output: 'single' });
   reg(ay, 7, 0x3F); reg(ay, 8, 12); reg(ay, 9, 6);
   const o = new Float32Array(1);
