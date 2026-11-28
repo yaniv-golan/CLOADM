@@ -112,14 +112,15 @@ export function setupRomPanel(page) {
     // was, "Not ROMs:", the report a drop of ROMs makes. Without a loader (the Add ROMs screen) nothing else is
     // claimed for it either: an archive's non-ROM entries are what that screen refuses, said the same way.
     // A cartridge out of a folder or archive is openable (that is what OPENS_TEXT promises: carts load), with one
-    // exception: a `.rom` that is not a ROM image is a cartridge only by its extension, and `.rom` is also what a
-    // ROM dump usually carries — an unrecognised one (no known CRC, no usual name: Session.isRom's bar) is a dump
-    // this drop cannot place, not a program to run. Loose it would go to the Add ROMs reading and by size alone
-    // (all: true, which asks nothing of the name or the CRC); from an archive it is reported as before ("Not
-    // ROMs"), the same trap the open-rom fix closed: a machine's BASIC must not end up in the cartridge slot.
-    // `.ccc` and `.dgn` are not touched: those extensions name cartridge images and nothing else, so an archive
-    // entry carrying one is a cartridge by its own declaration.
-    const romShaped = (f) => /\.rom$/i.test(f.name);
+    // exception: a `.rom` that detectMedia calls a cartridge — an image up to 128K carrying the extension a ROM
+    // dump usually has too — cannot be told by this drop from such a dump (no known CRC, no usual name:
+    // Session.isRom's bar), so from an archive it is reported as before ("Not ROMs"), the same trap the open-rom
+    // fix closed: a machine's BASIC must not end up in the cartridge slot. Open it on its own to use it as one.
+    // The rule is on the KIND, not the name alone: a `.rom` whose content CLOADM recognises (a WAV tape, a
+    // snapshot, a program over the cart size cap) routes by its content as before, from an archive as loose.
+    // Loose files never come here: they go to the loader whatever they are, as they always did. `.ccc` and
+    // `.dgn` are not touched: those extensions name cartridge images and nothing else.
+    const romShaped = (f) => /\.rom$/i.test(f.name) && detectMedia(f.name, f.bytes).kind === 'cart';
     const openable = (f) => !romShaped(f) && (detectMedia(f.name, f.bytes).kind !== 'raw' || looksLikeSnapshot(f.name, f.bytes));
     const loose = other.filter((f) => !f.from || (onPrograms && openable(f)));
     report.ignored.push(...other.filter((f) => f.from && !(onPrograms && openable(f))).map((f) => f.from + f.name));

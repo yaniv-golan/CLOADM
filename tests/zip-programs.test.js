@@ -146,10 +146,15 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
   // into the cartridge slot — a machine's BASIC in the slot, the same trap the open-rom fix closed
   // (js/session.js load()'s own guard catches only what Session.isRom recognises, and a dump with no known CRC
   // and no usual name is not one of those). The .rom is seeded bytes under a plausible name: synthetic only.
+  // This case's onPrograms is a REAL loader (it calls session.load), so the cartridge-slot assertions below can
+  // genuinely fail; the other cases use the recording stub, which pins the routing alone.
   {
     const { session, panel, captured, onPrograms } = await makePanel();
-    const rom = fake(16384, 0x35);   // 16K, no known CRC, no usual name
-    await panel.take([zipOf('mix.zip', [['prog.bin', liza], ['Dragon 64 BASIC.rom', rom]])], { onPrograms });
+    const rom = fake(16384, 0x35);   // 16K, no known CRC, no usual name: detectMedia kind 'cart'
+    // a REAL loader (it calls session.load) so the cartridge-slot assertion below can genuinely fail; it also
+    // records what it was given, so the routing checks read the same captured.programs as every other case
+    const loadIt = async (items) => { for (const f of items) { captured.programs.push(f.name); try { session.load(f.name, f.bytes); } catch (e) { captured.statuses.push('load threw: ' + e.message); } } };
+    await panel.take([zipOf('mix.zip', [['prog.bin', liza], ['Dragon 64 BASIC.rom', rom]])], { onPrograms: loadIt });
     const sockets = session.machineRoms('dragon64').sockets;
     check('a ZIP of a program and an unrecognised .rom: the .rom never reaches the program loader',
       captured.programs.length === 1 && captured.programs[0] === 'prog.bin', JSON.stringify(captured.programs));
@@ -158,25 +163,66 @@ const liza = new Uint8Array(require('node:fs').readFileSync(path.join(__dirname,
       JSON.stringify(captured.reports.map((r) => r.ignored)));
     check('a ZIP of a program and an unrecognised .rom: no socket took it and no ROM was claimed',
       !sockets.some((s) => s.crc), JSON.stringify(sockets.map((s) => s.id + ':' + !!s.crc)));
-    // the cartridge slot: the panel never loads it, and the session has no cartridge inserted
+    // the cartridge slot: this case's loader is real, so a wrong routing WOULD have plugged the .rom in as a
+    // Program Pak — this assert can fail, and the mutant proves it does
     const cart = session.shownMachine.cartPort;
     check('a ZIP of a program and an unrecognised .rom: the cartridge slot is empty',
       !cart, String(cart && cart.name));
-    // a folder's .rom rides the same from-tagged path as a ZIP's, so the rule must hold there too
+    // the folder's .rom rides the same from-tagged path, with a real loader as well
     const { session: s2, panel: p2, captured: c2, onPrograms: op2 } = await makePanel();
-    await p2.take([{ name: 'basic.rom', file: { name: 'basic.rom', arrayBuffer: async () => rom.buffer.slice(rom.byteOffset, rom.byteOffset + rom.byteLength) }, from: 'MyROMs/' }], { onPrograms: op2 });
+    const loadIt2 = async (items) => { for (const f of items) { c2.programs.push(f.name); try { s2.load(f.name, f.bytes); } catch (e) { c2.statuses.push('load threw: ' + e.message); } } };
+    await p2.take([{ name: 'basic.rom', file: { name: 'basic.rom', arrayBuffer: async () => rom.buffer.slice(rom.byteOffset, rom.byteOffset + rom.byteLength) }, from: 'MyROMs/' }], { onPrograms: loadIt2 });
     check('a folder\'s unrecognised .rom goes to the report too, not the loader',
       c2.programs.length === 0 && c2.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'MyROMs/basic.rom')
         && !s2.machineRoms('dragon64').sockets.some((s) => s.crc) && !s2.shownMachine.cartPort,
       JSON.stringify({ programs: c2.programs, ignored: c2.reports.map((r) => r.ignored) }));
-    // a LOOSE .rom keeps today's behaviour: it goes to the loader. (The stub here records what the loader is
-    // given; the loader itself is the page's, and it is the browser check's romInput group that proves a loose
-    // .rom still plugs in as a Program Pak there — as its phone Open… case already does for a plain cartridge.)
+    // a LOOSE .rom keeps today's behaviour: it goes to the loader, and the loader plugs it in as a Program Pak
+    // (this case's loader is real, so the cartridge really appears — the routing mutant for the loose case is
+    // the routing filter made from-tagged-only, which must leave THIS case green while reddening the ZIP one)
     {
-      const { panel: p3, captured: c3, onPrograms: op3 } = await makePanel();
-      await p3.take([fileOf('game.rom', fake(8192, 0x36))], { onPrograms: op3 });
+      const { session: s3, panel: p3, captured: c3, onPrograms: op3 } = await makePanel();
+      const loadIt3 = async (items) => { for (const f of items) { c3.programs.push(f.name); try { s3.load(f.name, f.bytes); } catch (e) { c3.statuses.push('load threw: ' + e.message); } } };
+      await p3.take([fileOf('game.rom', fake(8192, 0x36))], { onPrograms: loadIt3 });
+      const cart3 = s3.shownMachine.cartPort;
       check('a loose .rom keeps today\'s behaviour: it goes to the loader',
         c3.programs.length === 1 && c3.programs[0] === 'game.rom', JSON.stringify(c3.programs));
+      check('a loose .rom still loads as a cartridge (the loader plugged it in)',
+        !!(cart3 && cart3.name === 'Program Pak'), String(cart3 && cart3.name));
+    }
+    // the content rule: a .rom whose CONTENT CLOADM recognises routes by its content, from a ZIP as loose —
+    // a WAV tape renamed .rom (identify: kind 'wav' by its RIFF bytes, not 'cart') goes to the loader
+    {
+      const { panel: p5, captured: c5, onPrograms: op5 } = await makePanel();
+      const wavRom = new Uint8Array([0x52, 0x49, 0x46, 0x46, 10, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]);
+      await p5.take([zipOf('tapes.zip', [['tape.rom', wavRom]])], { onPrograms: op5 });
+      check('a WAV named .rom out of a ZIP goes to the loader (its content is a tape, not a cartridge)',
+        c5.programs.length === 1 && c5.programs[0] === 'tape.rom', JSON.stringify(c5.programs));
+      check('a WAV named .rom out of a ZIP is never reported "Not ROMs"',
+        !c5.reports.some((r) => r.ignored.length), JSON.stringify(c5.reports.map((r) => r.ignored)));
+    }
+    // a snapshot renamed .rom does NOT load by content, and the CHANGELOG must not claim it does: identify
+    // calls a .rom up to 128K a cart whatever its bytes are (the extension rule fires on the file's size, and
+    // gzip compresses small), so romShaped excludes it and looksLikeSnapshot never runs. Pinned so the
+    // sentence in the bullet stays honest; the .cloadm-named snapshot case above is the one that loads.
+    {
+      const { session: s5b, panel: p5b, captured: c5b, onPrograms: op5b } = await makePanel();
+      const loadIt5b = async (items) => { for (const f of items) { c5b.programs.push(f.name); try { s5b.load(f.name, f.bytes); } catch (e) { c5b.statuses.push('load threw: ' + e.message); } } };
+      const gzip = new Uint8Array([0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0x03]);
+      await p5b.take([zipOf('snaps.zip', [['save.rom', gzip]])], { onPrograms: loadIt5b });
+      check('a snapshot renamed .rom out of a ZIP is reported like any other cart-shaped .rom',
+        c5b.programs.length === 0 && c5b.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'snaps.zip: save.rom')
+          && !s5b.shownMachine.cartPort,
+        JSON.stringify({ programs: c5b.programs, ignored: c5b.reports.map((r) => r.ignored) }));
+    }
+    // uppercase: 8.3 archives commonly carry GAME.ROM, and the extension test must be case-insensitive
+    {
+      const { session: s6, panel: p6, captured: c6, onPrograms: op6 } = await makePanel();
+      const loadIt6 = async (items) => { for (const f of items) { c6.programs.push(f.name); try { s6.load(f.name, f.bytes); } catch (e) { c6.statuses.push('load threw: ' + e.message); } } };
+      await p6.take([zipOf('upper.zip', [['GAME.ROM', fake(16384, 0x39)]])], { onPrograms: loadIt6 });
+      check('an uppercase GAME.ROM out of a ZIP is reported "Not ROMs", never loaded',
+        c6.programs.length === 0 && c6.reports.some((r) => r.ignored.length === 1 && r.ignored[0] === 'upper.zip: GAME.ROM')
+          && !s6.shownMachine.cartPort,
+        JSON.stringify({ programs: c6.programs, ignored: c6.reports.map((r) => r.ignored) }));
     }
     // the boundary: .ccc and .dgn from an archive still go to the loader — those extensions name cartridge
     // images and nothing else, so they are cartridges by their own declaration. A .ccc too big for the slot

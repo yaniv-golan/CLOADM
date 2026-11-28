@@ -838,8 +838,9 @@ async function romInputChecks(browser, base, check) {
     await waitFor(page, () => !window.emu.session.screenText().join('').includes('I AM LIZA'));
     // the No-ROMs report is a toast this drop's own load replaces within its 4 s (feedback.show(): a new toast
     // replaces the one up), so it cannot be polled after the fact: a MutationObserver on the toast box records
-    // every text it ever held (the same pattern as the speech-ROM counter at the Pak cases above). The load's
-    // toast arriving is itself asserted below, so the watcher having run is not left to trust.
+    // the report the moment it is shown (the same pattern as the speech-ROM counter at the Pak cases above).
+    // The check below waits on the observer's output, so a watcher that never ran fails it; the program load
+    // it must not disturb is itself asserted by the 'runs the program' check on the screen.
     await page.evaluate(() => {
       window.__junkZipReport = null;
       const el = document.getElementById('toast');
@@ -860,6 +861,16 @@ async function romInputChecks(browser, base, check) {
     check('drop: the unrecognised .rom is reported "Not ROMs", not claimed as a ROM',
       await waitFor(page, () => window.__junkZipReport !== null, null, 15000),
       await page.evaluate(() => window.__junkZipReport));
+    // the same .rom OPEN ON ITS OWN is a cartridge, as the CHANGELOG and using.md say: loose it goes to the
+    // loader, whose cart case plugs it in as a Program Pak. The page-level truth of that sentence, driven
+    // through the same drop path (a loose file is a drop of one file with no archive around it).
+    await page.evaluate(() => window.emu.session.runWithoutRoms({ menu: true }));
+    await waitFor(page, () => !window.emu.session.screenText().join('').includes('I AM LIZA'));
+    await dropFiles(page, [['Dragon 64 BASIC.rom', fake(16384, 0x35)]]);
+    const looseCart = await waitFor(page, () => window.emu.machine.cartPort && window.emu.machine.cartPort.name === 'Program Pak', null, 10000);
+    check('the same .rom opened on its own plugs in as a Program Pak (the bullet\'s "open it on its own")',
+      looseCart && await page.evaluate(() => window.emu.machine.cartPort.name) === 'Program Pak',
+      await page.evaluate(() => window.emu.machine.cartPort && window.emu.machine.cartPort.name));
   }
   check('ROM input: no page errors', !errors.length, errors.join('; '));
   await closeCtx(ctx);
