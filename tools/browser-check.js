@@ -6036,6 +6036,10 @@ async function phoneChecks(browser, base, check) {
   // nothing. Its height is capped to the room above its bottom offset and it scrolls inside; at each size, every row
   // must be reachable by a REAL tap -- scrolled into view, then the row is what is on top at its own centre -- and the
   // sheet's top edge must be at or below 0.
+  // scrolled: the sizes whose real sheet scrolls (the fitMenu case below needs one; asserted after the loop).
+  // fitName: the fitMenu case's name, used by both its check and its SKIP so the two cannot drift apart.
+  const scrolled = [];
+  const fitName = (label) => `ui qa (landscape ${label}, touch keys): a row that appears while a menu box is scrolled to its end leaves it where it was (fitMenu puts scrollTop back)`;
   for (const [label, viewport] of [['653x280', { width: 653, height: 280 }], ['659x343', { width: 659, height: 343 }], ['852x393', { width: 852, height: 393 }], ['844x390', { width: 844, height: 390 }]]) {
     const sctx = await browser.newContext({ viewport, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
     const spage = await sctx.newPage();
@@ -6084,6 +6088,13 @@ async function phoneChecks(browser, base, check) {
     // case: a row appears while the box is scrolled to its end. Run on a box with no stylesheet cap of its own (the
     // real sheets have one, which keeps them from clamping), so the clamp is real. The mutation that drops
     // `box.scrollTop = was` in js/ui/menu.js leaves the box at 0.
+    //
+    // A SKIP here, never silence: the sheet's own scroll is the precondition, so a size where the real sheet does not
+    // scroll cannot run this case. After the loop, one size must have scrolled: if none does, that is a FAIL, not four
+    // quiet SKIPs. (`fitName` is one string because the SKIP and the check must name the same case: they are the only
+    // two places it can be reported, and a drift between them would make a skipped case look like a passing one.)
+    if (sm.scrolls) scrolled.push(label);
+    else skip(fitName(label), `the real Menu sheet does not scroll here (scrollHeight <= clientHeight + 1, the negation of the check's own test), so the case cannot arise`);
     if (sm.scrolls) {
       const fit = await spage.evaluate(async () => {
         const { fitMenu } = await import('./js/ui/menu.js');
@@ -6102,11 +6113,15 @@ async function phoneChecks(browser, base, check) {
         box.remove();
         return out;
       });
-      check(`ui qa (landscape ${label}, touch keys): a row that appears while a menu box is scrolled to its end leaves it where it was (fitMenu puts scrollTop back)`,
-        fit.before > 0 && fit.after === fit.before && !!fit.capped, JSON.stringify(fit));
+      check(fitName(label), fit.before > 0 && fit.after === fit.before && !!fit.capped, JSON.stringify(fit));
     }
     await sctx.close();
   }
+  // the four sizes share one precondition: at least one of them really scrolls its sheet. None doing so means the
+  // sheet has been made to fit at every landscape size, the case above had no subject, and its SKIPs (one per size)
+  // would otherwise leave the fitMenu contract untested while the group stayed green.
+  check('ui qa (landscape, touch keys): the Menu sheet scrolls at at least one of the four sizes (the fitMenu case above has a subject)',
+    scrolled.length > 0, `scrolled at: ${scrolled.join(', ') || 'none'}`);
 
   // a short phone upright (under 600 px; 375 x 548 and 320 x 460): no chip row (the screen keeps its room, the page does
   // not scroll); Menu has "Tape, disks and cartridge…" and "Power…" after Settings…, each with its state on a second
