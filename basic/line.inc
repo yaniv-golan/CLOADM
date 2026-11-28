@@ -3,6 +3,10 @@
 * own pixels; one span filler (HSPAN) fills for BF and PAINT. The algorithms are general published ones, their
 * details aligned with the original's black-box pictures (bb2 gfx-line, gfx-circle, gfx-clip).
 
+* GPRANGE: map both endpoints into mode pixels before sorting (C set: divide by two).
+GPRANGE BCC     SORT
+        LSRA
+        LSRB
 * SORT: A = the smaller of A and B, B the larger
 SORT    PSHS    B
         CMPA    ,S+

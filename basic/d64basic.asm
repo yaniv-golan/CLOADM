@@ -350,13 +350,14 @@ PRTOFF  LDX     #CHROUT
         INCLUDE "draw.inc"
         INCLUDE "getput.inc"
         INCLUDE "io.inc"
+* EDPUT and PRTOUT must occupy different ROM pages: COLMN distinguishes their high bytes.
+        INCLUDE "edit.inc"
         INCLUDE "using.inc"
         INCLUDE "cassette.inc"
         INCLUDE "fp.inc"
         INCLUDE "fpconv.inc"
         INCLUDE "sound.inc"
         INCLUDE "play.inc"
-        INCLUDE "edit.inc"
         INCLUDE "printer.inc"
         INCLUDE "tokens.inc"
 ROMEND  RMB     0

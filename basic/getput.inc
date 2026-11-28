@@ -55,66 +55,50 @@ GQ4     STB     <GPLUT
 * the columns, in the mode's own pixels; GET without G takes whole bytes: its rectangle widened to the bytes its ends
 * are in [BB bb2 gfx-getput pmode4-coarse: GET(19,17)-(28,30) without G holds x 16-31]
         LDU     <GMENT
-        LDA     <GXY+1
-        LDB     3,S
-        JSR     SORT
-        PSHS    D
         LDA     2,U
         LSRA                    ; C: x is halved
-        BCC     GQ5
-        LSR     ,S
-        LSR     1,S
-GQ5     LDA     <GPLUT
+        LDA     <GXY+1
+        LDB     3,S
+        JSR     GPRANGE
+        STA     <GXY+1
+        LDA     <GPLUT
         ANDA    <GPDIR
         BITA    #$10
-        BEQ     GQ5B            ; not GET without G
-        LDA     #7              ; the pixels a byte - 1
-        LDB     3,U
-        ASLB
-        BPL     GQ5A
-        LDA     #3
-GQ5A    TFR     A,B
-        ORB     1,S
-        STB     1,S
-        COMA
-        ANDA    ,S
-        STA     ,S
-GQ5B    PULS    D
-        STA     <GXY+1
-        PSHS    A
-        SUBB    ,S+
-        CLRA
-        ADDD    #1              ; the pixels a row
-        PSHS    D
+        BEQ     GQ5B            ; only GET without G widens the span to whole bytes
+        PSHS    B
+        LDB     #7
         LDA     3,U
-        ASLA                    ; N: four colours
-        PULS    D
+        ASLA
+        BPL     GQ5A
+        LDB     #3
+GQ5A    TFR     B,A
+        ORB     ,S+
+        COMA
+        ANDA    <GXY+1
+        STA     <GXY+1
+GQ5B    SUBB    <GXY+1         ; pixels minus one
+        LDA     3,U
+        ASLA                    ; four colours: two bits per pixel
         BPL     GQ6
         ASLB
-        ROLA
-GQ6     STD     <BINVAL
-        ADDD    #7
+        INCB
+GQ6     TFR     B,A             ; bits minus one fits a byte in every mode, even a full row
         LSRA
-        RORB
         LSRA
-        RORB
         LSRA
-        RORB
-        STB     <GPRB
-* the rows, in the mode's own pixels
+        INCA
+        STA     <GPRB           ; ceil(bits / 8)
+        CLRA
+        ADDD    #1
+        STD     <BINVAL         ; BITCPY needs the actual count, up to 256
+        LDA     2,U
+        LSRA
+        LSRA                    ; C: y is halved
         LDA     <GXY+3
         LDB     5,S
-        JSR     SORT
-        PSHS    D
-        LDA     2,U
-        BITA    #2              ; y is halved
-        BEQ     GQ7
-        LSR     ,S
-        LSR     1,S
-GQ7     PULS    D
+        JSR     GPRANGE
         STA     <GXY+3
-        PSHS    A
-        SUBB    ,S+
+        SUBB    <GXY+3
         INCB
         STB     <GPROWS
         TFR     B,A
