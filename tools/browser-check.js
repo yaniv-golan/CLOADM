@@ -1119,6 +1119,12 @@ async function sscBoardChecks(browser, base, check) {
   await page.selectOption('#selCartBoard', 'ssc');
   const label = await page.textContent('#btnCart');
   check('Speech/Sound Pak: on its board the button says it inserts the Pak, not a file', /Insert the Speech\/Sound Pak/.test(label), label);
+  // for the reviewer: the Cartridge port panel scrolled into view, so the Pak offer (the board chosen, its Insert button) is on the shot
+  if (shotDir) {
+    await page.locator('#cartSlot').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(shotDir, 'ssc-board-offer.png') });
+    await page.locator('#cartSlot').screenshot({ path: path.join(shotDir, 'ssc-board-offer-panel.png') });
+  }
   await page.click('#btnCart');
   await waitFor(page, () => document.getElementById('toast').classList.contains('error'));
   const noRom = await page.evaluate(() => ({ msg: document.getElementById('toast').textContent, cls: document.getElementById('toast').className, type: window.emu.machine.cartPort && window.emu.machine.cartPort.type }));
