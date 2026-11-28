@@ -13,6 +13,7 @@ GMTAB   FCB     $58,6*8+3,$13,$80       ; PMODE 0: 128 x 96, 2 colours, 1 page (
         FCB     $68,12*8+5,$11,$80      ; PMODE 2: 128 x 192, 2 colours, 2 pages (RG3)
         FCB     $70,24*8+6,$21,$C0      ; PMODE 3: 128 x 192, 4 colours, 4 pages (CG6)
         FCB     $78,24*8+6,$20,$80      ; PMODE 4: 256 x 192, 2 colours, 4 pages (RG6)
+GMTEND  EQU     *               ; (tools/build-basic.js: no mode's row is over GET and PUT's 256 bits)
 
 * GINIT: the cold start's graphics [UM: PCLEAR 4, done by PROGST; BB: PMODE 0,1; OWN: the last point 128,96]
 GINIT   LDD     #128

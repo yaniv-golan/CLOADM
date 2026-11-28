@@ -136,6 +136,15 @@ function buildBasic({ defines = {}, edit = SAME } = {}) {
     if (!res) { res = first; img = image(first); gap = null; }
   }
   const { rom, owner } = img;
+  // GET and PUT keep a row's bit count less one in a byte: no mode's row (GMTAB: 128 pixels when its third byte's bit
+  // 0 says x is halved, else 256; 2 bits a pixel when its fourth byte's bit 6 says four colours) may be over 256 bits
+  const modes = res.symbols.get('GMTAB'), modesEnd = res.symbols.get('GMTEND');
+  for (let entry = modes; entry < modesEnd; entry += 4) {
+    const offset = entry - ROM_AT;
+    const pixels = rom[offset + 2] & 1 ? 128 : 256;
+    const bitsPerPixel = rom[offset + 3] & 0x40 ? 2 : 1;
+    if (pixels * bitsPerPixel > 256) throw new Error(`basic: PMODE ${(entry - modes) / 4} exceeds GET and PUT's 256-bit row (GMTAB)`);
+  }
   const used = owner.reduce((n, o) => n + (o >= 0 ? 1 : 0), 0);
   // the system RAM block and the direct page must not run into the buffers after them
   if (res.symbols.get('SYSEND') > res.symbols.get('BLKBUF')) throw new Error('basic: the system RAM ($0100 on) runs into the cassette block buffer BLKBUF');

@@ -74,5 +74,12 @@ check('only the published jumps and words are placed in the reserved spans', inR
   check('EVFUNC: CMPA #24 is twice PEEK\'s place (T_PEEKF - $80)', !!at && 2 * (b.symbols.get('T_PEEKF') - 0x80) === 24, String(b.symbols.get('T_PEEKF')));
 }
 
+// GET and PUT's rows: the build refuses a mode whose row is over 256 bits (PMODE 1 and 3 without x halved: 512)
+for (const [what, from, to] of [['PMODE 1', '$60,12*8+4,$23,$C0', '$60,12*8+4,$22,$C0'], ['PMODE 3', '$70,24*8+6,$21,$C0', '$70,24*8+6,$20,$C0']]) {
+  let msg = '';
+  try { buildBasic({ edit: (f, t) => (f === 'gfx.inc' ? t.replace(from, to) : t) }); } catch (e) { msg = e.message; }
+  check(`the build refuses ${what} with x not halved (a 512-bit row for GET and PUT)`, msg.includes(`${what} exceeds GET and PUT's 256-bit row`), msg);
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;
