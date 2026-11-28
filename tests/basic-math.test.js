@@ -73,7 +73,24 @@ function sweep(name, fnName, argGen, exact, { tol, absScale = 0 }) {
 // rounded to 32 bits (up to 2^-28 absolute, 8 units of the result's last place), plus EXP's own (below) for .5 LOG x
 sweep('SQR', 'FSQR', (i) => 10 ** (rnd() * 40 - 20), Math.sqrt, { tol: [10, (x) => Math.abs(Math.log(x) / 2), '|.5 LOG x|'] });
 sweep('LOG', 'FLOG', (i) => 10 ** (rnd() * 60 - 30), Math.log, { tol: 2, absScale: 1 });
-sweep('LOG near 1', 'FLOG', (i) => 0.5 + rnd(), Math.log, { tol: 3, absScale: 0.05 });
+// LOG near 1: the reduction's - 1/2 cancels there, as the original's does (its LOG(1.1) is 27 units from the nearest,
+// its LOG(.5) and LOG(2) one unit either side of ln 2) [BB bb10 fn-last-bit], so the bound that was here (3 units)
+// is not the oracle: the ROM is held to the model of its steps (tests/basic/fpmodel.js log) bit for bit, and to the
+// error those steps allow, absolute in log2 m: q = sqrt 2 / (m + sqrt 1/2), from .83 to 1.17, rounded at up to 2^-31
+// (its last place from 1 up), which t P(t^2) carries times P (under 2.9): 3 x 2^-31; t P and 1/2 less it rounded at
+// 2^-33 each: 2^-32; then x ln 2, and the result's own unit
+{
+  let mism = 0, first = '', worst = 0, at = null;
+  for (let i = 0; i < COUNT; i++) {
+    const a = packedOf(i < COUNT / 2 ? 0.5 + rnd() : 10 ** (rnd() * 60 - 30)), r = rom1('FLOG', a);
+    const mo = F.pack(F.round(F.log(a))), got = r.st === 'ok' ? F.pack(get(FAC)) : r.st;
+    if (String(got) !== String(mo)) { mism++; if (!first) first = `${num(a)}: rom ${got} model ${mo}`; }
+    const e = Math.abs(r.v - Math.log(num(a))) / (Math.LN2 * (3 * 2 ** -31 + 2 ** -32) + ULP * Math.abs(Math.log(num(a))));
+    if (i < COUNT / 2 && e > worst) { worst = e; at = num(a); }
+  }
+  check(`LOG: ${COUNT} arguments bit for bit as the model of its steps`, mism === 0, first);
+  check('LOG near 1: within the error its steps allow', worst <= 1, `worst ${worst.toFixed(3)} of the bound at ${at}`);
+}
 // EXP works in base 2 as the original does [BB bb2 fn-sqr-bits]: t = x / ln 2 rounded to 32 bits is off by up to
 // |t| 2^-32, and 1/ln 2's own rounding adds as much again, so e^x is off by up to ln 2 |t| 2^-31 = |x| units, plus
 // the series' 3
@@ -159,7 +176,9 @@ ex('SQR(144) is 12 - 3 x 2^-28 [BB bb2]', 'FSQR', 144, 12 - 3 * 2 ** -28);
 ex('SQR(65536) is 256 [BB bb2]', 'FSQR', 65536, 256);
 ex('EXP(11.5129255) is 100000 + 113 x 2^-15 [BB bb2]', 'FEXP', 11.5129255, 1e5 + 113 * 2 ** -15);
 ex('SQR(0) = 0', 'FSQR', 0, 0);
-ex('LOG(1) = 0', 'FLOG', 1, 0);
+// LOG(1) is ln 2 x 2^-32, not 0: L at m = 1/2 is that much above -1, which puts LOG(.5) and LOG(2) one unit either
+// side of ln 2 as the original's are [BB bb10 fn-last-bit]; the original's LOG(1) itself is not recorded yet (bb13c)
+ex('LOG(1) is ln 2 x 2^-32 (the model\'s)', 'FLOG', 1, F.toNumber(F.unpack([96, 49, 114, 23, 248])));
 ex('EXP(0) = 1', 'FEXP', 0, 1);
 ex('SIN(0) = 0', 'FSIN', 0, 0);
 ex('COS(0) = 1', 'FCOS', 0, 1);

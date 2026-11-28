@@ -242,6 +242,10 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   line is high; the published entry `$800F` is the printer routine (`tests/basic-printer.test.js`). On the printer,
   `,` and `TAB(` count the printer's own column, and BREAK or an error during `LLIST` puts the output back on the
   screen. The ROM is 116 bytes larger with them (16,313; 45 bytes free).
+  `LOG` works as the original's does, from bb10 `fn-last-bit`: a mantissa from 1/2 to 1, t = 1 - sqrt 2 / (m + sqrt
+  1/2), a four-term series of our own fit and - 1/2, so every recorded `LOG` value is the original's bit for bit, near
+  1 too, and `SQR` of .1, .5 and 2 with it; `LOG(1)` is ln 2 x 2^-32 (1.6E-10), not 0, as the same steps give. 6 bytes
+  (16,319; 39 bytes free).
 
 #### Changed
 

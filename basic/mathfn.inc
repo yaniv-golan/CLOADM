@@ -51,6 +51,8 @@ K_QTR   EQU     (QUARTR-FPCON)/5+8
 K_LN2   EQU     (LN2-FPCON)/5+8
 K_ILN2  EQU     (INVLN2-FPCON)/5+8
 K_SQR3  EQU     (SQRT3-FPCON)/5+8
+K_SQRH  EQU     (SQRHLF-FPCON)/5+8
+K_SQR2  EQU     (SQRT2-FPCON)/5+8
 K_PIO2  EQU     (PIO2-FPCON)/5+8
 K_PIO6  EQU     (PIO6-FPCON)/5+8
 K_M1    EQU     (FPM1-FPCON)/5+8
@@ -192,15 +194,11 @@ SGN     CLRA
         LDD     #-1
 SGN1    JMP     GIVABF
 
-* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
-* is not a square root rounded once
-FSQR    JSR     <ZFPRUN
-        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,0
-        JMP     PW5
-
-* LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...); then
-* (ln m / ln 2 + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and SQR(65536)
-* 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]
+* LOG(x): x = m 2^e with m in [1/2, 1); t = 1 - sqrt 2 / (m + sqrt 1/2); log2 m = t P(t^2) - 1/2 (LOGSER, four
+* terms); then (log2 m + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and
+* SQR(65536) 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]; the reduction's - 1/2 cancels near 1, as
+* the original's (its LOG(1.1) is 27 units from the nearest, and LOG(.5) and LOG(2) one unit either side of ln 2) [BB
+* bb10 fn-last-bit]. Worked as 1/2 - t P, less e, x ln 2, negated: the same bits.
 FLOG    TST     <FACSGN
         LBMI    FCERR
         LDA     <FACEXP
@@ -209,27 +207,19 @@ FLOG    TST     <FACSGN
         STA     <LOGE
         LDA     #128
         STA     <FACEXP
-        LDX     #SQRHLF
-        JSR     FCMPM
-        BLE     LOG1
-        INC     <FACEXP         ; below sqrt 1/2: m x 2
-        DEC     <LOGE
-LOG1    JSR     <ZFPRUN           ; m; m + 1; m again; m - 1; t
-        FCB     F_STO+1,F_ADD+K_ONE,F_STO+2,F_LD+1,F_ADD+K_M1,F_RDIV+2,0
-        LDX     #ODDTAB+10
-        LDD     #$0508
-        JSR     ODDPOL
-        TST     <FACEXP
-        BEQ     LOG2
-        INC     <FACEXP         ; x 2
-LOG2    JSR     <ZFPRUN         ; log2 m; + e; x ln 2
-        FCB     F_MUL+K_ILN2,F_STO+3,0
+        JSR     <ZFPRUN         ; m; + sqrt 1/2; sqrt 2 over that; 1 - that: t
+        FCB     F_ADD+K_SQRH,F_DIVX+K_SQR2,F_SUBX+K_ONE,0
+        LDX     #LOGSER
+        LDD     #$0504
+        JSR     ODDPOL          ; t P(t^2)
+        JSR     <ZFPRUN
+        FCB     F_SUBX+K_HALF,F_STO+3,0 ; 1/2 - t P: - log2 m
         LDB     <LOGE
         SEX
         JSR     GIVABF
         JSR     <ZFPRUN
-        FCB     F_ADD+3,F_MUL+K_LN2,0
-        RTS
+        FCB     F_SUBX+3,F_MUL+K_LN2,0  ; - log2 m - e, x ln 2
+        JMP     FNEG
 
 * EXP(x): t = x / ln 2 (rounded), n = INT(t), r = (t - n) ln 2, e^x = 2^n e^r: base 2, as the original (its
 * EXP(11.5129255) is 100000.00344849, the rounding of t showing in the low digits) [BB bb2 fn-sqr-bits]
@@ -486,4 +476,8 @@ E10DEC  LDB     #-1
 E10ADJ  SEX
         ADDD    <FPE10
         STD     <FPE10
+        RTS
+
+* ABS(x)
+ABS     CLR     <FACSGN
         RTS

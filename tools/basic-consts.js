@@ -37,8 +37,16 @@ function mathConstsInc() {
   out.push('SINSER');
   const sinT = [[121,230,79,213,12],[125,40,10,61,47],[128,153,104,154,109],[130,35,53,224,93],[131,165,93,231,43],[130,73,15,218,162]];
   for (const b of sinT) out.push(fcb('', b, `${val(b)}`));
+  // LOG's series, log2 m + 1/2 = t P(t^2) for t = 1 - sqrt 2 / (m + sqrt 1/2), m from 1/2 to 1 (t from -0.1716 to
+  // 0.1716): our own least-squares fit of log2((1+t)/(1-t)) / t in t^2 at 400 Chebyshev points of t, four terms,
+  // rounded to the format. Then the third (of t^2) is 91 units higher and the fourth (of 1) 1: with these every LOG
+  // value of fn-last-bit is the original's bit for bit, LOG(.5) and LOG(2) one unit either side of ln 2 as there [BB
+  // bb10 fn-last-bit] (any third from 60 to 122 units higher does as well; 91 is the middle). Highest power first
+  out.push('LOGSER');
+  const logT = [[127,93,12,26,83],[128,19,163,143,243],[128,118,56,115,89],[130,56,170,59,40]];
+  for (const b of logT) out.push(fcb('', b, `${val(b)}`));
   out.push('ODDTAB');
-  out.push('* 1/(2k+1), k = 9 down to 0. ATN: x x P(-x^2), all 10; LOG: 2t x P(t^2), the 8 from 1/15');
+  out.push('* 1/(2k+1), k = 9 down to 0. ATN: x x P(-x^2)');
   for (let k=9;k>=0;k--) out.push(fcb('', packed(1n,BigInt(2*k+1)), `1/${2*k+1}`));
   // the named constants, one block: basic/mathfn.inc numbers them from FPCON for FPRUN's steps
   out.push('FPCON');
@@ -54,6 +62,7 @@ function mathConstsInc() {
   out.push(fcb('PIO6', packed(p.num,p.den*6n), 'pi/6'));
   out.push(fcb('TANP12', packed(2n*s3.den - s3.num, s3.den), 'tan(pi/12) = 2 - sqrt 3'));
   let sh=r(SQRH); out.push(fcb('SQRHLF', packed(sh.num,sh.den), 'sqrt 1/2'));
+  out.push(fcb('SQRT2', packed(sh.num*2n,sh.den), 'sqrt 2'));
   out.push(fcb('EXPMAX', packed(l.num*127n, l.den), '127 ln 2: above it EXP overflows'));
   out.push(fcb('EXPMIN', packed(-l.num*129n, l.den), '-129 ln 2: below it EXP is 0'));
   return out.join('\n') + '\n';

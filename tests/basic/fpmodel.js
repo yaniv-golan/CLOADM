@@ -301,4 +301,19 @@ function tan(x) {                                                      // SIN(x)
   return div(round(sinTurns(f)), round(sinTurns(c)));
 }
 
-module.exports = { fint, sin, cos, tan, SINTURNS, POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, finTen, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };
+// LOG's steps (basic/mathfn.inc FLOG): x = m 2^e, m from 1/2 to 1; t = 1 - sqrt 2 / (m + sqrt 1/2); t P(t^2) with
+// tools/basic-consts.js's LOGSER (ODDPOL: t and t^2 rounded, Horner's rule); 1/2 less it, rounded; less e; x ln 2;
+// the sign changed (the same bits as (t P - 1/2 + e) ln 2, every step sign-symmetric)
+const LOGSER = [[127, 93, 12, 26, 83], [128, 19, 163, 143, 243], [128, 118, 56, 115, 89], [130, 56, 170, 59, 40]];
+const SQRHLF = unpack([128, 53, 4, 243, 52]), SQRT2 = unpack([129, 53, 4, 243, 52]), LN2 = unpack([128, 49, 114, 23, 248]);
+function log(x0) {
+  const x = round(x0);
+  const e = x.e - 128, m = { ...x, e: 128 };
+  const t = round(sub(ONE, div(SQRT2, add(m, SQRHLF))));
+  const t2 = round(mul(t, t));
+  let acc = unpack(LOGSER[0]);
+  for (let i = 1; i < LOGSER.length; i++) acc = add(unpack(LOGSER[i]), mul(t2, acc));
+  const w = round(sub(HALF, mul(t, acc)));
+  return neg(mul(LN2, sub(w, fromNumber(e))));
+}
+module.exports = { fint, sin, cos, tan, log, LOGSER, SINTURNS, POWBYTES, fromU32, fromI16, qint, mul10, div10, fout, fin, finTen, TEN, HALF, E8, E9, ZERO, unpack, pack, round, norm40, add, sub, neg, mul, div, cmp, fromNumber, toNumber, OV, DZ };

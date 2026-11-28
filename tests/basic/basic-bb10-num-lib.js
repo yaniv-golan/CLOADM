@@ -13,13 +13,11 @@ const records = new Map([...load('bb9-real.jsonl'), ...load('bb10-real.jsonl')])
 const caseText = (c) => fs.readFileSync(path.join(__dirname, 'cases', `${c}.bas`), 'utf8');
 // the open differences, as line numbers of the record's transcript (0-based) with ours' text there
 const OPEN = {
-  // 2^66 and 2^126: the original's ^ is EXP(y LOG x) with its LOG(2) one unit above ours, giving 195,0,0,0,44 and
+  // 2^66 and 2^126: the original's ^ is EXP(y LOG x) for these, giving 195,0,0,0,44 and
   // 255,0,0,0,44; ours multiplies whole powers exactly
   'num-print-big': { 61: ' 7.37869763E+19 195,0,0,0,0,', 62: ' 8.50705918E+37 255,0,0,0,0,' },
-  // LOG near 1 and of .1, .5, 2; EXP(2); SQR of .1, .5, 2, 3 and 1E30 (the original's LOG reduction, not yet found)
-  'fn-last-bit': { 76: ' 4  .1 130,147,93,141,222,', 77: ' 4  .5 128,177,114,23,248,', 78: ' 4  .9 125,215,199,65,11,', 79: ' 4  1.1 125,67,49,251,203,',
-    80: ' 4  2 128,49,114,23,248,', 96: ' 5  2 131,108,115,37,199,', 102: ' 6  .1 127,33,232,155,18,', 103: ' 6  .5 128,53,4,243,52,',
-    104: ' 6  2 129,53,4,243,52,', 105: ' 6  3 129,93,179,215,68,', 112: ' 6  1E+30 178,99,95,169,47,' },
+  // EXP(2); SQR of 3 and 1E30, a unit off through EXP (LOG's values are the original's since its reduction was found)
+  'fn-last-bit': { 96: ' 5  2 131,108,115,37,199,', 105: ' 6  3 129,93,179,215,68,', 112: ' 6  1E+30 178,99,95,169,47,' },
 };
 // 5E-39's bytes (1,89,199,220,238) print as 5.00000001E-39 on the original, 5E-39 on ours (open): its two record
 // lines are one of ours, and the rest is ours one line earlier
