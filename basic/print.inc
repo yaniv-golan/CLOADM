@@ -65,10 +65,11 @@ PRSEMI  BSR     TAPCR
 PRC3    JSR     <ZCHRGET
         BNE     PR1
         RTS
-* COLMN: the output's column in A (Z set at 0): the screen's (0-31), or on the printer (DEVNUM $FE) the printer's,
-* PCOL, which PRTOUT counts. Keeps B.
-COLMN   LDA     <DEVNUM
-        CMPA    #$FE
+* COLMN: the output's column in A (Z set at 0): the screen's (0-31), or while the output goes to the printer (the
+* two-byte call at PRTOUT, its high byte alone: no other output routine is in its page, tests/basic-printer.test.js)
+* the printer's, PCOL, which PRTOUT counts; a POKEd DEVNUM 254 prints on the screen, so the screen's column. Keeps B.
+COLMN   LDA     <ZCHROUT+1
+        CMPA    #PRTOUT/256
         BNE     COLM1
         LDA     PCOL
         RTS

@@ -108,8 +108,8 @@ STRDST  EQU     $0025           ; one past the end of the last string copied int
 *                                 byte lower than the original's strings, so this is our pointer + 1]
 MEMTOP  EQU     $0027           ; one past the top of the string space
 CURLIN  EQU     $0068           ; the line running; $FFFF in direct mode
-DEVNUM  EQU     $006F           ; where output goes: 0 the screen, $FF the tape (CSAVE ,A); any other value the
-*                                 screen too (the original's $FE, the printer, is not built) [OWN]
+DEVNUM  EQU     $006F           ; where output goes: 0 the screen, $FF the tape (CSAVE ,A); $FE during LLIST and
+*                                 PRINT #-2 (printer.inc); a $FE POKEd, or any other value, the screen [OWN]
 WARMFL  EQU     $0071           ; $55 after a cold start: the reset button keeps the program
 CURPOS  EQU     $0088           ; the cursor's screen address (16 bits)
 BLINK   EQU     $008F           ; the cursor's blink countdown

@@ -6,24 +6,20 @@
 * [OWN]. PRINT's comma and TAB( and LIST's line end take the printer's own column there (PCOL, COLMN) [OWN]. This
 * module is after $A000 so that the routine starting at $A000 stays there (section 3).
 
-* PRTDEV: from PRINT #: the device. -1 as before (A = $FF, the file checked, CDEV); -2 [UM]: A = $FE with the output on
-* the printer until PRINT's own end, which then returns through PRTOFF; PRINT #-2 alone prints a carriage return
-* [BB bb11 stmt-printer2]. #-2 is seen in the text before the device is read, so PRINT #-1 takes more cycles than
-* it did, never fewer; a space after # is then read as for any other device (?DN ERROR) [OWN].
-PRTDEV  LDX     <TXTPTR
-        LDD     1,X
-        CMPD    #T_MINUS*256+'2'
-        BEQ     PRD2
-        LDA     #'#'            ; (CDEV reads the device from the #, in A)
-        LDB     #$FE            ; (open for output)
-        JSR     CDEV
+* PRTDEV: from PRINT #: the device, an expression as for any device (DEVAR0). -1 as before (A = $FF, the file
+* checked, FILCHK); -2 [UM]: A = $FE with the output on the printer until PRINT's own end, which then returns through
+* PRTOFF; PRINT #-2 alone prints a carriage return [BB bb11 stmt-printer2]; any other device ?DN ERROR.
+PRTDEV  JSR     DEVAR0          ; D = the device + 1
+        ADDD    #1
+        BEQ     PRD2            ; (-2)
+        CMPD    #1
+        LBNE    DNERR           ; (not -1)
+        LDA     #$FE            ; (open for output)
+        JSR     FILCHK          ; (A stays)
         INCA
         RTS
-PRD2    LEAX    2,X             ; (the 2: the last character taken)
-        STX     <TXTPTR
-        JSR     <ZCHRGET
+PRD2    JSR     <ZCHRGOT
         BEQ     PRD3
-        LBCS    DNERR           ; (a digit after the 2: #-20 to #-29, ?DN ERROR as for any other device)
         PULS    X               ; PRINT's own return goes through PRTOFF
         LDD     #PRTOFF
         PSHS    D

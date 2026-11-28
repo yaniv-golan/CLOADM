@@ -67,9 +67,9 @@ These are hard rules for everyone who works on this ROM.
   (`node tools/basic-size.js`). What the size pass relies on [OWN]:
   * **Two-byte calls.** Nineteen busy routines each have a `JMP` at the top of the direct page (`ZTRAMP`, `$C7-$FF`),
     so a call is `JSR <ZCHRGET`: two bytes for three, and three cycles more. The first size pass made ten (`CHRGET`,
-    `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`, `CHKCOM`, `USCHR`, `EVNUM`, at `$E2-$FF`), the second
-    six more below them (`GETBYT`, `SNERR`, `RPAREN`, `FCERR`, `CHKNUM`, `MOVMF`, at `$D0-$E1`); none is called from
-    timed code. A third pass (2026-11-28) made three more (`COMMA`, `LPAREN`, `ERROR`, at `$C7-$CF`), which timed code
+    `CHRGOT`, `CHROUT`, `FNARGN`, `FPRUN`, `PRTSTR`, `LINGET`, `CHKCOM`, `USCHR`, `EVNUM`), the second
+    six more below them (`GETBYT`, `SNERR`, `RPAREN`, `FCERR`, `CHKNUM`, `MOVMF`); none is called from
+    timed code. A third pass (2026-11-28) made three more (`COMMA`, `LPAREN`, `ERROR`, first in `ZINIT`'s list), which timed code
     does call (`LPAREN` in every numeric function): 3 cycles more each, and no recorded loop below the original's. The `JMP`s are written at a cold start from a list of addresses in the ROM (`ZINIT`, `boot.inc`), the
     RAM vectors' with them. `tools/build-basic.js` fails if the direct-page variables reach them.
   * **Scratch bytes shared.** `ON`'s, `RENUM`'s, `DRAW`'s, `PAINT`'s and `GET`/`PUT`'s work uses `PRINT USING`'s
@@ -313,12 +313,13 @@ These are hard rules for everyone who works on this ROM.
   (to `FONINE`'s unused neighbour), `FORVAR`, `DRANG` and `DRSCL` (after `TEMPPT`) and `GXY` (the 4 free bytes after
   `KEYDLY`). `RESTOR` and `UNIMPL` go back to their modules and `MOVFM` (into `mathfn.inc`) comes below `$A000`:
   16,218, `$BF6C`, 131 free; `cas-cloadm2`'s B 2,417.
-* **`LLIST` and `PRINT #-2`** (`printer.inc`, after `$A000`; `PRTOFF` in the 6 bytes at `$8000`) took 120 bytes:
-  16,338, the code ending at `$BFDC`, 20 bytes below the vectors. `PRTDEV` looks for `-2` after the `#` with `LDD`,
-  then puts the `#` back in A for `CDEV`, which reads the device from it; a digit after the 2 is `?DN ERROR`. The
-  printer keeps its own column, `PCOL` (`$0114`, counted by `PRTOUT`): PRINT's comma and `TAB(` and LIST's line end
-  read it through `COLMN` on the printer, the screen's column anywhere else (the screen's made a comma after
-  `PRINT "XYZ";` loop for ever) [OWN]. `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
+* **`LLIST` and `PRINT #-2`** (`printer.inc`, after `$A000`; `PRTOFF` in the 6 bytes at `$8000`) took 116 bytes:
+  16,334, the code ending at `$BFD8`, 24 bytes below the vectors. `PRTDEV` reads the device as an expression
+  (`DEVAR0`), as for -1, so `PRINT #D` with `D=-2` prints too; any device but -1 and -2 is `?DN ERROR`. The
+  printer keeps its own column, `PCOL` (`$0114`, counted by `PRTOUT`, one byte: after 256 characters with no carriage
+  return it counts from 0 again): PRINT's comma and `TAB(` and LIST's line end read it through `COLMN` while the
+  output goes to `PRTOUT`, the screen's column anywhere else, a `POKE 111,254` included (the screen's made a comma
+  after `PRINT "XYZ";` loop for ever) [OWN]. `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
   output back on the screen and `DEVNUM` 0, after a BREAK in `LLIST` too. `DRSCAL` goes back to `draw.inc`, so that
   `SCRNST` starts at `$A000` again.
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
@@ -369,7 +370,7 @@ corrupting the image.
 
 | Range | Use |
 |---|---|
-| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$D0`: none free below the two-byte calls, 4 below `$68`, 4 at `$99-$9C`, where `RND`'s seed was), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the cursor's delay ([section 14](#14-the-cursor)), `$9D-$9E` `EXEC`'s address (`CLOADM`'s exec address), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$D0-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
+| `$0000-$00FF` | the direct page: the interpreter's variables (pointers, the two floating-point accumulators, the text pointer, flags, P2's current mode, start page and colour byte, `DRAW`'s angle and scale) up to `DPEND` (`$C7`: none free below the two-byte calls or below `$68`; `$99-$9C`, where `RND`'s seed was, holds `GXY`), laid out around the fixed addresses programs use, the original's ([section 15](#15-interface-contract-basics-pointers-in-low-ram)): `$19-$28` the program and memory pointers, `$68` the line running, `$6F` the output device, `$71` the cold-start flag, `$88-$89` the cursor's address, `$8F` its blink countdown, `$97-$98` the cursor's delay ([section 14](#14-the-cursor)), `$9D-$9E` `EXEC`'s address (`CLOADM`'s exec address), `$A6-$A7` the text pointer, `$AF` `TRON`; then the two-byte calls' `JMP`s at `$C7-$FF` (`ZTRAMP`; section 2, the size budget), written with the RAM vectors at a cold start. P2's colours, colour set, last point and the point read are here too. DP is 0 throughout |
 | `$0100-$01D4` | the system RAM block, laid out by `RMB` in `d64basic.asm` (so nothing overlaps; the build fails if it reaches `BLKBUF`): the RAM jump vectors (IRQ, FIRQ, NMI, SWI, SWI2, SWI3), so a program can hook an interrupt [OWN; addresses to align in P3]; `TIMER` at `$0112`; `RND`'s seed at `$0116-$0119`, as on the original ([BB] bb8 `rnd-seq`; `$0114-$0115` unused); the `DEF USR` addresses; the cassette's name block, ending just below `$0149`, the lower-case flag; the 8 temporary string descriptors; `FOR`'s step and limit; the numeric functions' temporaries; the number conversion and `PRINT USING` buffer; it ends at `SYSEND` (`$01D5`), which the build keeps at or below `BLKBUF` |
 | `$01DA-$02D8` | `BLKBUF`, the cassette's one block buffer, as on the original ([BB] bb8 `cas-cloadm2`: `CLOADM` leaves the namefile's exec address at 485; `cas-data-errors`: `OPEN "O"` builds its namefile over the last record written): every block read (a namefile, the blocks of a file passed over, a text file's blocks while their lines go in, a data file's records) and the records a data file or `CSAVE ,A` gathers to write; below the line buffer, which a typed `CLOADM` or `SKIPF` is still running from |
 | `$02DC-$03D9` | the line input buffer, as on the original ([BB] `ram-pointers2` (2026-11-26)): the typed line from `$02DD` (250 characters + terminator), and the crunched line written over it from `$02DC`, a byte behind (`CRUNCH` reads ahead of where it writes; `'`, two bytes for one, can only close that gap) |
@@ -629,9 +630,11 @@ All of them run with no ROM, on our ROM assembled at test time.
 * **`tests/basic-printer.test.js`:** LLIST and `PRINT #-2`: bb11 `stmt-printer2` replayed, the screen and the 49 printer
   bytes identical; nothing sent while the printer's busy line (PIA 1 PB0) is held high, then the bytes in order;
   `$800F` and `$8000`;
-  the output back on the screen before the next statement [OWN]; and a mutant of each rule (the byte after the
-  strobe, no busy wait, `PRINT #-2` alone printing nothing, LLIST's missing CR at column 0, the output left on the
-  printer), each failing it.
+  the output back on the screen before the next statement [OWN]; the printer's column for the comma and `TAB(`,
+  the screen's with `POKE 111,254`; BREAK and an error in LLIST; the device as an expression (`PRINT #D`), `#-1` as
+  before, `#-23` `?DN ERROR`; and a mutant of each rule (the byte after the strobe, no busy wait, `PRINT #-2` alone
+  printing nothing, LLIST's missing CR at column 0, the output left on the printer, the screen's or `DEVNUM`'s
+  column, `DEVNUM` left after BREAK, `#-1`'s mode, `#-2` and other devices not told apart), each failing it.
 * **The keyboard and the screen, through the matrix:** the line editor's keys (left arrow erases a character,
   SHIFT-left arrow the line, BREAK drops it, SHIFT-0 lower case and back) in the case `editor-keys`
   (`tests/basic-lang.test.js`); SHIFT-@ pausing a running program and BREAK stopping it in `tests/basic-pause.test.js`;
@@ -1259,7 +1262,7 @@ region below `$97` is full); `SEED` from `$94` to `$99`; everything after `EXECA
 `$C9` to `$CC`). No byte is left unused between the regions. What may have to move later, once
 P3's census says which addresses programs use: the program and memory pointers (`TXTTAB`, `VARTAB`, `ARYTAB`,
 `ARYEND`, `FRETOP`, `STRBOT`, `MEMTOP`), `TXTPTR` and `CURLIN`, `TIMER`, `CASEFL`, the floating-point accumulators
-(`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$D0-$FF` (whatever the original keeps there), and in the
+(`FACEXP`-`ARGSGN`), `EXECAD`, `SEED`, the two-byte calls at `$C7-$FF` (whatever the original keeps there), and in the
 system block at `$0100` the RAM vectors, the `DEF USR` table and the cassette's name block. Each new fixed address adds
 a region split in `d64basic.asm` and a check in `tools/build-basic.js`, as these three did.
 
@@ -1311,5 +1314,5 @@ look costs `RETURN` 24 cycles, taken back from `GOSUB`'s delay (`GSDLY`), so a `
 as before (ram-pointers2's 500 in 83 fields).
 
 Still to do here: the RAM vectors and hooks
-(the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$D0-$FF` (whatever the original keeps
+(the [DOC] lead puts the IRQ's `JMP` at `$010C`), and the two-byte calls at `$C7-$FF` (whatever the original keeps
 there), which belong to the machine-code interface.

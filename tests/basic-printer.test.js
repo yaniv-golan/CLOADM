@@ -83,8 +83,8 @@ const others = (rom) => { const r = runCase(rom, '#tape-blank\n10 OPEN "O",#-1,"
 {
   const g = others(built.rom);
   check('PRINT #-1 writes to the tape file and PRINT #-3 is ?DN ERROR, as before', g.ok, g.t);
-  const m = others(mutant('printer.inc', "        LDA     #'#'            ; (CDEV reads the device from the #, in A)\n", ''));
-  check('mutant "A not put back before CDEV": PRINT #-1 no longer works', !m.ok, m.t);
+  const m = others(mutant('printer.inc', '        JSR     FILCHK          ; (A stays)\n        INCA\n', '        JSR     FILCHK          ; (A stays)\n'));
+  check('mutant "PRINT #-1 returns $FE": PRINT #-1 no longer writes the tape file', !m.ok, m.t);
 }
 
 // The printer's own column [OWN]: PRINT #-2's comma moves to the next 16 of it and TAB(n) to its column n, whatever the
@@ -99,8 +99,24 @@ const pcol = (rom) => {
   const g = pcol(built.rom);
   check('PRINT #-2,"A","B" after the screen\'s column 3: B at the printer\'s column 16', g.comma, JSON.stringify(g.a));
   check('PRINT #-2,"A";TAB(5);"B": B at the printer\'s column 5', g.tab, JSON.stringify(g.b));
-  const m = pcol(mutant('print.inc', '        CMPA    #$FE\n        BNE     COLM1\n', '        CMPA    #$FE\n        BRA     COLM1\n'));
+  const m = pcol(mutant('print.inc', '        CMPA    #PRTOUT/256\n        BNE     COLM1\n', '        CMPA    #PRTOUT/256\n        BRA     COLM1\n'));
   check('mutant "the comma and TAB( take the screen\'s column": no longer as above', !m.comma && !m.tab, JSON.stringify([m.a, m.b]));
+}
+// COLMN tells the printer by the output routine (the two-byte call at PRTOUT), its high byte alone: no other routine
+// that call is set to is in PRTOUT's page
+check('CHROUT and EDPUT are not in PRTOUT\'s page (COLMN compares the high byte)', ['CHROUT', 'EDPUT'].every((k) => built.symbols.get(k) >> 8 !== built.symbols.get('PRTOUT') >> 8));
+// $6F POKEd to 254 prints on the screen [BB bb6 famous-pokes], so PRINT's comma, TAB( and LIST's line end take the
+// screen's column, even with the printer's column left at 3 (it was a loop for ever, the printer's column never moving)
+const poked = (rom) => {
+  const x = runCase(rom, '#printer-ready\n#timeout 5\n10 REM X\n20 REM Y\nPRINT #-2,"ABC";\nPOKE 111,254:PRINT "A","B";TAB(20);"C":LIST:POKE 111,0\n');
+  const t = x.transcript, k = t.findIndex((l) => l.startsWith('POKE 111,254')); // (the command takes two rows)
+  return { ok: x.status === 'ok' && t[k + 2] === 'A               B   C' && t[k + 3] === '10 REM X' && t[k + 4] === '20 REM Y', t: [x.status, t.slice(k, k + 6)] };
+};
+{
+  const g = poked(built.rom);
+  check('POKE 111,254: the comma, TAB(20) and LIST on the screen at the screen\'s columns', g.ok, JSON.stringify(g.t));
+  const m = poked(mutant('print.inc', 'COLMN   LDA     <ZCHROUT+1\n        CMPA    #PRTOUT/256\n', 'COLMN   LDA     <DEVNUM\n        CMPA    #$FE\n'));
+  check('mutant "COLMN tells the printer by DEVNUM": no longer as above', !m.ok, JSON.stringify(m.t));
 }
 // BREAK during LLIST: the output back on the screen, the screen's column as it was (no empty row before OK) and $6F
 // (DEVNUM) 0; an error in LLIST's range the same [OWN]
@@ -120,8 +136,20 @@ const brk = (rom) => {
 const dn = (rom) => { const x = runCase(rom, '#printer-ready\nPRINT #-23,1\n'); return { ok: x.transcript.includes('?DN ERROR') && !x.printer, t: x.transcript }; };
 {
   check('PRINT #-23,1: ?DN ERROR, nothing printed', dn(built.rom).ok, JSON.stringify(dn(built.rom).t));
-  const m = dn(mutant('printer.inc', '        LBCS    DNERR           ; (a digit after the 2: #-20 to #-29, ?DN ERROR as for any other device)\n', ''));
-  check('mutant "a digit after #-2 not refused": no longer ?DN ERROR', !m.ok, JSON.stringify(m.t));
+  const m = dn(mutant('printer.inc', '        LBNE    DNERR           ; (not -1)\n', ''));
+  check('mutant "a device other than -1 and -2 not refused": no longer ?DN ERROR', !m.ok, JSON.stringify(m.t));
+}
+// The device is an expression, as for -1: D=-2:PRINT #D and PRINT # -2 (a space) both print [OWN]
+const expr = (rom) => {
+  const p = (x) => (x.printer ? Buffer.from(x.printer.hex, 'hex').toString('latin1') : '');
+  const x = runCase(rom, '#printer-ready\nD=-2:PRINT #D,"A";\nPRINT # -2,"B"\n');
+  return { ok: x.status === 'ok' && p(x) === 'AB\r' && !x.transcript.includes('?DN ERROR'), t: [x.status, p(x), x.transcript.slice(-4)] };
+};
+{
+  const g = expr(built.rom);
+  check('D=-2:PRINT #D,"A"; and PRINT # -2,"B": "AB" and a CR to the printer', g.ok, JSON.stringify(g.t));
+  const m = expr(mutant('printer.inc', '        ADDD    #1\n        BEQ     PRD2            ; (-2)\n', '        ADDD    #1\n        BRA     PRD2X\nPRD2X\n'));
+  check('mutant "-2 not taken from the expression": no longer printed', !m.ok, JSON.stringify(m.t));
 }
 
 console.log(`\n${n - fail}/${n} passed`);
