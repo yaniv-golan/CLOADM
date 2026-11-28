@@ -19,13 +19,6 @@ USCHR   PSHS    X
         PULS    X,PC
 UC1     CLRA                    ; (Z set)
         PULS    X,PC
-* the format character after it, without moving (A; Z set past the end)
-USNEXT  INC     <USPOS
-        BSR     USCHR
-        DEC     <USPOS
-        TSTA
-        RTS
-
 PRUSNG  JSR     <ZCHRGET          ; (on USING)
         JSR     EVSTR
         LDX     <STRPTR         ; the format stays a temporary until the end (read through its descriptor)
@@ -79,39 +72,36 @@ US9     LDX     <USDSC
 
 * USFLD: does a field start at USPOS? C clear if so (USKIND: 0 a number, 1 !, 2 %...%), A = the character;
 * C set for a literal
-USFLD   JSR     <ZUSCHR
-        CLR     <USKIND
+USFLD   CLR     <USKIND         ; both callers have just read A with USCHR
         CMPA    #'#'
-        BEQ     UFY
+        BEQ     UFYES
         CMPA    #'+'
-        BEQ     UFY
+        BEQ     UFYES
         CMPA    #'.'
-        BNE     UF1
-        JSR     USNEXT          ; . starts a number only before a #
-        CMPA    #'#'
-        BEQ     UFY0
-        BRA     UFN0
-UF1     CMPA    #'*'
-        BEQ     UF2
+        BEQ     UFDOT
+        CMPA    #'*'
+        BEQ     UFPAIR
         CMPA    #'$'
-        BNE     UF3
-UF2     PSHS    A               ; ** and $$ start a number
-        JSR     USNEXT
-        CMPA    ,S+
-        BEQ     UFY0
-        BRA     UFN0
-UF3     INC     <USKIND
+        BEQ     UFPAIR
+        INC     <USKIND
         CMPA    #'!'
-        BEQ     UFY
+        BEQ     UFYES
         INC     <USKIND
         CMPA    #'%'
-        BEQ     UFY
-UFN0    JSR     <ZUSCHR
+        BEQ     UFYES
         ORCC    #1
-        RTS
-UFY0    JSR     <ZUSCHR
-UFY     ANDCC   #$FE
-        RTS
+UFYES   RTS                     ; an equal comparison already cleared carry
+UFDOT   LDB     #'#'             ; . must precede #, whereas * and $ must repeat
+        BRA     UFLOOK
+UFPAIR  TFR     A,B
+UFLOOK  PSHS    D
+        INC     <USPOS
+        JSR     <ZUSCHR
+        DEC     <USPOS
+        CMPA    1,S
+        BEQ     UFEXIT
+        ORCC    #1
+UFEXIT  PULS    D,PC            ; restore the character without changing carry
 
 * USSTR: the string field: ! its first character, %..% that many characters, padded with spaces
 USSTR   JSR     FRESTR
@@ -152,95 +142,96 @@ USS5    JSR     SPACE
 USS6    RTS
 
 * USNUM: the numeric field at USPOS and the number in FAC
-USNUM   CLR     <USNB
-        CLR     <USNA
-        CLR     <USFLG          ; bits: 1 a point, 2 commas, 4 *, 8 $, 16 + first, 32 + last, 64 - last, 128 ^^^^
-        JSR     <ZUSCHR
+USNUM   CLRA
+        CLRB
+        STD     <USNB           ; adjacent counts before and after the point
+        STA     <USFLG          ; 1 point, 2 commas, 4 stars, 8 dollar, 16/32/64 sign, 128 exponent
+        LDX     <USDSC
+        LDU     2,X             ; format bytes; B is the original 8-bit descriptor index
+        LDB     <USPOS
+        BSR     UNCHAR
         CMPA    #'+'
-        BNE     USN1
+        BNE     UNPREFIX
         LDA     #16
         STA     <USFLG
-        INC     <USPOS
-USN1     JSR     <ZUSCHR
-        LDB     #4              ; ** (and **$)
-        CMPA    #'*'
-        BEQ     USN2
-        LDB     #8              ; $$
+        BSR     UNNEXT
+UNPREFIX CMPA   #'*'
+        BNE     UNDOLL
+        LDA     #4
+        BSR     UNPAIR
         CMPA    #'$'
-        BNE     USN3
-USN2     PSHS    A
-        TFR     B,A
-        JSR     USFSET
-        LDA     #2
-        STA     <USNB
-        INC     <USPOS
-        INC     <USPOS
-        PULS    A
-        CMPA    #'*'
-        BNE     USN3
-        JSR     <ZUSCHR
-        CMPA    #'$'
-        BNE     USN3
-        LDA     #8              ; **$
-        BSR     USFSET
+        BNE     UNINT
+        LDA     #8
+        BSR     UNFLAG
+        BRA     UNPLACE
+UNPAIR  BSR     UNFLAG
         INC     <USNB
-        INC     <USPOS
-USN3     JSR     <ZUSCHR           ; # and , before the point
-        CMPA    #'#'
-        BEQ     USN4
-        CMPA    #','
-        BNE     USN5
-        LDA     #2
-        BSR     USFSET
-USN4     INC     <USNB
-        INC     <USPOS
-        BRA     USN3
-USN5     CMPA    #'.'
-        BNE     USN7
-        LDA     #1
-        BSR     USFSET
-        INC     <USPOS
-USN6     JSR     <ZUSCHR           ; # after it
-        CMPA    #'#'
-        BNE     USN7
-        INC     <USNA
-        INC     <USPOS
-        BRA     USN6
-USN7     LDB     #4              ; ^^^^
-        PSHS    B
-        LDB     <USPOS
-        PSHS    B
-UN7A    JSR     <ZUSCHR
-        CMPA    #'^'
-        BNE     UN7B
-        INC     <USPOS
-        DEC     1,S
-        BNE     UN7A
-        LDA     #128
-        BSR     USFSET
-        LEAS    2,S
-        BRA     USN8
-UN7B    PULS    B               ; not four: they are literals
-        STB     <USPOS
-        LEAS    1,S
-USN8     JSR     <ZUSCHR           ; a + or - at the end
-        CMPA    #'+'
-        BNE     USN9
-        LDA     <USFLG
-        BITA    #16
-        BNE     USN10
-        LDA     #32
-        BRA     UN9A
-USN9     CMPA    #'-'
-        BNE     USN10
-        LDA     #64
-UN9A    BSR     USFSET
-        INC     <USPOS
-USN10    BRA     USFMT
-USFSET  ORA     <USFLG
+        INC     <USNB
+        INCB
+UNNEXT  INCB
+UNCHAR  CMPB    ,X              ; same signed B,U addressing as USCHR's B,X
+        BHS     UNEND
+        LDA     B,U
+        RTS
+UNEND   CLRA
+        RTS
+UNFLAG  ORA     <USFLG
         STA     <USFLG
         RTS
 
+UNDOLL  CMPA    #'$'
+        BNE     UNINT
+        LDA     #8
+        BSR     UNPAIR
+UNINT   CMPA    #'#'
+        BEQ     UNPLACE
+        CMPA    #','
+        BNE     UNPOINT
+        LDA     #2
+        BSR     UNFLAG
+UNPLACE INC     <USNB
+        BSR     UNNEXT
+        BRA     UNINT
+UNPOINT CMPA    #'.'
+        BNE     UNEXP
+        LDA     #1
+        BSR     UNFLAG
+UNFRAC  BSR     UNNEXT
+        CMPA    #'#'
+        BNE     UNEXP
+        INC     <USNA
+        BRA     UNFRAC
+UNEXP   CMPA    #'^'
+        BNE     UNSIGN
+        PSHS    B               ; all four carets, or consume none
+        LDY     #4
+UNCARET CMPA    #'^'
+        BNE     UNBACK
+        BSR     UNNEXT
+        LEAY    -1,Y
+        BNE     UNCARET
+        LEAS    1,S
+        PSHS    A
+        LDA     #128
+        BSR     UNFLAG
+        PULS    A
+        BRA     UNSIGN
+UNBACK  PULS    B
+        BRA     UNDONE          ; the current character is a caret
+UNSIGN  CMPA    #'-'
+        BEQ     UNMINUS
+        CMPA    #'+'
+        BNE     UNDONE
+        LDA     <USFLG
+        BITA    #16
+        BNE     UNDONE
+        LDA     #32
+        BRA     UNTRAIL
+UNMINUS LDA     #64
+UNTRAIL BSR     UNFLAG
+        INCB
+UNDONE  STB     <USPOS
+        BRA     USFMT
 * USFMT: the number into FBUFFR, then printed in the field
 USFMT   CLR     <USNEG
         TST     <FACSGN
@@ -422,45 +413,38 @@ UMBODY  LDU     #FBUFFR+20
         LDA     #'0'
         STA     ,U+
         BRA     UMB2
-UMB1    STB     <USK
-UMB1A   LDA     ,X+
+UMB1    LDA     ,X+
         STA     ,U+
-        DEC     <USK
+        DECB
         BEQ     UMB2
-        LDA     <USFLG          ; a comma where three digits remain to the point
+        LDA     <USFLG
         BITA    #2
-        BEQ     UMB1A
-        LDA     <USK
+        BEQ     UMB1
+        TFR     B,A
 UMB1B   SUBA    #3
         BHI     UMB1B
-        BNE     UMB1A
+        BNE     UMB1
         LDA     #','
         STA     ,U+
-        BRA     UMB1A
+        BRA     UMB1
 UMB2    LDA     <USFLG
         BITA    #1
         BEQ     UMB5
         LDA     #'.'
         STA     ,U+
-        LDB     <USNA           ; the decimals: leading zeros when the digits were fewer
-        BEQ     UMB5
-        LDA     ,S
-        CMPA    <USNA
-        BHS     UMB4
-        PSHS    B
-        SUBB    1,S
+        LDB     <USNA           ; copy the digits present, with any missing leading zeros
+        SUBB    ,S
+        BLS     UMB4
         LDA     #'0'
 UMB3    STA     ,U+
         DECB
         BNE     UMB3
-        PULS    B
         LDB     ,S
-UMB4    TSTB
+        BRA     UMB4A
+UMB4    LDB     <USNA
+UMB4A   TSTB
         BEQ     UMB5
-        CMPB    <USNA
-        BLS     UMB4A
-        LDB     <USNA
-UMB4A   JSR     CPYXU
+        JSR     CPYXU
 UMB5    LEAS    1,S
         TFR     U,D
         SUBD    #FBUFFR+20
@@ -534,16 +518,13 @@ UMO12   PSHS    B
         BITB    #32             ; + last
         BEQ     UMO13
         BSR     USSIGN
-UMO13   BITB    #64             ; - last
+UMO13   BITB    #64             ; - last: a space for a positive value
         BEQ     UMO14
         LDA     #' '
-        TST     <USNEG
-        BEQ     UMO13A
-        LDA     #'-'
-UMO13A  JSR     <ZCHROUT
+        BRA     USGSIGN
 UMO14   RTS
 USSIGN  LDA     #'+'
-        TST     <USNEG
+USGSIGN TST     <USNEG
         BEQ     USG1
         LDA     #'-'
 USG1    JMP     <ZCHROUT
