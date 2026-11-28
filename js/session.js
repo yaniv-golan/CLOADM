@@ -1811,9 +1811,14 @@ export class Session {
     const odd = sockets.filter((s) => s.status === 'loaded-unrecognised');
     const cause = odd.length
       ? odd.map((s) => `The ${s.label} is ${s.file || 'a file'}, which isn't recognised.`).join(' ') + ' It may be a different revision, a damaged copy, or for another machine.'
-      : m.cartPort && m.cartPort !== (m === this.shownMachine ? this.drives.bareController : null)
+      : m.cartPort && m.cartPort !== (m === this.drives.targetMachine ? this.drives.bareController : null)
         // (the ROM-less disk controller a mounted disk plugs in is not one the person chose and cannot take over: it
-        // keeps the old text)
+        // keeps the old text. The exclusion is about the machine the drives act on (Session.loadTarget's: the BASIC
+        // session beside a full-screen chat, else the one on screen), not the one on screen, because callers here pass
+        // another machine: chatTarget().bootStatus() and promptState (js/claude) pass the person's BASIC session while
+        // the chat machine is on screen, and loadMedia/restartForLoad pass the load's own target, which is that same
+        // BASIC session. Keyed on the shown machine, the bare controller in the person's machine was told as a
+        // cartridge the moment the chat opened.)
         // a plugged-in cartridge may have taken over at power-on (a ROM image loaded as a cartridge did exactly this);
         // NAME is the cartridge's display name, as the Cartridge chip shows it (js/ui/phone-sheets.js)
         ? `The ROMs are recognised, but a cartridge is plugged in (${m.cartPort.name || 'Cartridge'}), and it may have taken over at power-on. Take it out and switch on again; if that doesn't help, please report it.`
