@@ -1,11 +1,5 @@
 * ---------------- memory, machine code, user functions ----------------
 
-* PEEK(address)
-PEEK    JSR     <ZFNARGN
-        JSR     GETADR
-        TFR     D,X
-        LDB     ,X
-        JMP     GIVB
 * POKE address, value
 POKE    JSR     EVADR
         PSHS    D

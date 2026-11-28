@@ -180,12 +180,9 @@ FINT    BSR     FTRUNC
         JMP     FADDX
 
 * INT(x), FIX(x), SGN(x) (ABS(x) is in fp.inc)
-INT     JSR     <ZFNARGN
-        BRA     FINT
 FIX     JSR     <ZFNARGN
         BRA     FTRUNC
-SGN     JSR     <ZFNARGN
-        CLRA
+SGN     CLRA
         CLRB
         TST     <FACEXP
         BEQ     SGN1
@@ -197,7 +194,6 @@ SGN1    JMP     GIVABF
 
 * SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
 * is not a square root rounded once
-SQR     JSR     <ZFNARGN
 FSQR    JSR     <ZFPRUN
         FCB     F_STO+6,F_LD+K_HALF,F_STO+5,0
         JMP     PW5
@@ -205,7 +201,6 @@ FSQR    JSR     <ZFPRUN
 * LOG(x): x = m 2^e with m in [sqrt 1/2, sqrt 2); t = (m-1)/(m+1); ln m = 2t (1 + t^2/3 + t^4/5 + ...); then
 * (ln m / ln 2 + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and SQR(65536)
 * 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]
-LOG     JSR     <ZFNARGN
 FLOG    TST     <FACSGN
         LBMI    FCERR
         LDA     <FACEXP
@@ -238,7 +233,6 @@ LOG2    JSR     <ZFPRUN         ; log2 m; + e; x ln 2
 
 * EXP(x): t = x / ln 2 (rounded), n = INT(t), r = (t - n) ln 2, e^x = 2^n e^r: base 2, as the original (its
 * EXP(11.5129255) is 100000.00344849, the rounding of t showing in the low digits) [BB bb2 fn-sqr-bits]
-EXP     JSR     <ZFNARGN
 FEXP    LDX     #EXPMAX
         JSR     FCMPM
         LBMI    OVERR           ; above 127 ln 2: ?OV ERROR
@@ -273,9 +267,6 @@ EXP1    JSR     <ZFPRUN           ; t = x / ln 2, kept
 * SIN(x + pi/2), x + pi/2 rounded (COS(1E9) .923879533, COS(-1E9) .707106781). TAN(x) is SIN(x) over the sine of
 * 1/4 - f turns (1 more when that is below 0): the same f, not COS(x) (TAN(1E9) is 1; TAN(100) 35 units off SIN(100)
 * / COS(100))
-SIN     JSR     <ZFNARGN
-        BRA     FSIN
-COS     JSR     <ZFNARGN
 FCOS    JSR     <ZFPRUN
         FCB     F_ADD+K_PIO2,0
 FSIN    BSR     SINRED
@@ -307,7 +298,6 @@ SINRED  JSR     <ZFPRUN
         JSR     <ZFPRUN
         FCB     F_SUBX+1,F_STO+5,0      ; (kept for TAN)
         RTS
-TAN     JSR     <ZFNARGN
 FTAN    BSR     SINRED
         BSR     SINF
         JSR     <ZFPRUN         ; the sine kept; 1/4 - f
@@ -323,7 +313,6 @@ FTN1    BSR     SINF
 
 * ATN(x): |x| > 1 uses pi/2 - ATN(1/x); above tan(pi/12) it uses pi/6 + ATN((x sqrt 3 - 1)/(x + sqrt 3));
 * then x - x^3/3 + x^5/5 - ...
-ATN     JSR     <ZFNARGN
 FATN    LDA     <FACSGN
         STA     <ATSGN
         CLR     <FACSGN
@@ -419,7 +408,6 @@ PW9     RTS
 * its sign bit [BB bb9 rnd-neg]. RND(n) for n above 0 takes one step and gives INT(f x INT(n) + 1), f the fraction
 * rounded, the product rounded before the 1 is added, the sum rounded before INT: RND(1.5) is 1 where f x 1.5 is
 * 1.2, RND(1) is 2 where f is 1 - 2^-32 [BB bb9 rnd-args].
-RND     JSR     <ZFNARGN
 RNDF    TST     <FACEXP         ; (RNDF: RND of FAC)
         BEQ     RN1             ; 0, whatever its sign [BB bb9 rnd-neg]
         TST     <FACSGN
@@ -488,4 +476,14 @@ MOVFM   LDD     ,X
         LDA     4,X
         STA     <FACM+3
         CLR     <FACEXT         ; the guard byte
+        RTS
+
+* E10INC, E10DEC: FPE10 + 1, - 1. E10ADJ: FPE10 + B (signed). The new value is in D too.
+* (fpconv.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+E10INC  LDB     #1
+        FCB     $8C             ; (CMPX #: skips the LDB)
+E10DEC  LDB     #-1
+E10ADJ  SEX
+        ADDD    <FPE10
+        STD     <FPE10
         RTS

@@ -24,33 +24,6 @@ PVDEF   EQU     58              ; the default volume: the levels 46 and 17 (V15 
 PPER    EQU     3460            ; a pause's period: four writes of the middle level, the sound left on [BB bb2 snd-play-length
 *                                 pause4, pause8, pause16: a write every 865 cycles or so through the pause]
 
-* NTPER: octave 1's twelve notes, C first, as 4 x the period in cycles, NOTEP x 2^((9-k)/12) / 4 [OWN: equal
-* temperament; BB: with PYNOTE's grid it gives every measured period to the cycle], the ratio 2^((9-k)/12) x 65536
-* rounded. Octave o's note: x = NTPER >> (o - 1); its period is (x + PRND) / 4 rounded down to the octave's grid
-* NGR, plus the octave's NAD.
-NTPER   FDB     (NOTEP*2*110218/65536+1)/2      ; C
-        FDB     (NOTEP*2*104032/65536+1)/2      ; C#
-        FDB     (NOTEP*2*98193/65536+1)/2       ; D
-        FDB     (NOTEP*2*92682/65536+1)/2       ; D#
-        FDB     (NOTEP*2*87480/65536+1)/2       ; E
-        FDB     (NOTEP*2*82570/65536+1)/2       ; F
-        FDB     (NOTEP*2*77936/65536+1)/2       ; F#
-        FDB     (NOTEP*2*73562/65536+1)/2       ; G
-        FDB     (NOTEP*2*69433/65536+1)/2       ; G#
-        FDB     (NOTEP*2*65536/65536+1)/2       ; A
-        FDB     (NOTEP*2*61858/65536+1)/2       ; A#
-        FDB     (NOTEP*2*58386/65536+1)/2       ; B
-* NTLET: the note number (1-12, C = 1) of the letters A-G
-NTLET   FCB     10,12,1,3,5,6,8
-
-* PLINIT: PLAY's defaults [UM; BB], then the temporary strings freed (CLRVAR's last step, which calls it)
-PLINIT  LDD     #3*256+4
-        STD     PLOCT           ; O3, L4
-        LDD     #2*256+PVDEF
-        STD     PLTMP           ; T2, the default volume
-        CLR     PLDOT
-        JMP     RSTTMP
-
 PLAY    JSR     MSSTR
         JSR     SNDDAC
 PY0     JSR     MSCMD           ; (X var$; is run there; nothing of ours stays on the stack between commands)

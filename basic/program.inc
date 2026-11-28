@@ -133,6 +133,43 @@ CLRVAR  PSHS    D
         JSR     PLINIT          ; PLAY's defaults, then the temporary strings freed (play.inc)
         PULS    D,PC
 
+* RESTORE: READ starts again from the program's first DATA [UM]. It takes no line number: RESTORE 20 is
+* ?SN ERROR (what follows it is left for the statement runner) [BB bb1 io-data]
+* (here, beside CLRVAR, its other caller, so that a routine starts at $A000: section 3)
+RESTOR  LDD     <TXTTAB
+        SUBD    #1
+        STD     <DATPTR
+        RTS
+
+* PLAY's note table and defaults (play.inc's; here, beside CLRVAR, PLINIT's caller, so that a routine starts at
+* $A000: section 3)
+* NTPER: octave 1's twelve notes, C first, as 4 x the period in cycles, NOTEP x 2^((9-k)/12) / 4 [OWN: equal
+* temperament; BB: with PYNOTE's grid it gives every measured period to the cycle], the ratio 2^((9-k)/12) x 65536
+* rounded. Octave o's note: x = NTPER >> (o - 1); its period is (x + PRND) / 4 rounded down to the octave's grid
+* NGR, plus the octave's NAD.
+NTPER   FDB     (NOTEP*2*110218/65536+1)/2      ; C
+        FDB     (NOTEP*2*104032/65536+1)/2      ; C#
+        FDB     (NOTEP*2*98193/65536+1)/2       ; D
+        FDB     (NOTEP*2*92682/65536+1)/2       ; D#
+        FDB     (NOTEP*2*87480/65536+1)/2       ; E
+        FDB     (NOTEP*2*82570/65536+1)/2       ; F
+        FDB     (NOTEP*2*77936/65536+1)/2       ; F#
+        FDB     (NOTEP*2*73562/65536+1)/2       ; G
+        FDB     (NOTEP*2*69433/65536+1)/2       ; G#
+        FDB     (NOTEP*2*65536/65536+1)/2       ; A
+        FDB     (NOTEP*2*61858/65536+1)/2       ; A#
+        FDB     (NOTEP*2*58386/65536+1)/2       ; B
+* NTLET: the note number (1-12, C = 1) of the letters A-G
+NTLET   FCB     10,12,1,3,5,6,8
+
+* PLINIT: PLAY's defaults [UM; BB], then the temporary strings freed (CLRVAR's last step, which calls it)
+PLINIT  LDD     #3*256+4
+        STD     PLOCT           ; O3, L4
+        LDD     #2*256+PVDEF
+        STD     PLTMP           ; T2, the default volume
+        CLR     PLDOT
+        JMP     RSTTMP
+
 * ---------------- LIST ----------------
 * LIST, LIST n, LIST n-, LIST -n, LIST n-m [UM]
 LIST    BSR     RANGE

@@ -67,5 +67,12 @@ check('the budget: free is the gap from the code\'s end to the vectors', g.free 
 const inReserved = b.listing.filter((l) => l.bytes && l.bytes.length && [[0x8006, 0x802A], [0xA000, 0xA00E]].some(([s, e]) => l.addr < e && l.addr + l.bytes.length > s));
 check('only the published jumps and words are placed in the reserved spans', inReserved.length === 9 && inReserved.every((l) => /^\S*\s+(JMP|FDB)\s/.test(l.src)), inReserved.map((l) => l.src.trim().split(/\s+/).slice(0, 2).join(' ')).join(', '));
 
+// EVFUNC's bound for the functions whose handlers take their bracketed argument from FNARGN (SGN to PEEK) is written
+// as 24 (T_PEEKF is defined after expr.inc): it must be twice PEEK's place among the function tokens
+{
+  const at = b.listing.find((l) => l.file === 'expr.inc' && /^\s+CMPA\s+#24\s/.test(l.src) && l.addr > b.symbols.get('EVFUNC') && l.addr < b.symbols.get('EVF1'));
+  check('EVFUNC: CMPA #24 is twice PEEK\'s place (T_PEEKF - $80)', !!at && 2 * (b.symbols.get('T_PEEKF') - 0x80) === 24, String(b.symbols.get('T_PEEKF')));
+}
+
 console.log(`\n${n - fail}/${n} passed`);
 process.exitCode = fail ? 1 : 0;

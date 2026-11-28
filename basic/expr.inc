@@ -224,13 +224,19 @@ EVV1    STX     <STRPTR
 EVFUNC  JSR     <ZCHRGET
         CMPA    #TF_LAST
         BHI     EVFSN
-        TFR     A,B
-        ASLB                    ; (the token's bit 7 goes: twice its place in the table)
+        ASLA                    ; (the token's bit 7 goes: twice its place in the table)
         BCC     EVFSN
         LDX     #FUNCDS
-        ABX
-        LDX     ,X
+        LDX     A,X
+        BRN     *               ; (3 cycles: each function's call takes the cycles it did, LDX A,X being 3
+*                                 fewer than TFR, ABX and LDX ,X)
+        CMPA    #24             ; SGN to PEEK (24: twice PEEK's place, T_PEEKF-$80; tests/basic-size.test.js):
+*                                 the argument in brackets first (FNARGN), which returns into the handler
+        BHI     EVF1
+        PSHS    X
         JSR     <ZCHRGET
+        JMP     <ZFNARGN
+EVF1    JSR     <ZCHRGET
         JMP     ,X
 EVFSN   JMP     <ZSNERR
 

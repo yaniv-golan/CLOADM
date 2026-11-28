@@ -22,14 +22,6 @@ FDIVR   PSHS    X
         PULS    X
         JSR     MOVFM
         JMP     FDIV
-* E10INC, E10DEC: FPE10 + 1, - 1. E10ADJ: FPE10 + B (signed). The new value is in D too.
-E10INC  LDB     #1
-        FCB     $8C             ; (CMPX #: skips the LDB)
-E10DEC  LDB     #-1
-E10ADJ  SEX
-        ADDD    <FPE10
-        STD     <FPE10
-        RTS
 
 * I32FLT: FAC = the unsigned 32-bit integer in FACM, positive
 I32FLT  CLR     <FACSGN

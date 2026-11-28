@@ -65,7 +65,12 @@ PRO2    PULS    B,X,PC
 
 * POS(n): the cursor's column (n is not used) (misc.inc's; here so that a routine starts at $A000:
 * docs/clean-room-basic.md section 3)
-POS     JSR     <ZFNARGN
-        LDB     <CURPOS+1
+POS     LDB     <CURPOS+1
         ANDB    #31
+        JMP     GIVB
+
+* PEEK(address) (misc.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+PEEK    JSR     GETADR
+        TFR     D,X
+        LDB     ,X
         JMP     GIVB

@@ -86,13 +86,6 @@ RD5     LDD     <TXTPTR
         BRA     RD1
 RD6     RTS
 
-* RESTORE: READ starts again from the program's first DATA [UM]. It takes no line number: RESTORE 20 is
-* ?SN ERROR (what follows it is left for the statement runner) [BB bb1 io-data]
-RESTOR  LDD     <TXTTAB
-        SUBD    #1
-        STD     <DATPTR
-        RTS
-
 * INPUT ["prompt";] variable, ...: "? " (after the prompt), then a line typed; items separated by commas;
 * "??" asks for more when the line ran out, ?REDO when a number was badly formed (the whole INPUT again),
 * ?EXTRA IGNORED when there were too many [UM]. Only in a program (?ID ERROR). BREAK stops the program.

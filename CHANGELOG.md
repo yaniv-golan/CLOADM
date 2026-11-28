@@ -233,14 +233,15 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   loop of `cas-cloadm2`) takes 576 fields against the original's 573 (578 before), and `cas-cloadm2`'s last span
   2,416 against the original's 2,396 (at most 2,419.96). No
   recorded loop is faster than the original's.
-  The ROM is 111 bytes smaller (16,218; 131 bytes free before the vectors): shared tails, tests dropped where the
-  flags were already set, flags known to be 0 set with `INC`, an `IF` that is false ending through `REM`'s scan,
-  three more two-byte calls (`COMMA`, `LPAREN`, `ERROR`); no recorded loop is faster than the original's.
+  The ROM is 132 bytes smaller (16,197 before `LLIST` below; 152 bytes free before the vectors): shared tails, tests
+  dropped where the flags were already set, flags known to be 0 set with `INC`, an `IF` that is false ending through
+  `REM`'s scan, three more two-byte calls (`COMMA`, `LPAREN`, `ERROR`), the first 13 functions' bracketed argument
+  read in one place; no recorded loop is faster than the original's.
   `LLIST` and `PRINT #-2` print, as the bb11 record of the original shows them: each line as `LIST` shows it with a
   carriage return, numbers as on the screen, `PRINT #-2` alone a carriage return, and a wait while the printer's busy
   line is high; the published entry `$800F` is the printer routine (`tests/basic-printer.test.js`). On the printer,
   `,` and `TAB(` count the printer's own column, and BREAK or an error during `LLIST` puts the output back on the
-  screen. The ROM is 116 bytes larger with them (16,334; 24 bytes free).
+  screen. The ROM is 116 bytes larger with them (16,313; 45 bytes free).
 
 #### Changed
 

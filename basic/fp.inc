@@ -458,6 +458,5 @@ FCEQ0   CLRA
 FCEQ    RTS
 
 * ABS(x) (mathfn.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
-ABS     JSR     <ZFNARGN
-        CLR     <FACSGN
+ABS     CLR     <FACSGN
         RTS

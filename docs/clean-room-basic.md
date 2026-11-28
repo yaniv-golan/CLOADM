@@ -208,7 +208,10 @@ These are hard rules for everyone who works on this ROM.
     Every timed loop, before (this pass) and now, against the original, in fields (`tests/basic-timing.test.js` and the
     `tests/basic-timing-*.test.js` beside it, a file a probe or two, check the probes: the original's count or up to 8%
     more, never fewer; `tests/basic-ram-loops.test.js` the eight loops, up to two more, and
-    `tests/basic-ram-cloadm.test.js` `cas-cloadm2`'s spans, up to 1% more):
+    `tests/basic-ram-cloadm.test.js` `cas-cloadm2`'s spans, up to 1% more; those spans also move by a field or two with
+    the layout alone: the case's first program does an extra `PEEK` at every byte 112 or 114 in `$0000-$03FE`, and the
+    ROM addresses held there, the two-byte calls' `JMP`s and the RAM vectors among them, have such low bytes or not as
+    routines move [OWN; the two-byte calls to `$xx72` that the function pass below made took B from 2,417 to 2,418]):
 
     | Loop | The original | Ours before | Ours now |
     |---|---|---|---|
@@ -313,6 +316,13 @@ These are hard rules for everyone who works on this ROM.
   (to `FONINE`'s unused neighbour), `FORVAR`, `DRANG` and `DRSCL` (after `TEMPPT`) and `GXY` (the 4 free bytes after
   `KEYDLY`). `RESTOR` and `UNIMPL` go back to their modules and `MOVFM` (into `mathfn.inc`) comes below `$A000`:
   16,218, `$BF6C`, 131 free; `cas-cloadm2`'s B 2,417.
+* **The functions' argument, after `LLIST`** [OWN]: `EVFUNC` sends `SGN` to `PEEK` (the first 13 function tokens)
+  through `FNARGN`, the handler's address pushed for its return, so the 13 handlers lose their `JSR <ZFNARGN` (`INT`
+  and `SIN` are `FINT` and `FSIN` themselves); a `BRN` keeps every function's call at the cycles it took (`LDX A,X`
+  is 3 fewer than `TFR`, `ABX` and `LDX ,X`), `INT` and `SIN` 3 fewer for the `BRA` they lose. `RESTOR` and
+  `E10INC`-`E10ADJ` (into `mathfn.inc`) and `PLAY`'s note table with `PLINIT` (beside `CLRVAR`) come below `$A000`,
+  `PEEK` (into `printer.inc`) goes above it: 21 bytes, 16,313, the code ending at `$BFC3`, 45 free; every recorded
+  loop as before but `INT(1E9+.5)` a field faster (+2 on the original) and `cas-cloadm2`'s B 2,418 (above).
 * **`LLIST` and `PRINT #-2`** (`printer.inc`, after `$A000`; `PRTOFF` in the 6 bytes at `$8000`) took 116 bytes:
   16,334, the code ending at `$BFD8`, 24 bytes below the vectors. `PRTDEV` reads the device as an expression
   (`DEVAR0`), as for -1, so `PRINT #D` with `D=-2` prints too; any device but -1 and -2 is `?DN ERROR`. The
