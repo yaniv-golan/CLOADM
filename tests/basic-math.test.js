@@ -193,9 +193,16 @@ ex('EXP(0) = 1', 'FEXP', 0, 1);
 ex('SIN(0) = 0', 'FSIN', 0, 0);
 ex('COS(0) = 1', 'FCOS', 0, 1);
 ex('ATN(0) = 0', 'FATN', 0, 0);
-// ^ is always EXP(y LOG |x|), whole exponents too, as the original's: its five bytes [BB bb13c fn-log-pow]
-const POW = [[2, 2, '131,0,0,0,1'], [2, 10, '139,0,0,0,6'], [2, -1, '127,127,255,255,255'], [2, 30, '159,0,0,0,0'], [2, 60, '189,0,0,0,0'],
-  [10, -2, '122,35,215,10,61'], [-2, 3, '132,128,0,0,1'], [-2, 2, '131,0,0,0,1'], [0, 0, '129,0,0,0,0'], [0, 2, '0,0,0,0,0']];
+// ^ is always EXP(y LOG |x|), whole exponents too, as the original's: its five bytes, read from the record
+// [BB bb13c fn-log-pow: each line X Y and the bytes of X^Y]
+const powRecord = (() => {
+  const rec = require('fs').readFileSync(require('path').join(__dirname, 'basic/bb/bb13c-real.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((r) => r.case === 'fn-log-pow');
+  const got = new Map();
+  for (const l of rec.transcript) { const m = /^ ?(-?\d+) +(-?\d+) (\d+(?:,\d+){4}),$/.exec(l); if (m) got.set(`${m[1]} ${m[2]}`, m[3]); }
+  return got;
+})();
+const POW = [[2, 2], [2, 10], [2, -1], [2, 30], [2, 60], [10, -2], [-2, 3], [-2, 2], [0, 0], [0, 2]].map(([a, b]) => [a, b, powRecord.get(`${a} ${b}`)]);
+check('bb13c fn-log-pow holds the ten powers checked here', POW.every(([, , w]) => typeof w === 'string'), JSON.stringify(POW));
 for (const [a, b, want] of POW) {
   const r = rom1('FPOWER', packedOf(a), packedOf(b));
   check(`${a}^${b} is the original's ${want} [BB bb13c]`, r.st === 'ok' && String(F.pack(get(FAC))) === want, r.st === 'ok' ? String(F.pack(get(FAC))) : r.st);
