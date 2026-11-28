@@ -10,79 +10,78 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
 
 #### Added
 
-- **"Printed to the printer", the first time each machine prints.** The first time a machine prints text in a visit while the
-  Printer box is out of sight, a toast says so, once for each machine, and its Show opens Settings → Machine (the
-  Settings sheet on a phone) at the Printer box, showing the end of the printout. (`js/ui/printer-panel.js`)
+- **A toast says "Printed to the printer", the first time each machine prints.** If a machine prints text while the
+  Printer box is out of sight, a toast tells you, once for each machine in a visit. Its Show button opens Settings →
+  Machine (the Settings sheet on a phone) at the Printer box, scrolled to the end of the printout.
+  (`js/ui/printer-panel.js`)
 
 #### Changed
 
-- **WYRMFIRE 0.1.0: monsters stand on the floor, shrink with distance and no longer vanish when you turn.** A monster's
-  feet are on the floor at every distance (they used to float near you and sink far away), it gets smaller the further
-  away it is, it is drawn when it is at the edge of the view or half behind a pillar, and it never shows through a wall
-  that is nearer than it is. A picture takes up to about half the work it did (standing still; less of a saving when
+- **WYRMFIRE 0.1.0: monsters stand on the floor, shrink with distance and no longer vanish when you turn.** A
+  monster's feet are on the floor at every distance (they used to float near you and sink far away), and it gets
+  smaller the further away it is. It is drawn at the edge of the view and when half behind a pillar, and it never shows
+  through a nearer wall. A picture takes up to about half the work it did when you stand still (less of a saving when
   turning or walking), and sound effects play at a steady rate however busy the picture is. Only the engine changed
   (`wyrmfire.bin`, SHA-256 63783f6c, 11,145 bytes, WYRMFIRE's tag v0.1.0 at 6af92df); the converter, the licence and
   the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`, rebuilt with
-  `tools/wyrmfire-vendor.js`). `tests/wyrmfire-sprites.test.js` holds the monsters to the floor line, the
-  scaling and the walls.
+  `tools/wyrmfire-vendor.js`). `tests/wyrmfire-sprites.test.js` holds the monsters to the floor line, the scaling and
+  the walls.
 
-- **The Printer box counts lines and saves text.** Settings → Machine's Printer box shows "3 lines" instead of a byte
-  count, and "nothing yet", with Save printout and Clear disabled, while nothing printed is text (a CoCo's start-bit NUL
-  or a Dragon's reset $FF alone). Save printout writes `<machine>-printout.txt`: the text exactly as the box shows it,
-  with CR LF line ends, in plain ASCII; the raw bytes stay available to the command line, MCP and tests
-  (`Session.printoutFile`, the `.prn`). Its printer reads "Serial printer, 600 baud", or "Not plugged in · choose Printer
-  under Serial port", and the line count never wraps. Switching machines while the machine has a printout says so: "Switching to
-  CoCo 1/2 resets the Dragon 64. The running program and the printout will be lost." (with " The printout will be
-  lost." after what a switch takes out), and so does a RAM change: "Changing RAM switches the CoCo 1/2 off and on. The
-  running program and the printout will be lost." The printout is a region named
-  "Printout" that the keyboard can reach and scroll. Printing adds only the new text to the box, and nothing at all
-  while the box is hidden, so a long printout no longer slows the page. (`js/ui/printer-panel.js`, `js/printout.js`)
+- **The Printer box counts lines and saves text.** In Settings → Machine, the Printer box shows "3 lines" instead of a
+  byte count. While nothing printed is text (a CoCo's start-bit NUL or a Dragon's reset $FF alone) it says "nothing
+  yet", and Save printout and Clear are disabled. Save printout writes `<machine>-printout.txt`: the text exactly as the
+  box shows it, in plain ASCII with CR LF line ends. The raw bytes stay available to the command line, MCP and tests
+  (`Session.printoutFile`, the `.prn`). The box says what its printer is, "Serial printer, 600 baud" or "Not plugged in ·
+  choose Printer under Serial port", and the line count never wraps. Switching machines while the machine has a printout
+  warns you, "Switching to CoCo 1/2 resets the Dragon 64. The running program and the printout will be lost." (with " The
+  printout will be lost." after whatever else a switch takes out), and so does a RAM change: "Changing RAM switches the
+  CoCo 1/2 off and on. The running program and the printout will be lost." The printout is a region named "Printout"
+  that the keyboard can reach and scroll. Printing adds only the new text to the box, and nothing while the box is
+  hidden, so a long printout no longer slows the page. (`js/ui/printer-panel.js`, `js/printout.js`)
 
 - **For contributors: the changelog guard refuses a fenced code block under [Unreleased] and names a "####" heading
-  with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real
-  structure to every rule that keeps the section honest, so the section may not carry a fence at all -- describe
-  the shape in prose or link to the docs (`tests/changelog.test.js` fails naming every fence line that falls inside
-  the section, and that message ends with the remedy: describe it in prose or link to the docs). A "####" or "###"
-  heading written with nothing after it (what a keystroke or a merge leaves) is reported by line instead of passing
-  unmentioned -- and `####   ` no longer reads as a kind called " ". (`tests/changelog-guard.js`)
+  with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real structure
+  to the rules that keep the section honest, so the section may not carry a fence at all; describe the shape in prose
+  or link to the docs. `tests/changelog.test.js` fails naming every fence line inside the section, and its message ends
+  with that remedy. A "####" or "###" heading with nothing after it (what a keystroke or a merge leaves) is now reported
+  by line instead of passing unmentioned, and `####   ` no longer reads as a kind called " ".
+  (`tests/changelog-guard.js`)
 
 #### Fixed
 
-- **The printout no longer jumps to its end while you read it.** Scrolled up in the Printer box, the view stays where
-  you put it as the machine prints; at the end (within about a line) it follows the printing. Opening Settings → Machine,
-  on a phone or in the drawer, shows the end of the printout instead of its top. (`js/ui/printer-panel.js`)
+- **The printout no longer jumps to its end while you read it.** Scroll up in the Printer box and the view stays where
+  you put it as the machine prints; at the end (within about a line) it follows the printing. Opening Settings →
+  Machine, on a phone or in the drawer, shows the end of the printout instead of its top. (`js/ui/printer-panel.js`)
 
 - **Held sideways, a machine switch asks again.** With the touch keys on a phone held sideways, picking a machine from
-  Menu → Machine… put the switch's question in the app bar, which goes away with the picker, so the switch could be
-  neither confirmed nor cancelled. The bar now stays until the question is answered. (`js/ui/touch-keys.js`)
+  Menu → Machine… put the switch's question in the app bar, which goes away with the picker, so you could neither
+  confirm nor cancel the switch. The bar now stays until you answer. (`js/ui/touch-keys.js`)
 
 - **A phone's RAM change can be answered.** Changing RAM in the Settings sheet asked its question in the app bar behind
-  the sheet, where neither Switch nor Cancel could be pressed. The question now stands at the foot of the open sheet.
+  the sheet, where Switch and Cancel could not be pressed. The question now stands at the foot of the open sheet.
   (`js/ui/phone-sheets.js`)
 
-- **A ZIP of programs opened through Open… or dropped on the page now loads them.** OPENS_TEXT says CLOADM
-  opens "programs (.bin, .bas, .txt) … and ZIPs of these", but a program inside a ZIP was sorted with the
-  drop's ROM candidates and, not being one, ended in the refusal list: the toast said "No ROMs could be
-  used. Not ROMs: game.zip: demo.bin" and nothing ran. A drop and Open… now give every non-ROM entry
-  CLOADM can open — a program, a tape, a disk, a snapshot, loose or out of a folder or ZIP — to the
-  program loader, as loose files always went; what cannot be opened at all (a readme riding along in a
-  folder or archive of ROMs) keeps the "Not ROMs" report it always had, and the Add ROMs screen keeps its
-  own reading (there nothing is a program). A cartridge-sized `.rom` inside a ZIP or folder is reported
-  under "Not ROMs", not loaded — a `.rom` is a ROM dump's extension too, and this drop cannot tell a
-  cartridge image from such a dump; open the `.rom` on its own to use it as a cartridge. A `.rom` whose
-  content CLOADM opens by itself (a WAV tape) still loads by its content, and loose files are
-  unchanged. (`tests/zip-programs.test.js`, browser check group romInput)
+- **A ZIP of programs opened with Open… or dropped on the page now loads them.** CLOADM says it opens "programs (.bin,
+  .bas, .txt) … and ZIPs of these", but a program inside a ZIP ended in the refusal list ("No ROMs could be used. Not
+  ROMs: game.zip: demo.bin") and nothing ran. Now every entry CLOADM can open (a program, a tape, a disk or a snapshot,
+  loose or from a folder or ZIP) goes to the program loader, as loose files always did. What cannot be opened at all (a
+  readme riding along in a folder or archive of ROMs) is still reported under "Not ROMs", and the Add ROMs screen reads
+  files as before, since there nothing is a program. A cartridge-sized `.rom` inside a ZIP or folder is reported under
+  "Not ROMs", not loaded, because a `.rom` is a ROM dump's extension too and this drop cannot tell the two apart; open
+  the `.rom` on its own to use it as a cartridge. A `.rom` whose content CLOADM opens by itself (a WAV tape) still loads
+  by its content, and loose files are unchanged. (`tests/zip-programs.test.js`, browser check group romInput)
 
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
   way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and
   the Library then added the same file as the machine's BASIC and switched it on: BASIC started with itself plugged in,
   the screen stayed green, and "No OK after 5 seconds" blamed CLOADM. Open… now sorts what it is given as a drop on the
-  screen does (a ROM to Your ROMs, the rest loaded as before, a cartridge still a cartridge), and a load of a machine's
-  or a disk controller's ROM image (by its contents or its usual name) is refused as a ROM to add (Add ROMs on the page,
-  `add_roms` for the MCP server, `--roms` for the command line), also through the MCP `load` tool and the command line.
+  screen does: a ROM goes to Your ROMs, the rest loads as before, and a cartridge is still a cartridge. Loading a
+  machine's or a disk controller's ROM image (recognised by its contents or its usual name) is refused as a ROM to add
+  (Add ROMs on the page, `add_roms` for the MCP server, `--roms` for the command line), also through the MCP `load` tool
+  and the command line.
 
 - **"No OK after 5 seconds" names a plugged-in cartridge.** When the ROMs are recognised and a cartridge is in the
-  port, the card no longer blames CLOADM: it says "The ROMs are recognised, but a cartridge is plugged in (NAME), and it
+  port, the card no longer blames CLOADM. It says "The ROMs are recognised, but a cartridge is plugged in (NAME), and it
   may have taken over at power-on. Take it out and switch on again; if that doesn't help, please report it." NAME is the
   cartridge's name as the Cartridge chip shows it. With no cartridge, or only the disk controller a mounted disk plugs
   in when there is no disk ROM, the text is unchanged. (`js/session.js`)
