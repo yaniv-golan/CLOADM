@@ -457,9 +457,6 @@ FCLT    LDA     #$FF
 FCEQ0   CLRA
 FCEQ    RTS
 
-* the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a routine starts at $A000:
-* docs/clean-room-basic.md section 3)
-UNIMPL  JMP     <ZFCERR
 
 * SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
 * is not a square root rounded once (mathfn.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md
@@ -476,3 +473,9 @@ RSTTMP  PSHS    X               ; (and PTRGET's modes: a new statement starts)
         CLR     <DIMFLG
         CLR     <VARCRE
         PULS    X,PC
+
+* FZERO: FAC = 0
+FZERO   CLR     <FACEXP
+        CLR     <FACSGN
+        CLR     <FACEXT
+        RTS

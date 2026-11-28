@@ -180,11 +180,11 @@ LS4     LDD     ,X
         BHI     LSDONE
         BSR     LSTLIN
         JSR     BRKTST
-        BCS     LSBRK
+        BCS     LSDONE
         LDX     ,X
         BRA     LS4
-LSDONE  RTS
-LSBRK   JMP     READY
+LSDONE  JMP     READY           ; LIST and LLIST end the line, in a program too: what follows them is not run [BB
+*                                 bb13c stmt-list-end: LIST:PRINT 1 prints no 1, 10 LIST:PRINT 2 runs no 2 or 3]
 LSSN    JMP     <ZSNERR
 * RANGE: n, n-, -n, n-m or nothing at the text pointer: from TMPPT2 to TMPCNT (0-65535 when not given)
 RANGE   CLRA

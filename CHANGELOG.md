@@ -257,6 +257,8 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   on the screen is no longer faster than on the original, but for numbers of one or two digits (bb13d to time
   them). 23 bytes (16,220; 138 bytes free). `MOTOR ON` waits a quarter of a field longer (25.85 fields), so that a
   typed `MOTOR ON:PRINT TIMER` still counts the original's 26 now that the screen's echo takes a little longer.
+  `LIST` and `LLIST` end the line they are on, in a program too, as on the original (bb13c): what follows them on
+  the line, or the program's next lines, is not run.
 
 #### Changed
 

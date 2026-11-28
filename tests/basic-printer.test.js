@@ -125,6 +125,16 @@ const poked = (rom) => {
   const m = poked(mutant('print.inc', 'COLMN   LDA     <DEVNUM\n        CMPA    #$FE\n        BNE     COLM1\n', 'COLMN   LDA     <DEVNUM\n        CMPA    #$FE\n        BRA     COLM1\n'));
   check('mutant "COLMN gives the screen\'s column": no longer as above', !m.ok, JSON.stringify(m.t));
 }
+// LIST and LLIST end the line they are on, in a program too [BB bb13c stmt-list-end]: the record's screen and
+// printer bytes whole; a mutant whose LIST returns runs what follows it
+{
+  const rec = fs.readFileSync(path.join(__dirname, 'basic/bb/bb13c-real.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).find((r) => r.case === 'stmt-list-end');
+  const le = (rom) => { const x = runCase(rom, caseText('stmt-list-end')); return { ok: x.status === 'ok' && JSON.stringify(x.transcript) === JSON.stringify(rec.transcript) && JSON.stringify(x.printer) === JSON.stringify(rec.printer), t: x.transcript }; };
+  const g = le(built.rom);
+  check('stmt-list-end: LIST and LLIST end the line, typed and in a program, as recorded [BB bb13c]', g.ok, JSON.stringify(g.t));
+  const m = le(mutant('program.inc', 'LSDONE  JMP     READY', 'LSDONE  RTS\n        NOP\n        NOP\n       '));
+  check('mutant "LIST returns to the line": no longer as recorded', !m.ok, JSON.stringify(m.t));
+}
 // BREAK during LLIST: the output back on the screen, the screen's column as it was (no empty row before OK) and $6F
 // (DEVNUM) 0; an error in LLIST's range the same [OWN]
 const lines = Array.from({ length: 120 }, (_, k) => `${k + 1} REM LINE ${k + 1}`).join('\n');

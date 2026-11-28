@@ -439,11 +439,6 @@ RNW     DECB
         JMP     FTRUNC
 RN9     RTS
 
-* FZERO: FAC = 0 (fp.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
-FZERO   CLR     <FACEXP
-        CLR     <FACSGN
-        CLR     <FACEXT
-        RTS
 
 * MOVFM: FAC = the packed number at X. Keep X; use D. (fp.inc's, beside MOVAM; here so that a routine starts at
 * $A000: docs/clean-room-basic.md section 3)
@@ -473,3 +468,13 @@ E10ADJ  SEX
 * ABS(x)
 ABS     CLR     <FACSGN
         RTS
+
+* NEGD: D = -D (line.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md section 3)
+NEGD    COMA
+        COMB
+        ADDD    #1
+        RTS
+
+* the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a routine starts at
+* $A000: docs/clean-room-basic.md section 3)
+UNIMPL  JMP     <ZFCERR

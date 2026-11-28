@@ -224,8 +224,3 @@ LCDONE  RTS
 LCZERO  CLR     ,X
         CLR     1,X
         RTS
-* NEGD: D = -D
-NEGD    COMA
-        COMB
-        ADDD    #1
-        RTS

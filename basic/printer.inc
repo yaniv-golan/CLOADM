@@ -37,7 +37,7 @@ PRTON   LDD     #PRTOUT
 * LLIST [range]: LIST to the printer, each line as LIST shows it and a carriage return [UM; BB bb11 stmt-printer2]
 * (LIST leaves out a line's carriage return only at the printer's column 0, COLMN).
 LLIST   BSR     PRTON
-        JSR     LIST
+        JMP     LIST            ; (it ends through READY, which ends the printer's output: PRTEND)
 * PRTEND: the output back on the screen and DEVNUM 0 (LLIST's end; NEWLIN, so READY and ERROR too)
 PRTEND  CLR     <DEVNUM
         JMP     PRTOFF

@@ -357,6 +357,11 @@ These are hard rules for everyone who works on this ROM.
   `cas-echo-5`'s passes are still about 2% faster than the original's (599 fields against 613: printing a number of
   one or two digits, which bb13d `time-print-num` times). 23 bytes with `POKE 111,254`'s path: 16,220, 138 free
   (`RSTTMP` and `FSQR` go above `$A000`, so that `SCRNST` starts there again).
+* **`LIST` and `LLIST` end the line** [BB bb13c stmt-list-end]: on the original `LIST:PRINT 1` prints no 1 and a
+  program's `10 LIST:PRINT 2` runs neither 2 nor line 20 after it; `LLIST` the same (its printer bytes the listing
+  alone). Ours' `LIST` now ends through `READY`, as its BREAK did (`LLIST` with it, `READY` ending the printer's
+  output): 1 byte fewer. Still open from bb13a `stmt-printer`: `TIMER=0:PRINT #-2,"0123456789":PRINT TIMER` counts 1
+  field on the original and 0 on ours (a printer's byte takes longer there; one record, phase-dependent).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
