@@ -36,7 +36,7 @@ names contain one of the parts, and `node tools/browser-check.js --only <group>[
 | Floppy disks, `js/media/` | `fdc,disk,detect,state` (`disk` also selects the `disks*` suites) | `disk,media` |
 | Cassette | `tape` (also `tape-sound`) | `tape,tapePanel,tapeHud` |
 | Cartridges and sound chips | `bus,carts,ssc,sp0256,ay8910,audio` | `cartridge,sscBoard,audio` |
-| Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial` | `driveWire,webSerial,printer` |
+| Serial, printer, DriveWire | `serial,serial-api,acia,drivewire,web-serial,printout` | `driveWire,webSerial,printer,printerPanel` |
 | The assembler (`js/asm/`) | `asm,includes,disasm,source-share` | `debugger,sourceShare` |
 | Debugger | `debugger,debug-session,halt,probes,writewatch` | `debugger,debuggerScreen` |
 | Keyboard and input | `input,keyqueue,keyboard-symbols,touch-joystick,touch-thumb,press-break` | `input,inputScreen,touchJoystick,keyboardSymbols,typing` |
@@ -203,6 +203,7 @@ node tests/qr.test.js         # the QR encoder against ISO 18004's worked exampl
 node tests/press-break.test.js # BREAK delivery: our own firmware scans the matrix on dragon64, coco3 and mc10
 node tests/video.test.js     # scanline video: beam position, SAM display counter, mid-line mode splits
 node tests/serial.test.js    # serial line receiver and port devices, PIA output callback, printer paths, the Session's terminal
+node tests/printout.test.js  # the printout as text (js/printout.js): line ends, what is left out, the line count, the .txt bytes, the reader the Printer box appends with, the Session's printoutText/Lines/TextFile and raw printoutFile
 node tests/serial-api.test.js # session.serial on the 6551 and the bit-banger: every byte both ways, subscribers, delivery times, the trace (its hashes against the MAME-verified runs), diagnostics, --serial-trace
 node tests/disk-trace.test.js  # session.disk on the WD2797, WD2791 and WD1773: a full read, a late byte loop, a wrong length bit, rnf, write protect, status() without side effects, the trace's hashes against the MAME-verified runs, --disk-trace
 node tests/acia.test.js      # the 6551 alone: registers, data sheet rates, frames in every format both ways, errors, interrupts, state

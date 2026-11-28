@@ -2051,7 +2051,7 @@ async function typingChecks(browser, base, check) {
 }
 
 // The printer: bytes the machine prints appear in the Machine tab's Printer box, "Save
-// printout" downloads them as received, and Clear empties it. The Dragon's parallel port, driven by writing its
+// printout" downloads them as text (a .txt, CR LF line ends), and Clear empties it. The Dragon's parallel port, driven by writing its
 // PIAs (the stub firmware does not print): one byte per strobe pulse, a DAC tone inside the last pulse and after it
 // printing nothing, and BUSY (PIA1 PB0) low, the printer ready (tests/dragon-printer.test.js); the serial printers are
 // checked against MAME (run.js --printer).
@@ -2079,8 +2079,8 @@ async function printerChecks(browser, base, check) {
     && /Parallel printer port/.test(await page.textContent('#printerKind')));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnPrintSave')]);
   const bytes = fs.readFileSync(await dl.path());
-  check('printer: "Save printout" downloads the bytes as received', dl.suggestedFilename() === 'dragon64-printout.prn'
-    && bytes.toString('latin1') === 'HELLO PRINTER\r', `${dl.suggestedFilename()}, ${JSON.stringify(bytes.toString('latin1'))}`);
+  check('printer: "Save printout" downloads the text, CR LF line ends', dl.suggestedFilename() === 'dragon64-printout.txt'
+    && bytes.toString('latin1') === 'HELLO PRINTER\r\n', `${dl.suggestedFilename()}, ${JSON.stringify(bytes.toString('latin1'))}`);
   await page.click('#btnPrintClear');
   check('printer: Clear empties it', await page.textContent('#printout') === '' && await page.isDisabled('#btnPrintSave'));
   await pickMachine(page, 'coco');
@@ -2089,13 +2089,13 @@ async function printerChecks(browser, base, check) {
   await waitFor(page, () => window.emu.session.welcomeRunning);
   await stubPrompt(page);
   await openTab(page, 'Machine');
-  check('printer: the CoCo shows its serial printer', /Serial printer on the RS-232 port, 600 baud/.test(await page.textContent('#printerKind')));
+  check('printer: the CoCo shows its serial printer', await page.textContent('#printerKind') === 'Serial printer, 600 baud');
   // the serial port: plug in the terminal at 9600 baud, type a line (it goes to the machine), and what the machine
   // sends (frames driven onto its TXD here) shows in the terminal
   await page.selectOption('#selSerial', 'terminal');
   await page.selectOption('#selBaud', '9600');
   check('serial: the terminal is plugged in at 9600 baud', await page.evaluate(() => JSON.stringify(window.emu.session.serial.device)) === JSON.stringify({ chip: 'bit-banger', kind: 'terminal', baud: 9600, kinds: ['printer', 'terminal', 'loopback'] })
-    && await page.isVisible('#terminal') && /unplugged/.test(await page.textContent('#printerKind')));
+    && await page.isVisible('#terminal') && await page.textContent('#printerKind') === 'Not plugged in · choose Printer under Serial port');
   // a second subscriber beside the terminal panel (session.serial), kept across the machine switch below
   await page.evaluate(() => {
     window.serialSeen = { tx: [], rx: [] };
@@ -2197,6 +2197,229 @@ async function printerChecks(browser, base, check) {
   check('printer: the BASIC session\'s printout is there when it comes back on screen', (await page.textContent('#printout')).endsWith('Z'));
   check('printer: no page errors', !errors.length, errors.join('; '));
   await closePage(page);
+}
+
+// The Printer box (js/ui/printer-panel.js) on a desktop (1440x900) and a phone, upright (393x659) and sideways
+// (844x390), printed to by tools/printer-program.js on the built-in firmware (no ROMs): the Dragon's parallel printer
+// ($FF, a title, a TAB, a long line, then a line about every tenth of a second) and the CoCo's 600-baud serial printer.
+// Scrolled up, the view stays put while it prints; at the end (within a line) it follows; it shows the end when it
+// opens. The count is lines of text ("nothing yet", Save and Clear disabled, for a NUL or a $FF alone); Save writes the
+// text as shown (CR LF, no $FF or NUL); the switch confirmation names the printout; the first print of each machine
+// toasts "Printed to the printer" once, its Show opening Settings → Machine at the box; the copy; the box's role, tab
+// stop and name; only new text is appended, and nothing while the box is hidden. The expected text and line counts are
+// worked out here from the printed bytes by the rules, not by js/printout.js.
+async function printerPanelChecks(browser, base, check) {
+  const Emu = require('./mame-diff/lib/firmware').loadEmu();
+  const { printerProgram, TEST_BYTES, LONG_LINE } = require('./printer-program.js');
+  const bin = (port, bytes, slow) => [...printerProgram(Emu, { port, bytes, slow })];
+  const slowDragon = bin('dragon', TEST_BYTES, true), ffOnly = bin('dragon', [0xFF], false);
+  const nulOnly = bin('coco', [0x00], false), slowCoco = bin('coco', TEST_BYTES, true);
+  const textOf = (b) => {
+    let t = '';
+    for (let i = 0; i < b.length; i++) {
+      const c = b[i];
+      if (c === 13) { t += '\n'; if (b[i + 1] === 10) i++; } else if (c === 10) t += '\n'; else if (c === 9 || (c >= 32 && c < 127)) t += String.fromCharCode(c);
+    }
+    return t;
+  };
+  const linesOf = (t) => (/\S/.test(t) ? t.split('\n').length - (t.endsWith('\n') ? 1 : 0) : 0);
+  const HEAD = `CLOADM PRINTER TEST\n\tTABBED\n${LONG_LINE}\nLINE 0001\n`;
+  const PRINTED = 'Printed to the printer';
+  for (const [L, opts] of [['printer panel 1440x900', { viewport: { width: 1440, height: 900 } }],
+    ['printer panel 393x659', { viewport: { width: 393, height: 659 }, hasTouch: true, isMobile: true }],
+    ['printer panel 844x390', { viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true }]]) {
+    const ctx = await browser.newContext({ ...opts, serviceWorkers: 'block', acceptDownloads: true });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}?machine=dragon64`);
+    await started(page);
+    await stubPrompt(page);
+    // every toast raised, counted (page.toast looks feedback.toast up at each call: js/ui/page.js)
+    await page.evaluate(() => { const f = window.emu.feedback, t = f.toast; window.toasts = []; f.toast = (text, o) => { window.toasts.push(String(text)); return t(text, o); }; });
+    const printToasts = () => page.evaluate((p) => window.toasts.filter((t) => t === p).length, PRINTED);
+    const load = (b) => page.evaluate((b) => window.emu.session.load('printer.bin', new Uint8Array(b), { remember: false }), b);
+    const panelShown = () => page.evaluate(() => document.getElementById('printout').checkVisibility());
+    // the box hidden as a person hides it: the phone's sheet closed, the desktop drawer on another tab
+    const hide = async () => { if (await page.evaluate(() => !!document.querySelector('dialog.sheet[open]'))) await closeSheet(page); else await page.click('[role="tab"]:text-is("Display")'); await painted(page); };
+    const show = async () => { await openTab(page, 'Machine'); await painted(page); await painted(page); };
+    // the box as it is now, with the bytes it shows, read in one go (between two frames)
+    const box = () => page.evaluate(() => {
+      const b = document.getElementById('printout');
+      return { text: b.textContent, state: document.getElementById('printState').textContent, bytes: [...window.emu.machine.printed],
+        gap: b.scrollHeight - b.scrollTop - b.clientHeight, top: b.scrollTop, line: parseFloat(getComputedStyle(b).lineHeight) || 16,
+        save: document.getElementById('btnPrintSave').disabled, clear: document.getElementById('btnPrintClear').disabled };
+    });
+    const linesShown = (n) => waitFor(page, (n) => parseInt(document.getElementById('printState').textContent, 10) >= n, n, 20000);
+    const linesPrinted = (n) => waitFor(page, (n) => window.emu.session.printoutLines() >= n, n, 20000);
+    // the machine switch's question for `id`, read and cancelled
+    const switchQuestion = async (id) => {
+      if (await page.isVisible('#machineBtn')) await page.click('#machineBtn');
+      else { await page.click('#tkMenu'); await page.click('#tkMenuSheet [data-item="machine"]'); }
+      await waitFor(page, () => !document.getElementById('machineMenu').hidden);
+      await page.evaluate((id) => document.querySelector(`#machineMenu button[data-machine="${id}"]`).click(), id);
+      await waitFor(page, () => !document.getElementById('switchConfirm').hidden);
+      await painted(page);
+      return page.textContent('#switchText');
+    };
+    const names = await page.evaluate(() => [window.emu.profiles.dragon64.name, window.emu.profiles.coco.name]);
+
+    // ---- the first print: the toast, once; Show opens Settings → Machine at the box, at its end ----
+    check(`${L}: the box is out of sight before printing`, !(await panelShown()));
+    await load(slowDragon);
+    check(`${L}: the first print toasts "Printed to the printer" with Show`, await toastSeen(page, /^Printed to the printer$/)
+      && await page.textContent('#toastAction') === 'Show', await page.textContent('#toastText'));
+    await linesPrinted(12);
+    await page.click('#toastAction');
+    await waitFor(page, () => document.getElementById('printout').checkVisibility());
+    await painted(page);
+    const at = await page.evaluate(() => {
+      const h = document.getElementById('printerHeading').getBoundingClientRect(), b = document.getElementById('printout');
+      let sc = b.parentElement;
+      while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+      const v = sc ? sc.getBoundingClientRect() : { top: 0, bottom: innerHeight };
+      const sheet = document.getElementById('sheetSettings');
+      return { tab: document.getElementById('tab-machine').getAttribute('aria-selected'), sheet: sheet.open, inSheet: sheet.contains(b),
+        headSeen: document.elementFromPoint(h.left + 4, h.top + h.height / 2) === document.getElementById('printerHeading'), headTop: Math.round(h.top), boxBottom: Math.round(b.getBoundingClientRect().bottom), view: [Math.round(Math.max(0, v.top)), Math.round(Math.min(innerHeight, v.bottom))], focused: document.activeElement === b,
+        gap: b.scrollHeight - b.scrollTop - b.clientHeight, line: parseFloat(getComputedStyle(b).lineHeight) || 16, scrolls: b.scrollHeight > b.clientHeight };
+    });
+    check(`${L}: Show opens Settings → Machine (the phone's sheet, or the drawer) with the Printer box in view, focused, at its end`,
+      at.tab === 'true' && at.sheet === at.inSheet && at.headSeen && at.headTop >= at.view[0] - 1 && at.boxBottom <= at.view[1] + 1 && at.focused && at.scrolls && at.gap <= at.line, JSON.stringify(at));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-show.png`) });
+
+    // ---- the count, and the text as appended ----
+    await page.evaluate(() => {
+      const b = document.getElementById('printout');
+      window.ptNode = b.firstChild; window.ptRemoved = 0;
+      new MutationObserver((rs) => { for (const r of rs) window.ptRemoved += r.removedNodes.length; }).observe(b, { childList: true });
+    });
+    let s = await box();
+    check(`${L}: the count is the lines of text ("n lines"), the text the bytes' text`, s.state === `${linesOf(textOf(s.bytes))} lines` && s.text === textOf(s.bytes)
+      && s.text.startsWith(HEAD) && !s.save && !s.clear, `${s.state}, ${linesOf(textOf(s.bytes))} by the rules`);
+    // at the end: it follows
+    await linesShown(parseInt(s.state, 10) + 4);
+    s = await box();
+    check(`${L}: at the end, the view follows the printing`, s.gap <= 1, JSON.stringify({ gap: s.gap, top: s.top }));
+    // scrolled up: it stays put
+    await page.evaluate(() => { document.getElementById('printout').scrollTop = 0; });
+    const n0 = parseInt((await box()).state, 10);
+    await linesShown(n0 + 4);
+    s = await box();
+    check(`${L}: scrolled up, the view stays put while it prints`, s.top === 0 && s.gap > s.line, JSON.stringify({ gap: s.gap, top: s.top, state: s.state }));
+    // half a line from the end: within a line, so it follows
+    await page.evaluate(() => { const b = document.getElementById('printout'); b.scrollTop = b.scrollHeight - b.clientHeight - (parseFloat(getComputedStyle(b).lineHeight) || 16) / 2; });
+    await linesShown(parseInt((await box()).state, 10) + 4);
+    s = await box();
+    check(`${L}: within a line of the end, the view follows`, s.gap <= 1, JSON.stringify({ gap: s.gap, top: s.top }));
+    const kept = await page.evaluate(() => { const b = document.getElementById('printout'); return { same: b.firstChild === window.ptNode, nodes: b.childNodes.length, removed: window.ptRemoved }; });
+    s = await box();
+    check(`${L}: many updates append to one text node (nothing re-rendered), and the text is the printout's`,
+      kept.same && kept.nodes === 1 && kept.removed === 0 && s.text === textOf(s.bytes), JSON.stringify(kept));
+
+    // ---- hidden: nothing rendered; shown again: caught up, at its end ----
+    await page.evaluate(() => { document.getElementById('printout').scrollTop = 0; });
+    await hide();
+    await page.evaluate(() => {
+      window.ptHidden = 0;
+      const o = new MutationObserver((rs) => { window.ptHidden += rs.length; });
+      for (const id of ['printout', 'printState']) o.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true });
+      window.ptLines = window.emu.session.printoutLines();
+    });
+    await linesPrinted(n0 + 20);
+    check(`${L}: while the box is hidden, nothing in it changes as it prints`, await page.evaluate(() => window.ptHidden) === 0
+      && !(await panelShown()), String(await page.evaluate(() => window.ptHidden)));
+    await show();
+    s = await box();
+    check(`${L}: opened again, it shows the whole text, at its end`, s.text === textOf(s.bytes) && s.gap <= 1 && s.state === `${linesOf(s.text)} lines`,
+      JSON.stringify({ gap: s.gap, state: s.state }));
+
+    // ---- Save printout: the text as shown, CR LF, plain ASCII ----
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnPrintSave')]);
+    const file = fs.readFileSync(await dl.path());
+    const after = textOf(await page.evaluate(() => [...window.emu.machine.printed]));
+    const asText = file.toString('latin1');
+    check(`${L}: Save printout writes dragon64-printout.txt: the text, CR LF line ends, no $FF or NUL, plain ASCII`,
+      dl.suggestedFilename() === 'dragon64-printout.txt' && file[0] === 0x43 && !file.includes(0xFF) && !file.includes(0x00) && file.every((c) => c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127))
+      && !/\r(?!\n)|(?<!\r)\n/.test(asText) && after.startsWith(asText.replace(/\r\n/g, '\n')) && asText.startsWith(HEAD.replace(/\n/g, '\r\n')),
+      `${dl.suggestedFilename()} ${JSON.stringify(asText.slice(0, 40))}`);
+
+    // ---- the switch confirmation names the printout ----
+    await hide();
+    check(`${L}: with a printout, the switch says it is lost`, await switchQuestion('coco')
+      === `Switching to ${names[1]} resets the ${names[0]}. The running program and the printout will be lost.`, await page.textContent('#switchText'));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-switch.png`) });
+    await page.click('#btnSwitchCancel');
+    // the program stopped (the machine started again: a Dragon's reset may print its $FF), the printout cleared
+    await stubPrompt(page);
+    await show();
+    await page.click('#btnPrintClear');
+    await painted(page);
+    s = await box();
+    check(`${L}: cleared: "nothing yet", Save and Clear disabled`, s.state === 'nothing yet' && s.save && s.clear && s.text === '', JSON.stringify(s.state));
+    await hide();
+    check(`${L}: without a printout, the switch says what it said before`, await switchQuestion('coco')
+      === `Switching to ${names[1]} resets the ${names[0]}. The running program will be lost.`, await page.textContent('#switchText'));
+    await page.click('#btnSwitchCancel');
+    // a $FF alone: nothing to see
+    await show();
+    await load(ffOnly);
+    await waitFor(page, () => window.emu.machine.printed.includes(0xFF));
+    await emuFrames(page, 2); await painted(page);
+    s = await box();
+    check(`${L}: a $FF-only printout: "nothing yet", Save and Clear disabled`, s.bytes.length > 0 && s.bytes.every((b) => b === 0xFF) && s.state === 'nothing yet' && s.save && s.clear,
+      JSON.stringify({ bytes: s.bytes, state: s.state }));
+    await hide();
+    check(`${L}: a $FF-only printout is no printout to the switch`, await switchQuestion('coco')
+      === `Switching to ${names[1]} resets the ${names[0]}. The running program will be lost.`, await page.textContent('#switchText'));
+    await page.click('#btnSwitchCancel');
+    // the Dragon prints again: no second toast this session
+    await load(slowDragon);
+    await linesPrinted(4);
+    await emuFrames(page, 2);
+    check(`${L}: the toast comes once per machine: none when the Dragon prints again`, await printToasts() === 1, JSON.stringify(await page.evaluate(() => window.toasts)));
+
+    // ---- the CoCo's serial printer: a NUL alone, then its first print toasts; the copy ----
+    await switchQuestion('coco');
+    await page.click('#btnSwitch');
+    await waitFor(page, () => window.emu.machine.id === 'coco');
+    await stubPrompt(page);
+    await emuFrames(page, 2);
+    await page.evaluate(() => { window.emu.machine.printed.length = 0; window.emu.session.checkPrinter(); });
+    await load(nulOnly);
+    await waitFor(page, () => window.emu.machine.printed.length > 0);
+    await emuFrames(page, 4);
+    await show();
+    s = await box();
+    check(`${L}: a NUL-only printout on the CoCo: "nothing yet", Save and Clear disabled, no toast`, s.bytes.every((b) => b === 0) && s.state === 'nothing yet' && s.save && s.clear
+      && await printToasts() === 1, JSON.stringify({ bytes: s.bytes, state: s.state }));
+    check(`${L}: the CoCo's printer reads "Serial printer, 600 baud"`, await page.textContent('#printerKind') === 'Serial printer, 600 baud', await page.textContent('#printerKind'));
+    await hide();
+    await load(slowCoco);
+    check(`${L}: the CoCo's first print toasts too (once for each machine)`, await toastSeen(page, /^Printed to the printer$/) && await printToasts() === 2);
+    await linesPrinted(2);
+    await page.click('#toastAction');
+    await waitFor(page, () => document.getElementById('printout').checkVisibility());
+    await painted(page);
+    s = await box();
+    check(`${L}: the CoCo's Show opens the box, at its end, its text the 600-baud bytes'`, s.gap <= 1 && s.text === textOf(s.bytes) && s.text.startsWith('CLOADM PRINTER TEST\n'),
+      JSON.stringify({ gap: s.gap, text: s.text.slice(0, 30) }));
+    if (shotDir) await page.locator('#printerHeading').screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-heading.png`) }).catch(() => {});
+    await page.selectOption('#selSerial', 'terminal');
+    await painted(page);
+    const copy = await page.evaluate(() => {
+      const st = document.getElementById('printState'), row = st.parentElement, line = parseFloat(getComputedStyle(st).lineHeight) || 20;
+      return { kind: document.getElementById('printerKind').textContent, ws: getComputedStyle(st).whiteSpace, oneLine: st.getBoundingClientRect().height < line * 1.5,
+        fits: row.scrollWidth <= row.clientWidth + 1 };
+    });
+    check(`${L}: unplugged: "Not plugged in · choose Printer under Serial port"; the count does not wrap`,
+      copy.kind === 'Not plugged in · choose Printer under Serial port' && copy.ws === 'nowrap' && copy.oneLine && copy.fits, JSON.stringify(copy));
+    if (shotDir) await page.evaluate(() => document.getElementById('printerHeading').scrollIntoView({ block: 'start' }));
+    if (shotDir) await page.screenshot({ path: path.join(shotDir, `${L.replace(/ /g, '-')}-unplugged.png`) });
+    const a11y = await page.evaluate(() => { const b = document.getElementById('printout'); return { role: b.getAttribute('role'), tab: b.getAttribute('tabindex'), label: b.getAttribute('aria-label'), live: !!b.closest('[aria-live]') || b.hasAttribute('aria-live') }; });
+    check(`${L}: the printout is a region, a tab stop, named "Printout", not a live region`, a11y.role === 'region' && a11y.tab === '0' && a11y.label === 'Printout' && !a11y.live, JSON.stringify(a11y));
+    check(`${L}: no page errors`, !errors.length, errors.join('; '));
+    await closeCtx(ctx);
+  }
 }
 
 // DriveWire: the Becker port option from the URL, an image added through the page (into the page's
@@ -26439,6 +26662,7 @@ const GROUPS = (base, site) => [
   ['tapePanel', (b) => tapePanelChecks(b, base, check)],
   ['tapeHud', (b) => tapeHudChecks(b, base, check)],
   ['printer', (b) => printerChecks(b, base, check)],
+  ['printerPanel', (b) => printerPanelChecks(b, base, check)],
   ['driveWire', (b) => driveWireChecks(b, base, check)],
   ['nitros9', (b) => nitros9Checks(b, base, check)],
   ['webSerial', (b) => webSerialChecks(b, base, check)],

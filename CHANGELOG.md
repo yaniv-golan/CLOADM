@@ -8,7 +8,23 @@ All notable changes to CLOADM are recorded here. The format follows
 
 Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.test.js` keeps them in step).
 
+#### Added
+
+- **"Printed to the printer", the first time each machine prints.** The first time a machine prints in a visit while the
+  Printer box is out of sight, a toast says so, once for each machine, and its Show opens Settings → Machine (the
+  Settings sheet on a phone) at the Printer box, showing the end of the printout. (`js/ui/printer-panel.js`)
+
 #### Changed
+
+- **The Printer box counts lines and saves text.** Settings → Machine's Printer box shows "3 lines" instead of a byte
+  count, and "nothing yet", with Save printout and Clear disabled, while nothing printed is text (a CoCo's start-bit NUL
+  or a Dragon's reset $FF alone). Save printout writes `<machine>-printout.txt`: the text exactly as the box shows it,
+  with CR LF line ends, in plain ASCII; the raw bytes stay available to the command line, MCP and tests
+  (`Session.printoutFile`, the `.prn`). Its printer reads "Serial printer, 600 baud", or "Not plugged in · choose Printer
+  under Serial port", and the line count never wraps. Switching machines while the machine has a printout says so: "Switching to
+  CoCo 1/2 resets the Dragon 64. The running program and the printout will be lost." The printout is a region named
+  "Printout" that the keyboard can reach and scroll. Printing adds only the new text to the box, and nothing at all
+  while the box is hidden, so a long printout no longer slows the page. (`js/ui/printer-panel.js`, `js/printout.js`)
 
 - **For contributors: the changelog guard refuses a fenced code block under [Unreleased] and names a "####" heading
   with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real
@@ -19,6 +35,14 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
   unmentioned -- and `####   ` no longer reads as a kind called " ". (`tests/changelog-guard.js`)
 
 #### Fixed
+
+- **The printout no longer jumps to its end while you read it.** Scrolled up in the Printer box, the view stays where
+  you put it as the machine prints; at the end (within about a line) it follows the printing. Opening Settings → Machine,
+  on a phone or in the drawer, shows the end of the printout instead of its top. (`js/ui/printer-panel.js`)
+
+- **Held sideways, a machine switch asks again.** With the touch keys on a phone held sideways, picking a machine from
+  Menu → Machine… put the switch's question in the app bar, which goes away with the picker, so the switch could be
+  neither confirmed nor cancelled. The bar now stays until the question is answered. (`js/ui/touch-keys.js`)
 
 - **A ROM image chosen with Open… goes to Your ROMs, never into the cartridge slot.** On a phone, where Open… is the
   way in, a Dragon 64 BASIC ROM picked with it went in as a Program Pak (`.rom` is a cartridge's extension too), and

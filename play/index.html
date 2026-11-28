@@ -625,6 +625,9 @@
   #panel-machine .row .fixed { color: var(--text-2); }
   #panel-machine .rate { display: inline-flex; align-items: center; gap: 10px; }
   #panel-machine .panelhead { margin: 0; font-size: 16px; font-weight: 600; scroll-margin-top: 8px; }
+  /* the Printer box's heading, brought to the top of a phone's Settings sheet (js/ui/printer-panel.js): clear of the
+     sheet's sticky head (44 px buttons, 8 px above and below, its rule) */
+  dialog.sheet #printerHeading { scroll-margin-top: 69px; }
   #panel-machine .panelhead:focus { outline: none; }
   #panel-machine .panelhead:focus-visible { box-shadow: var(--focus-ring); border-radius: 4px; }
   #panel-machine .note { margin: 0; border-top: 1px solid var(--line); padding-top: 10px; line-height: 1.5; }
@@ -2666,9 +2669,9 @@ npx serve -l 8000 .</pre>
       <label class="row" id="beckerField" hidden><span>Becker port</span><span><input type="checkbox" id="chkBecker"> DriveWire at $FF41</span></label>
       <div class="row" id="machineCard"><span>CPU speed</span><span class="rate"><span id="cpuRate"></span><span class="chip" id="chipSam">SAM</span></span></div>
       <p class="muted" id="turboNote" style="margin:0">Turbo only runs the emulation faster; it never changes the emulated CPU speed.</p>
-      <div class="eyebrow">Printer</div>
-      <div class="row"><span id="printerKind"></span><span id="printState" class="kind"></span></div>
-      <pre id="printout" aria-label="Printer output" style="margin:0;max-height:160px;overflow:auto;white-space:pre-wrap;background:#0B0D0C;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:2.5em"></pre>
+      <div class="eyebrow" id="printerHeading">Printer</div>
+      <div class="row"><span id="printerKind"></span><span id="printState" class="kind" style="white-space:nowrap"></span></div>
+      <pre id="printout" role="region" tabindex="0" aria-label="Printout" style="margin:0;max-height:160px;overflow:auto;white-space:pre-wrap;background:#0B0D0C;border:1px solid var(--line);border-radius:8px;padding:8px;min-height:2.5em"></pre>
       <div class="bar"><button id="btnPrintSave" disabled>Save printout</button><button id="btnPrintClear" disabled>Clear</button></div>
       <div id="serialSection">
         <div class="eyebrow">Serial port</div>

@@ -615,14 +615,16 @@ export function setupTouchKeys(page, { input }) {
     if (panel.hidden) { done.disconnect(); back.focus(); }
   }
   // Machine…: the machine picker (#machineMenu), which lives in the app bar; held sideways the bar gives way to the
-  // panel, so it comes back over the panel (body.machine-pick, play/index.html) while the picker is open
+  // panel, so it comes back over the panel (body.machine-pick, play/index.html) while the picker is open, and while
+  // the switch confirmation a pick asks (#switchConfirm, in the same bar) is open after it
   function openMachines() {
     document.body.classList.add('machine-pick');
     $('machineBtn').click();
-    const menu = $('machineMenu');
-    const done = new MutationObserver(() => { if (menu.hidden) { done.disconnect(); document.body.classList.remove('machine-pick'); } });
-    done.observe(menu, { attributes: true, attributeFilter: ['hidden'] });
-    if (menu.hidden) { done.disconnect(); document.body.classList.remove('machine-pick'); }
+    const menu = $('machineMenu'), ask = $('switchConfirm');
+    const settle = () => { if (menu.hidden && ask.hidden) { done.disconnect(); document.body.classList.remove('machine-pick'); } };
+    const done = new MutationObserver(settle);
+    for (const el of [menu, ask]) done.observe(el, { attributes: true, attributeFilter: ['hidden'] });
+    settle();
   };
   // (open only while it shows: a panel that went away with it open must not take the screen's Esc)
   const sheetOpen = () => !sheet.hidden && sheet.checkVisibility();

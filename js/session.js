@@ -50,6 +50,7 @@ import { BASIC_PROGRAM_TEXT_MAX, loadBasic as loadBasicInto, planBasic } from '.
 import { transcript } from './claude/history.js';
 import { Consent, STOPPED } from './claude/consent.js';
 import { screenRows, screenTextTool } from './claude/readtools.js';
+import { printoutText, printoutLines, printoutTxt } from './printout.js';
 import { Suggester } from './claude/suggest.js';
 
 // the status of a turn paused by the person's key, in every view that shows it with Resume and Stop (Esc is Stop then)
@@ -1047,24 +1048,23 @@ export class Session {
   // bit-banger of the others (600 baud, as MAME fits by default). It belongs to the machine, so a machine switch
   // starts a new printout.
   get printout() { return Uint8Array.from(this.shownMachine.printed); }
-  // the printout as text: printable ASCII; CR, LF and CR LF end lines. Control characters and bytes from $80 up
-  // (printer-specific codes and graphics; a Dragon's reset sends $FF, see sam.js) are left out; the file has them
-  printoutText() {
-    let out = '';
-    const b = this.shownMachine.printed;
-    for (let i = 0; i < b.length; i++) {
-      const c = b[i];
-      if (c === 13) { out += '\n'; if (b[i + 1] === 10) i++; }
-      else if (c === 10) out += '\n';
-      else if (c === 9 || (c >= 32 && c < 127)) out += String.fromCharCode(c);
-    }
-    return out;
-  }
+  // the printout as text, as the Machine tab's Printer box shows it (js/printout.js): printable ASCII and TAB; CR, LF
+  // and CR LF end lines. Control characters and bytes from $80 up (printer-specific codes and graphics; a Dragon's
+  // reset sends $FF, see sam.js) are left out; the raw file (printoutFile) has them
+  printoutText() { return printoutText(this.shownMachine.printed).text; }
+  // its lines as shown; 0 when it has nothing to see (nothing printed, or only bytes that are not text: a NUL, a $FF)
+  printoutLines() { return printoutLines(this.printoutText()); }
   clearPrintout() { this.shownMachine.printed.length = 0; this.checkPrinter(); }
-  // the printout as a file: the bytes exactly as received
+  // the printout as a raw file: the bytes exactly as received (for the command line, MCP and tests)
   printoutFile() {
     if (!this.shownMachine.printed.length) throw new SessionError('Nothing has been printed yet.');
     return { name: `${this.shownMachine.id}-printout.prn`, bytes: this.printout };
+  }
+  // the printout as a text file (the page's "Save printout"): the text exactly as shown, CR LF line ends, plain ASCII
+  printoutTextFile() {
+    const text = this.printoutText();
+    if (!printoutLines(text)) throw new SessionError('Nothing has been printed yet.');
+    return { name: `${this.shownMachine.id}-printout.txt`, bytes: printoutTxt(text) };
   }
   // after frames run: a 'printer' event when any running machine's printout changed - the shown machine, and the
   // chat's BASIC session and chat machine (startChat), which run beside each other whichever is on screen. The

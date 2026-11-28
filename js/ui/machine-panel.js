@@ -161,7 +161,10 @@ export function setupMachinePanel(page, { showRoms }) {
       const f = document.createElement('span'); f.id = 'switchFrom'; f.textContent = from;
       text.append('Changing RAM switches the ', f, ' off and on');
     }
-    text.append(items.length ? ` and takes out ${and(items.map(what))}.` : '. The running program will be lost.');
+    // a switch also loses the machine's printout (one with text to see: Session.printoutLines)
+    const printout = !!to.name && session.printoutLines() > 0;
+    text.append(items.length ? ` and takes out ${and(items.map(what))}.${printout ? ' The printout will be lost.' : ''}`
+      : printout ? '. The running program and the printout will be lost.' : '. The running program will be lost.');
     const keptAt = document.createElement('span');   // "They stay in your Library.", once known
     text.append(keptAt);
     inLibrary(items).then((kept) => {

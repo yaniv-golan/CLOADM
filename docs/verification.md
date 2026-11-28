@@ -1628,7 +1628,9 @@ names it.
   * MAME's Dragon prints whenever PIA1 port A is written with PA1 (the strobe) high (`dragon.cpp`), including at
     reset: the PIA's port A becomes inputs, pulled high (`6821pia.cpp` device_reset), so a reset prints PIA0 port B,
     $FF. The comparison runs under `config.mameCompat`, which keeps that rule; the product takes one byte per strobe
-    pulse (below, and "Deviations from MAME"). The Printer box's text leaves such bytes out; the saved file has them.
+    pulse (below, and "Deviations from MAME"). The Printer box's text, its line count and the .txt Save printout
+    writes leave such bytes out (a printout of nothing else is "nothing yet"); the raw printout (`Session.printoutFile`,
+    the .prn) has them. The box itself is checked through the page by the browser check's `printerPanel` group.
   * The Dragons' printer port without `mameCompat` (`tests/dragon-printer.test.js`, every Dragon profile, firmware
     written there): MAME has no BUSY and a level-triggered strobe, so the oracle is the documentation (section 4.6).
     Smeed and Sommerville, "Inside the Dragon" (1983), section 8.4.2 "Printer control", pp. 206-207: PIA1 PB0 is
