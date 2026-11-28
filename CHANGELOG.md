@@ -14,7 +14,7 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
   feet are on the floor at every distance (they used to float near you and sink far away), it gets smaller the further
   away it is, it is drawn when it is at the edge of the view or half behind a pillar, and it never shows through a wall
   that is nearer than it is. The game runs about twice as fast, and its sound effects play at a steady rate however busy
-  the picture is. Only the engine changed (`wyrmfire.bin`, SHA-256 63783f6c, 11,145 bytes, WYRMFIRE commit 6af92df); the
+  the picture is. Only the engine changed (`wyrmfire.bin`, SHA-256 63783f6c, 11,145 bytes, WYRMFIRE's tag v0.1.0 at 6af92df); the
   converter, the licence and the Freedoom level disks are byte for byte the previous pin's (`js/wyrmfire/pin.js`,
   rebuilt with `tools/wyrmfire-vendor.js`). `tests/wyrmfire-sprites.test.js` holds the monsters to the floor line, the
   scaling and the walls.

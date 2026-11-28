@@ -16,9 +16,9 @@ export const WYRMFIRE_PIN = Object.freeze({
   // wyrmfire v0.1.0 (6af92df), the first release: monsters drawn with their feet on the floor line, scaled with
   // distance, clipped at the screen edges and depth-tested per column; about half the cycles per picture; sound
   // effects paced by the PAL field interrupt. Only the engine moved since 2f47134: the converter, its worker, the
-  // licence, the font and so the level disks are byte for byte the same. Set `tag` once v0.1.0 is tagged at `commit`.
+  // licence, the font and so the level disks are byte for byte the same. The annotated tag v0.1.0 peels to `commit`.
   commit: '6af92df77b0b9500e71b2edd21e6f6161f820e7c',
-  tag: null,
+  tag: 'v0.1.0',
   repo: 'https://github.com/yaniv-golan/wyrmfire',
   // the files served, relative to the site root, with their SHA-256 and size
   files: Object.freeze({
