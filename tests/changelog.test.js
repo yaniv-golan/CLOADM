@@ -6,7 +6,7 @@
 // On CI the tags must be there (the workflow checks out with fetch-depth: 0) and a missing one is a failure. On a
 // checkout without them this prints one SKIP line per tag naming it and does not pretend to have compared.
 const cp = require('child_process'), fs = require('fs'), path = require('path');
-const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
+const { check: guard, parse, tagOf, ALLOWED_CORRECTIONS, subsectionKinds, oddSubsections, unreleasedKinds, unreleasedLevel3, unreleasedNamelessHeadings, unreleasedFences, fenceDetail, duplicateUnreleasedKinds, KEEP_A_CHANGELOG, conflictMarkers, bareLetterLines } = require('./changelog-guard.js');
 
 let fail = 0;
 const check = (name, cond, detail = '') => { if (!cond) { fail++; console.log(`FAIL ${name} ${detail}`); } else console.log('ok   ', name, detail); };
@@ -138,12 +138,27 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
   // describe the shape instead.
   {
     const un = (lines) => ['# Changelog', '', '## [Unreleased]', '', ...lines, '', '### 0.4.0', '', '#### Fixed', ''].join('\n');
+    // The check, as one function, so the pin below runs the SAME code the real file does -- a change to this
+    // function's detail, or a revert of it, is caught. It returns what check() would print on a failure, so the
+    // pin reads the message itself rather than a re-derivation of it.
+    const fenceCheck = (t) => { const bad = unreleasedFences(t); return { ok: bad.length === 0, detail: fenceDetail(t) }; };
+    const realFence = fenceCheck(text);
     check('CHANGELOG.md: [Unreleased] carries no fenced code block (```) or tilde fence (~~~)',
-      unreleasedFences(text).length === 0, unreleasedFences(text).map((x) => `line ${x.line}: ${x.text}`).join(' | '));
+      realFence.ok, realFence.detail);
+    // the failure message itself carries the remedy, so a reader is told what to do and not only which lines: this
+    // runs fenceCheck on two fenced fixtures of different shapes and pins the exact message each would print. Two
+    // shapes, because one literal could be satisfied by a hardcoded string keyed to it.
+    const fenced = fenceCheck(un(['```md', '- x', '```']));
+    const fenced2 = fenceCheck(un(['- a', '', '~~~', '- b', '~~~']));
+    check('...and its failure message says what to do, not only which lines (describe it in prose or link to the docs)',
+      !fenced.ok && fenced.detail === 'line 5: ```md | line 7: ``` -- describe it in prose or link to the docs' &&
+      !fenced2.ok && fenced2.detail === 'line 7: ~~~ | line 9: ~~~ -- describe it in prose or link to the docs' &&
+      fenceCheck(un(['- only prose'])).detail === '',
+      `${fenced.detail} / ${fenced2.detail} / empty: ${JSON.stringify(fenceCheck(un(['- only prose'])).detail)}`);
     // both fence characters, both reported by line; an info string ("```md") is a fence line too
     const FENCED = un(['- an entry', '', '```md', '#### Fixed twice inside is a fence the guard reports', '```', '', '~~~', '~~~']);
     const found = unreleasedFences(FENCED);
-    check('...and a fenced code block under [Unreleased] is reported naming every fence line (``` and ~~~)',
+    check('...and a fenced code block under [Unreleased] is reported naming every fence line that falls inside the region (``` and ~~~)',
       found.length === 4 && found.map((x) => x.line).join() === '7,9,11,12' && found[0].text === '```md',
       JSON.stringify(found));
     // the closing line of a fence is a fence line too: one fence, two reports, so a reader sees where it ends
@@ -161,8 +176,9 @@ const git = (...args) => cp.execFileSync('git', args, { cwd: root, encoding: 'ut
       JSON.stringify(duplicateUnreleasedKinds(un(['#### Fixed', '', '- one', '', '```', '', '#### Fixed', '', '- a real one', '', '```']))));
     // a fence under the real [Unreleased] that quotes a release heading is itself reported (the section may not
     // carry one), and the quoted heading is structure to the region rule, which ends only at a version heading --
-    // so the file is red on the fence line, never silent
-    check('...and a fenced "### 0.4.0" under the real heading is a fence line the guard reports (never silent)',
+    // so the file is red on the fence line, never silent. Its closer lies past the region's end, so only the line
+    // inside the region is named -- which is what this asserts, and why the report is by region, not by fence.
+    check('...and a fenced "### 0.4.0" under the real heading is a fence line the guard reports, its line inside the region named even though its closer falls past it (never silent)',
       unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n').map((x) => x.line).join() === '3',
       JSON.stringify(unreleasedFences('## [Unreleased]\n\n```md\n### 0.4.0\n#### Fixed\n```\n\n#### Added\n\n- real\n\n#### Added\n\n- a real duplicate\n')));
     // a duplicated "## [Unreleased]" heading (merge debris) is not a release heading: the region runs on through

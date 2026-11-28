@@ -13,7 +13,8 @@ Next version: 0.4.2 (the plugin and extension manifests carry it; `tests/plugin.
 - **For contributors: the changelog guard refuses a fenced code block under [Unreleased] and names a "####" heading
   with no name.** A fenced example quoting `#### Fixed`, `### Fixed` or a release heading would read as real
   structure to every rule that keeps the section honest, so the section may not carry a fence at all -- describe
-  the shape in prose or link to the docs (`tests/changelog.test.js` fails naming every fence line). A "####" or "###"
+  the shape in prose or link to the docs (`tests/changelog.test.js` fails naming every fence line that falls inside
+  the section, and that message ends with the remedy: describe it in prose or link to the docs). A "####" or "###"
   heading written with nothing after it (what a keystroke or a merge leaves) is reported by line instead of passing
   unmentioned -- and `####   ` no longer reads as a kind called " ". (`tests/changelog-guard.js`)
 
