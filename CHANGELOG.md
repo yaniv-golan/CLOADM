@@ -252,6 +252,11 @@ Next version: 0.4.1 (the plugin and extension manifests carry it; `tests/plugin.
   `^` is always `EXP(y LOG |x|)`, as the original's: a whole power is no longer worked out exactly (2^2 is 4 and a
   unit, 2^66 and 2^126 now print as the original's), a base below 0 still takes a whole exponent and keeps its sign by
   the exponent's parity, and `0^0` is 1. 22 bytes fewer (16,197; 161 bytes free).
+  `POKE 111,254` sends the output to the printer, as on the original (bb13a), with the printer's own column for `,`
+  and `TAB(`. The `CLS` statement and the screen's move up a row wait as long as the original's (bb13c), so printing
+  on the screen is no longer faster than on the original, but for numbers of one or two digits (bb13d to time
+  them). 23 bytes (16,220; 138 bytes free). `MOTOR ON` waits a quarter of a field longer (25.85 fields), so that a
+  typed `MOTOR ON:PRINT TIMER` still counts the original's 26 now that the screen's echo takes a little longer.
 
 #### Changed
 

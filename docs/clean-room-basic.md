@@ -194,7 +194,7 @@ These are hard rules for everyone who works on this ROM.
     address, `GETBYT`, `STR$`), 19 cycles for each place under 15 bits (0 at once; under 16 bits at 17 cycles each
     before bb12, whose `time-loopb` showed a 15-bit number costing the original no more than a small one: loop B,
     `S=S+PEEK(28928+I AND 32767)`, took ours 578 fields against 573, and 576 now); `AND` waits `ANDDLY` (`OR` does
-    not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.6 fields). Waits
+    not). `MOTOR ON` turns the motor on with the interrupts left on and always waits (`MOTDLY`, 25.85 fields). Waits
     the model made unnecessary are gone: `ADDDLY`, `IFDLY`, the 11 cycles before a quotient, `FIN`'s 29-cycle pad. Where
     that left ours faster than the original, ours was made faster still first, so no loop got slower than it had to
     (no result changed: the same bits, screens and records): a relation's -1 or 0 is loaded from a constant, `NORM`
@@ -331,9 +331,10 @@ These are hard rules for everyone who works on this ROM.
   16,334, the code ending at `$BFD8`, 24 bytes below the vectors. `PRTDEV` reads the device as an expression
   (`DEVAR0`), as for -1, so `PRINT #D` with `D=-2` prints too; any device but -1 and -2 is `?DN ERROR`. The
   printer keeps its own column, `PCOL` (`$0114`, counted by `PRTOUT`, one byte: after 256 characters with no carriage
-  return it counts from 0 again): PRINT's comma and `TAB(` and LIST's line end read it through `COLMN` while the
-  output goes to `PRTOUT`, the screen's column anywhere else, a `POKE 111,254` included (the screen's made a comma
-  after `PRINT "XYZ";` loop for ever) [OWN]. `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
+  return it counts from 0 again): PRINT's comma and `TAB(` and LIST's line end read it through `COLMN` while
+  `DEVNUM` is 254, the screen's column anywhere else (the screen's made a comma after `PRINT "XYZ";` loop for ever)
+  [OWN]. `DEVNUM` 254 sends `CHROUT`'s output to `PRTOUT`, so a `POKE 111,254` prints on the printer as the
+  original's does [BB bb13a famous-pokes] (8 bytes, with the screen's waits below). `NEWLIN` (READY and ERROR) ends the printer's output through `PRTEND`: the
   output back on the screen and `DEVNUM` 0, after a BREAK in `LLIST` too. `DRSCAL` goes back to `draw.inc`, so that
   `SCRNST` starts at `$A000` again.
 * **A size pass from outside, after `LOG`** (three patches, 2026-11-28) [OWN]: `LINE`'s clipped lines rasterised
@@ -347,6 +348,15 @@ These are hard rules for everyone who works on this ROM.
   cycles for a full-width `PUT`, 289 to 233 for a coarse `GET` with reversed rows; the copying itself as it was) and
   `PRINT USING`'s scan of a numeric field (`#` 429 to 141 cycles, `###.##` 827 to 354; the number's conversion as
   it was). Each is to be timed on the original before the freeze holds it.
+* **The screen's waits** [BB bb13c time-screen; OWN for where]: the original's `CLS` statement takes about 2,390
+  cycles more than ours did (300 of them 118 fields against 70) and its move of the screen up a row about 50 more
+  (115 against 114); `CLSST` waits 2,760 cycles first (the statement only: `CLOAD`'s clear and the CLEAR key are timed
+  apart and were not faster), and `SCROLL` 57 more. With `CHROUT`'s test for the printer (5 cycles a character) every
+  loop of `time-screen` is the original's or slower: 18, 136, 374, 301, 155, 133 fields against 18, 136, 287, 294,
+  155, 133. Open: 32 letters printed take about 30% longer than the original's (a character's own cost), and bb13b
+  `cas-echo-5`'s passes are still about 2% faster than the original's (599 fields against 613: printing a number of
+  one or two digits, which bb13d `time-print-num` times). 23 bytes with `POKE 111,254`'s path: 16,220, 138 free
+  (`RSTTMP` and `FSQR` go above `$A000`, so that `SCRNST` starts there again).
 * **Running it:** `m.setRoms({ basic: rom, basic64: null })` on a `dragon64` machine (Node), or
   `node tools/build-basic.js --out /tmp/d64_1.rom` then `node cli/cloadm.js --roms /tmp/d64_1.rom --type 'PRINT 2+2\n' --screen`.
 
@@ -666,7 +676,7 @@ All of them run with no ROM, on our ROM assembled at test time.
   bytes identical; nothing sent while the printer's busy line (PIA 1 PB0) is held high, then the bytes in order;
   `$800F` and `$8000`;
   the output back on the screen before the next statement [OWN]; the printer's column for the comma and `TAB(`,
-  the screen's with `POKE 111,254`; BREAK and an error in LLIST; the device as an expression (`PRINT #D`), `#-1` as
+  `POKE 111,254` on the printer as bb13a `famous-pokes` records it; BREAK and an error in LLIST; the device as an expression (`PRINT #D`), `#-1` as
   before, `#-23` `?DN ERROR`; and a mutant of each rule (the byte after the strobe, no busy wait, `PRINT #-2` alone
   printing nothing, LLIST's missing CR at column 0, the output left on the printer, the screen's or `DEVNUM`'s
   column, `DEVNUM` left after BREAK, `#-1`'s mode, `#-2` and other devices not told apart), each failing it.
@@ -1169,7 +1179,7 @@ the tape (so `TIMER` does not count then [OWN]). Every block read or written goe
   ON:FOR I=1 TO 500:NEXT:MOTOR OFF` is a run of 54.02 fields, where the loop alone takes about 28.3, so the original
   waits about 25 fields. Ours waits `MOTDLY` passes of 8 cycles (24.85 fields, in `CMSTX`, which `CWBLK` shares with its
   `CDELAY` of 25.95 fields: that one was fitted, with the leader after it, to the write runs, so the two need not be
-  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (56,340 passes of 8 cycles, with the field interrupts 25.6 fields: `TIMER` 26 and 51, ten `MOTOR ON:MOTOR OFF` 256 fields against 254; the runs 25.60, 25.59, 51.11 and 25.52 fields against 25.45, 25.44, 50.72 and 25.31). That is close to the shortest wait at which neither record is faster on ours: at 57,000 every run was half a field longer than the original's (each of the program's runs started about 0.5 field later than the one before it, 6.4 fields over 12), and below 56,320 bb4's line takes less than its 54.02 (ours 54.03). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
+  one), interrupts off as for the tape: 54.02 fields. Then bb10 `time-motor` [BB]: `TIMER` counts through the wait (25 after it), a second `MOTOR ON` waits again (51), `MOTOR OFF` of a motor that is off takes nothing, and the motor runs 25.44 fields from `MOTOR ON` to `MOTOR OFF`. So `MOTOR ON` now turns the motor on itself, interrupts left on, and always waits `MOTDLY` (56,340 passes of 8 cycles, with the field interrupts 25.6 fields: `TIMER` 26 and 51, ten `MOTOR ON:MOTOR OFF` 256 fields against 254; the runs 25.60, 25.59, 51.11 and 25.52 fields against 25.45, 25.44, 50.72 and 25.31). Then 56,900 passes (25.85 fields): with `CHROUT`'s test for the printer the screen's echo moves where in a field a typed `TIMER=0:MOTOR ON:PRINT TIMER` starts, and below 56,700 it counts 25 to the original's 26; every `time-motor` loop is the original's or up to 8% more (26, 52, 26, 26, 51, 0, 259 and 1 against 26, 50, 25, 25, 51, 0, 254 and 1). That is close to the shortest wait at which neither record is faster on ours: at 57,000 every run was half a field longer than the original's (each of the program's runs started about 0.5 field later than the one before it, 6.4 fields over 12), and below 56,320 bb4's line takes less than its 54.02 (ours 54.03). Before, a motor already running was not waited for [OWN]. bb8 `cas-left-open`'s `MOTOR ON:MOTOR OFF` (a file left
   open by `?IO ERROR`) took about 2 fields longer on ours than on the original (it took 23 fewer). 11 bytes (15,839, the
   code ending at `$BED1`), and 3 more for bb10's.
 * **Data files** [UM for the statements; the forms without `#` from a magazine listing; [BB] bb4 `cas-files` for what
@@ -1218,7 +1228,6 @@ reproduce. Each is recorded with its black-box case.
 | Where | The original | Ours | Case |
 |---|---|---|---|
 | `CLS` with a colour 9-255 | prints a line of its own text (21 characters), then an empty line | prints our own line, `MADE WITHOUT PEEKING` (20 characters, chosen for this BASIC; `OK BOOMER` for `CLS 67`, also ours [OWN]), then an empty line; no error in either | `screen-cls-range` (local-only: its results are never written, only their shape); ours: the own case `cls-range` |
-| `POKE 111,254` (output to the printer) | output goes to the printer: "TO THE PRINTER" and its carriage return there, nothing on the screen, until 111 is set to 0 [BB bb13a famous-pokes] | output stays on the screen: ours sends to the printer only from LLIST and `PRINT #-2` (the two-byte call `ZCHROUT` pointed at `PRTOUT` for the statement), not from `$6F` [OWN; to be matched: the freeze list] | `famous-pokes` (its last step) |
 | `DLOAD`, `DLOADM` (no serial link) | waits for the serial port: nothing on the screen after 250 fields, and `BREAK` does not bring `OK` back | `?FC ERROR` at once: no serial loading is built [OWN, open] | `stmt-dload` [BB bb10] |
 | `PRINT USING` E field of twelve or more places (`"############^^^^";1`) | prints garbage (`%1000000000E-10`) and runs over its own memory (`?SN ERROR IN 0` after it); on a fresh machine (bb10 `using-wide12`) `%1000000000E-10`, `%1234500000E-06%-1000000000E-10` for 12345;-1, BASIC still answering | `?FC ERROR`: a buffer overrun is never reproduced | `review-fixes`, `print-using-exp`, `using-wide12` |
 | Low RAM that one `RND` changes | 19-24, 44, 48 and more (its own scratch bytes) | 11, 49, 56, 59-63: ours' scratch bytes are where our direct page has them; no program sees a difference but by reading them [OWN: accepted, 2026-11-28] | `rnd-seq` (bb12, line 501) |
@@ -1336,7 +1345,7 @@ strings change, and `NEW`, `CLEAR`, `PCLEAR`, `RUN` and a load reset some of the
 | `$25-26` | a string-space pointer: one past the end of the last string copied into the string space, or the start of the last one made there when nothing was copied into it (`CHR$`) | [BB `ram-pointers2`, 2026-11-26; bb8 `ram-ptr25`, every value it printed]: in direct mode a literal is copied, so after a `PRINT "S"` it is `$23` + 1; in a program a join, `STR$`, `LEFT$` and an `INPUT` reply move it (a join's temporary in `PRINT` too), a literal, a variable copied, a number, `FOR`, `RUN` and `CLEAR` do not | the same (`STRDST`); our strings sit a byte below the original's (ours from `FRETOP`, the original's from `FRETOP` + 1), so it is our pointer + 1 |
 | `$27-28` | the string space's top | 32766 | the same (`MEMTOP`; `CLEAR n,top` takes a top up to 32768 [OWN]) |
 | `$68-69` | the line running | `$FFFF` in direct mode | the same (`CURLIN`) |
-| `$6F` | where output goes | 0 the screen; 254 the printer (the records' wait for it, bb6 `famous-pokes` and bb10 `stmt-printer`, came from an emulator that read PB0 as busy); 255 the tape | 0 and 255 the same (`DEVNUM`); 254 during LLIST and `PRINT #-2`, as there; a 254 POKEd prints on the screen (section 13) |
+| `$6F` | where output goes | 0 the screen; 254 the printer (the records' wait for it, bb6 `famous-pokes` and bb10 `stmt-printer`, came from an emulator that read PB0 as busy); 255 the tape | 0 and 255 the same (`DEVNUM`); 254 during LLIST and `PRINT #-2`, as there, and a 254 POKEd prints on the printer, as there [BB bb13a famous-pokes] |
 | `$71` | the cold-start flag | 85 (`$55`) once BASIC has started | the same (`WARMFL`) |
 | `$9D-9E` | `EXEC`'s address: `CLOADM` puts the file's exec address there, its offset added | [BB] bb8 `cas-cloadm2` (RAM below the screen searched for the bytes) | the same (`EXECAD`) |
 | `$A6-A7` | the text pointer | points into the line being run | the same (`TXTPTR`); in direct mode it points into the crunched line at `$02DC`, as the original's does ([BB] `ram-pointers2` (2026-11-26): 757, 761, 765) |

@@ -376,7 +376,11 @@ NEW     BNE     RUNSN
 * semigraphics-4 character with all four elements lit, its colour in bits 4-6 [HW: the MC6847 data sheet]. A colour
 * 9-255 is no error: one line of text, then an empty line [BB bb2, screen-cls-range: the original's shape]; ours
 * prints its own line there, never the original's text (a deliberate difference). Past 255, ?FC ERROR (GETBYT).
-CLSST   BEQ     CLSS1
+CLSST   PSHS    CC              ; a wait first: the original's CLS takes about 2,390 cycles more than ours [BB bb13c
+        LDX     #345            ; time-screen: 300 CLS, 118 fields there, 70 here without it]; 2,760 here (the
+        JSR     DELAYX          ; statement only: CLOAD's clear and the CLEAR key are timed apart)
+        PULS    CC
+        BEQ     CLSS1
         JSR     <ZGETBYT
         CMPB    #8
         BHI     CLSBIG

@@ -194,12 +194,6 @@ SGN     CLRA
         LDD     #-1
 SGN1    JMP     GIVABF
 
-* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
-* is not a square root rounded once
-FSQR    JSR     <ZFPRUN
-        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,F_LD+6,0
-        JMP     PW5
-
 * LOG(x): x = m 2^e with m in [1/2, 1); t = 1 - sqrt 2 / (m + sqrt 1/2); log2 m = t P(t^2) - 1/2 (LOGSER, four
 * terms); then (log2 m + e) ln 2, each step rounded: base 2, as the original (its SQR(144) is 12 - 3 x 2^-28 and
 * SQR(65536) 256 exactly, with EXP's base 2 below) [BB bb2 fn-sqr-bits]; the reduction's - 1/2 cancels near 1, as

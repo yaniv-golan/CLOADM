@@ -15,7 +15,7 @@ const TOL = 0.08;
 const within = (got, real) => got >= real && got <= Math.max(real * (1 + TOL), real + 1);
 
 const real = new Map();
-for (const f of ['bb9-real.jsonl', 'bb10-real.jsonl', 'bb12-real.jsonl']) {
+for (const f of ['bb9-real.jsonl', 'bb10-real.jsonl', 'bb12-real.jsonl', 'bb13c-real.jsonl']) {
   for (const l of fs.readFileSync(path.join(__dirname, 'bb', f), 'utf8').trim().split('\n')) { const r = JSON.parse(l); real.set(r.case, r); }
 }
 const caseText = (name) => fs.readFileSync(path.join(__dirname, 'cases', `${name}.bas`), 'utf8');
@@ -27,6 +27,7 @@ function counts(name, transcript) {
   const nums = (s) => s.replace(/[A-Z]/g, ' ').split(/\s+/).filter(Boolean).map(Number);
   if (name === 'time-ops') return [...nums(after(runs[0])), ...t.map((l) => /^DATA \d+ (\d+)$/.exec(l)).filter(Boolean).map((m) => +m[1])];
   if (name === 'time-motor') return [...t.slice(0, runs[0]).filter((l, i) => i > 0 && /^ ?\d+$/.test(l)).map(Number), ...nums(after(runs[0]))];
+  if (name === 'time-screen') return nums(t[t.lastIndexOf('OK') - 1] || '');   // (its counts on the last row, after a CLS)
   return nums(after(runs[runs.length - 1]));
 }
 const LABELS = {
@@ -36,6 +37,7 @@ const LABELS = {
   'time-int': ['X=Y', 'INT(.5)', 'INT(3.5)', 'INT(1000.5)', 'INT(1E6+.5)', 'INT(1E9+.5)', 'INT(-1000.5)'],
   'time-motor': ['typed MOTOR ON:PRINT TIMER', 'typed MOTOR ON:MOTOR ON', 'typed MOTOR ON:T=TIMER:MOTOR OFF', 'MOTOR ON:A=TIMER', 'MOTOR ON:MOTOR ON:B=TIMER', 'MOTOR OFF (off):C=TIMER', '10 x MOTOR ON:MOTOR OFF', '10 empty passes'],
   'time-loopb': ['S=S+PEEK(28928+I AND 32767)', 'S=S+PEEK(I AND 32767)', 'S=S+1', 'X=28928+I AND 32767', 'empty', 'FOR D=1 TO 300'],
+  'time-screen': ['empty', 'CLS', 'CLS and 32 letters', 'CLS and PRINT I;', 'CLS and PRINT', 'PRINT on the bottom row'],
   'rnd-timing': ['RND(0)', 'RND(6)', 'RND(1E9)', 'RND(.5)', 'RND(-1)', 'RND(-3)', 'RND(-1.99999999)'],
 };
 // the loops of a case outside the range on `rom` (names), and their counts
@@ -65,4 +67,4 @@ function mutants(list) {
   }
 }
 
-module.exports = { check, tally, judge, built, cases, mutants };
+module.exports = { check, tally, judge, built, cases, mutants, within, mutant, LABELS };

@@ -4,10 +4,14 @@
 
 * CHROUT: print the character in A. Keeps every register. Anything printed shows the text screen again [BB bb2
 * gfx-text-return: a picture goes at PRINT and INPUT, not in an INKEY$ loop] (and so at the OK prompt and an error).
+* DEVNUM $FF: to the tape instead (CSAVE ,A: cassette.inc); $FE: to the printer, a POKE 111,254 too [BB bb13a
+* famous-pokes: "TO THE PRINTER" and its carriage return on the printer, nothing on the screen].
 CHROUT  PSHS    D,X
-        LDB     <DEVNUM         ; $FF: to the tape instead (CSAVE ,A: cassette.inc)
+        LDB     <DEVNUM
         INCB
         LBEQ    CHRTAP
+        INCB
+        BEQ     CHRPRT
         JSR     TXTSCR
         LDA     ,S
         LDX     <CURPOS
@@ -49,9 +53,14 @@ CHRBS   CMPX    #SCREEN
         LDA     #$60
         STA     ,-X
         BRA     CHRDON
+CHRPRT  PULS    D,X             ; the printer (printer.inc; it keeps every register)
+        JMP     PRTOUT
 
 * SCROLL: move the screen up a line, blank the bottom line, and move X up a line
 SCROLL  PSHS    D,U
+        LDB     #11             ; 57 cycles more: the original's move up takes about 50 more than ours [BB bb13c
+SCRW    DECB                    ; time-screen: 300 at the bottom row, 115 fields there, 114 here without it]
+        BNE     SCRW
         LDU     #SCREEN
 SCRL1   LDD     32,U
         STD     ,U++

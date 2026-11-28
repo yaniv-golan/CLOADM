@@ -460,3 +460,19 @@ FCEQ    RTS
 * the statements and functions that come later in this phase, or in P2 (interp.inc's; here so that a routine starts at $A000:
 * docs/clean-room-basic.md section 3)
 UNIMPL  JMP     <ZFCERR
+
+* SQR(x): x^.5, through ^'s EXP(.5 LOG x) [BB]: the original prints SQR(1E10) as 99999.9999 (bb1, fn-math), so it
+* is not a square root rounded once (mathfn.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md
+* section 3)
+FSQR    JSR     <ZFPRUN
+        FCB     F_STO+6,F_LD+K_HALF,F_STO+5,F_LD+6,0
+        JMP     PW5
+
+* RSTTMP: no temporaries in use (strings.inc's; here so that a routine starts at $A000: docs/clean-room-basic.md
+* section 3)
+RSTTMP  PSHS    X               ; (and PTRGET's modes: a new statement starts)
+        LDX     #TMPDSC
+        STX     <TEMPPT
+        CLR     <DIMFLG
+        CLR     <VARCRE
+        PULS    X,PC

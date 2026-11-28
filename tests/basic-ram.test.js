@@ -48,8 +48,9 @@ for (const [name, at] of Object.entries(PINS)) check(`${name} at $${at.toString(
   check('274-275 are TIMER: POKEd to 0, TIMER reads 0 (or 1, a field later)', lines(r).some((l) => l === ' 0' || l === ' 1'), JSON.stringify(lines(r)));
 }
 {
-  const r = run('POKE 111,254:PRINT "ON THE SCREEN":POKE 111,0\n');
-  check('POKE 111 with a value other than 0 or 255: output stays on the screen (no printer) [OWN]', lines(r).includes('ON THE SCREEN'), JSON.stringify(lines(r)));
+  // 254 is the printer, as the original's (tests/basic-printer.test.js, bb13a famous-pokes); any other value but 255
+  const r = run('POKE 111,2:PRINT "ON THE SCREEN":POKE 111,0\n');
+  check('POKE 111 with a value other than 0, 254 or 255: output stays on the screen [OWN]', lines(r).includes('ON THE SCREEN'), JSON.stringify(lines(r)));
 }
 
 // ---- the real records, replayed on ours ----

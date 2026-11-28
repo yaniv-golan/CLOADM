@@ -5,14 +5,6 @@
 * (used and freed like a stack; ?ST ERROR when they run out).
 
 
-* RSTTMP: no temporaries in use
-RSTTMP  PSHS    X               ; (and PTRGET's modes: a new statement starts)
-        LDX     #TMPDSC
-        STX     <TEMPPT
-        CLR     <DIMFLG
-        CLR     <VARCRE
-        PULS    X,PC
-
 * MKTMP: a temporary descriptor for the B bytes at X: STRPTR points at it, VALTYP = $FF. Keeps X, B.
 MKTMP   PSHS    U
         LDU     <TEMPPT

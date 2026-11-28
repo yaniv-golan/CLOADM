@@ -27,9 +27,11 @@ CTDLY   EQU     11              ; a character to the tape: about 100 cycles more
 LSDLY   EQU     825             ; more (program.inc, LSTLIN), the original's pace [BB bb10 cas-timing data-write,
 *                                 cas-close-pending open-l-m, cas-ascii-save; bb4 cas-files, cas-save-load csave-a,
 *                                 bb8 cas-data2: the motor's stop between the namefile and the data, or between blocks]
-MOTDLY  EQU     56340           ; MOTOR ON's wait: 25.6 fields with the field interrupts (MOTOR) [BB bb10 time-motor,
-*                                 bb4 cas-motor-audio: close to the shortest that is never faster than either; below
-*                                 56,320 bb4's run is short]
+MOTDLY  EQU     56900           ; MOTOR ON's wait: 25.85 fields with the field interrupts (MOTOR) [BB bb10 time-motor,
+*                                 bb4 cas-motor-audio: never faster than either; below 56,320 bb4's run is short, and
+*                                 below 56,700 time-motor's typed MOTOR ON:PRINT TIMER counts 25 fields to the
+*                                 original's 26, the field's phase moved by the screen's echo (CHROUT's test for the
+*                                 printer); 56,900 keeps a margin]
 MOTONV  EQU     $3C             ; PIA 1 control register A: CA2 output high (motor on), or low
 MOTOFV  EQU     $34
 
