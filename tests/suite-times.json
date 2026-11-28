@@ -250,6 +250,7 @@
     "workflows-release.test.js": 0.1,
     "workflows.test.js": 0,
     "writewatch.test.js": 3.5,
+    "zip-programs.test.js": 0.2,
     "zip.test.js": 0.2
   }
 }
