@@ -123,12 +123,12 @@ BITTAB  FCB     $01,$02,$04,$08,$10,$20,$40,$80
 KEYWT   PSHS    B,X
 KW1     DEC     <BLINK
         BNE     KW2
-        LDA     #50
-        STA     <BLINK
+        LDB     #50             ; (B, which KEYWT keeps: each instruction the cycles A's would take, each write at
+        STB     <BLINK          ; the same cycle)
         LDX     <CURPOS
-        LDA     ,X
-        EORA    #$40
-        STA     ,X
+        LDB     ,X
+        EORB    #$40
+        STB     ,X
 KW2     LDX     <KEYDLY         ; 1,118 at a cold start [OWNER-SPEC: the delay; BB bb10 scr-prompt-idle: 4, 94]
         LEAX    -55,X           ; (55 passes fewer: our scan is slower)
         BSR     DELAYX

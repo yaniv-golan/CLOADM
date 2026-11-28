@@ -176,7 +176,7 @@ INP5    TST     <ITMCOL         ; anything left over? (from the tape: the rest o
         LDA     ,X
         BEQ     INP6
         JSR     PRMSG
-        FCC     "?EXTRA IGNORED"
+EXIGN   FCC     "?EXTRA IGNORED" ; (a fixed message: interface data, docs/clean-room-basic.md section 1)
         FCB     13,0
 INP6    RTS
 * LINE INPUT: the whole line, as typed

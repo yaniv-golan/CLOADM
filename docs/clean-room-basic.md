@@ -46,6 +46,13 @@ These are hard rules for everyone who works on this ROM.
   their error messages, and bytes our programs write to RAM; never a value read from the original ROM's addresses
   (`$8000-$FEFF`). A black-box case must not read the ROM in any way: `tools/basic-bb/lint.js` refuses one that could,
   and the harness stops one that runs code it wrote (section 7), so the outputs we receive never carry ROM contents.
+* **Interface data, and code that converges.** Tables a compatible BASIC must reproduce byte for byte are interface
+  data and are allowed: the keyword tables in token order (`KWSTMT`, `KWFUNC`), the two-letter error codes
+  (`ERRTAB`) and the fixed messages (such as `?EXTRA IGNORED`, labelled `EXIGN`). Code is never copied. A private
+  check compares the image with the original's and reports only where they share a run of 16 bytes or more, never
+  the bytes; code that matches by accident (the behaviour and the direct-page addresses being fixed) is rewritten so
+  that its bytes differ, with the same behaviour and timing: `KEYWT`'s blink (`KW1`) now works in B, each
+  instruction taking the cycles the A form took and each write at the same cycle.
 
 ## 2. Source and build
 
